@@ -149,6 +149,21 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
 .actions .quoi { color: var(--brume); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .actions .fois { color: var(--brume); font: 14px/1 var(--chiffres); }
 
+/* --- Ses agents --- */
+.agents { margin-top: 26px; flex: none; }
+.agents ul { list-style: none; padding: 0; display: grid; gap: 9px; }
+.agents li { display: grid; grid-template-columns: 14px 1fr auto; column-gap: 8px; align-items: baseline; font-size: 13px; }
+.agents .pastille-agent { grid-row: 1; font-size: 10px; color: var(--cyan); }
+.agents .quoi-agent { grid-column: 2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agents .duree { grid-column: 3; color: var(--brume); font: 14px/1 var(--chiffres); }
+.agents .detail { grid-column: 2 / 4; color: var(--brume); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agents li.vide { display: block; }
+.agents li.fini { opacity: .55; }
+.agents li.fini .pastille-agent { color: var(--brume); }
+.agents li.echec .pastille-agent, .agents li.echec .detail { color: var(--alerte); }
+.agents li.en-cours .pastille-agent { animation: souffle 2.4s ease-in-out infinite; }
+@keyframes souffle { 50% { opacity: .35; } }
+
 /* --- La bande du bas --- */
 .bas { display: grid; grid-template-columns: 1.45fr 1fr 1.35fr; gap: 36px; height: 168px; }
 .bas > section { min-width: 0; display: flex; flex-direction: column; }
@@ -237,6 +252,10 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
       <h2>Le Mac</h2>
       <div class="jauges" id="jauges"></div>
       <p class="diagnostic" id="diagnostic" hidden></p>
+    </section>
+    <section class="agents" aria-label="Ses agents">
+      <h2>Ses agents</h2>
+      <ul id="agents"></ul>
     </section>
     <section class="actions">
       <h2>Ses dernières actions</h2>
@@ -650,6 +669,28 @@ function peindreActions(outils) {
   }));
 }
 
+const tempsEcoule = s => (s < 90 ? s + " s" : Math.round(s / 60) + " min");
+const STATUTS_AGENT = { "en cours": ["en-cours", "●"], "finie": ["fini", "✓"], "échec": ["fini echec", "✕"], "annulée": ["fini", "–"] };
+function peindreAgents(agents) {
+  const liste = $("agents");
+  if (!agents.length) {
+    return liste.replaceChildren(el("li", "vide", "Aucun agent. Demande-lui un gros travail : il le lance en fond."));
+  }
+  const vivants = agents.filter(a => a.statut === "en cours");
+  const finis = agents.filter(a => a.statut !== "en cours").slice(0, 3);
+  liste.replaceChildren(...[...vivants, ...finis].map(a => {
+    const [classe, signe] = STATUTS_AGENT[a.statut] || STATUTS_AGENT["en cours"];
+    const li = el("li", classe);
+    const pastille = el("span", "pastille-agent", signe);
+    pastille.setAttribute("aria-hidden", "true");
+    li.append(pastille, el("span", "quoi-agent", a.titre), el("span", "duree", tempsEcoule(a.secondes)));
+    li.append(el("span", "detail", a.statut === "en cours"
+      ? (a.action || "démarre") + (a.etapes > 1 ? " · " + a.etapes + " étapes" : "")
+      : a.statut + (a.fini_il_y_a != null ? ", il y a " + tempsEcoule(a.fini_il_y_a) : "")));
+    return li;
+  }));
+}
+
 function peindreTemps({ chronos, mediane }) {
   const graphe = $("temps"), boite = $("derniere");
   if (!chronos.length) {
@@ -726,6 +767,7 @@ function peindre(e) {
   siChange("jauges", e.systeme, peindreJauges);
   peindreSystemes(e);
   siChange("fil", e.echanges, peindreFil);
+  siChange("agents", e.agents || [], peindreAgents);
   siChange("actions", e.outils, peindreActions);
   siChange("temps", { chronos: e.chronos, mediane: e.mediane }, peindreTemps);
   siChange("usage", e.usage, peindreUsage);

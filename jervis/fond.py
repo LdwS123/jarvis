@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, TextBlock,
-                              tool)
+                              ToolUseBlock, tool)
 
 from . import compteur, config, outils
 from .brain import EXPERT, _maintenant, preparer_connecteurs
@@ -85,6 +85,27 @@ class Tache:
     titre: str
     debut: datetime
     travail: asyncio.Task | None = None
+    action: str = "démarre"          # ce qu'il est en train de faire (dernier outil lancé)
+    etapes: int = 0                  # nombre d'outils lancés jusqu'ici
+    statut: str = "en cours"         # en cours | finie | échec | annulée
+    fin: datetime | None = None
+
+
+_OUTILS_COURANTS = {"Bash": "lance une commande", "Read": "lit un fichier", "Glob": "cherche des fichiers",
+                    "Grep": "cherche dans des fichiers", "Write": "écrit un fichier", "Edit": "modifie un fichier",
+                    "WebFetch": "lit une page web", "WebSearch": "cherche sur le web"}
+
+
+def decrire_action(nom: str, entree: Any) -> str:
+    """Un outil que l'agent vient de lancer → « cherche sur le web : … », « Gmail · mail à la corbeille »."""
+    entree = entree if isinstance(entree, dict) else {}
+    if nom in _OUTILS_COURANTS:
+        detail = entree.get("query") or entree.get("url") or ""
+        return f"{_OUTILS_COURANTS[nom]} : {str(detail)[:60]}" if detail else _OUTILS_COURANTS[nom]
+    from .tableau import nommer_outil  # import tardif : tableau.py est lourd et n'a pas besoin de nous
+    serveur, action = nommer_outil(nom)
+    detail = str(entree.get("url") or entree.get("query") or entree.get("element") or "")[:60]
+    return " · ".join(x for x in (serveur, action or nom.split("__")[-1].replace("_", " "), detail) if x)
 
 
 class Taches:
@@ -92,6 +113,7 @@ class Taches:
         self._standard = standard
         self._journal = journal
         self._taches: dict[int, Tache] = {}
+        self._histoire: deque[Tache] = deque(maxlen=8)   # les dernières tâches finies, pour le tableau de bord
         self._suivant = 1
 
     def lancer(self, titre: str, brief: str) -> str:
@@ -106,16 +128,40 @@ class Taches:
         return f"Tâche {tache.numero} lancée en arrière-plan. Tu seras prévenu quand elle sera finie."
 
     def lister(self) -> str:
-        if not self._taches:
+        """Pour la voix : ce qui tourne (avec ce que chacun fait là, tout de suite) et ce qui vient de finir."""
+        if not self._taches and not self._histoire:
             return "Aucune tâche en cours."
         maintenant = datetime.now()
-        return "\n".join(f"{t.numero}. « {t.titre} », depuis {int((maintenant - t.debut).total_seconds() // 60)} min"
-                         for t in self._taches.values())
+        lignes = [f"{t.numero}. « {t.titre} », depuis {int((maintenant - t.debut).total_seconds() // 60)} min, "
+                  f"{t.etapes} étapes, en ce moment : {t.action}" for t in self._taches.values()]
+        if not lignes:
+            lignes = ["Aucune tâche en cours."]
+        if self._histoire:
+            lignes.append("Terminées récemment : " + " ; ".join(
+                f"{t.numero}. « {t.titre} » ({t.statut})" for t in list(self._histoire)[:4]))
+        return "\n".join(lignes)
+
+    def etat(self) -> list[dict[str, Any]]:
+        """Pour le tableau de bord : les agents en cours, puis les derniers finis (du plus récent au plus ancien)."""
+        maintenant = datetime.now()
+        vus = [*self._taches.values(), *self._histoire]
+        return [{"numero": t.numero, "titre": t.titre, "statut": t.statut, "action": t.action if t.fin is None else "",
+                 "etapes": t.etapes, "secondes": int(((t.fin or maintenant) - t.debut).total_seconds()),
+                 "fini_il_y_a": int((maintenant - t.fin).total_seconds()) if t.fin else None} for t in vus]
+
+    def _clore(self, tache: Tache, statut: str) -> None:
+        """Une tâche sort de la liste des vivantes et entre dans l'histoire (une seule fois)."""
+        if tache.fin is not None:
+            return
+        tache.statut, tache.fin = statut, datetime.now()
+        self._taches.pop(tache.numero, None)
+        self._histoire.appendleft(tache)
 
     def annuler(self, numero: int) -> str:
-        tache = self._taches.pop(numero, None)
+        tache = self._taches.get(numero)
         if tache is None:
             return f"Pas de tâche numéro {numero}."
+        self._clore(tache, "annulée")
         if tache.travail:
             tache.travail.cancel()
         return f"Tâche « {tache.titre} » annulée."
@@ -163,27 +209,35 @@ class Taches:
             await client.query(brief)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
-                    textes += [b.text for b in message.content if isinstance(b, TextBlock) and b.text.strip()]
+                    for bloc in message.content:
+                        if isinstance(bloc, TextBlock) and bloc.text.strip():
+                            textes.append(bloc.text)
+                        elif isinstance(bloc, ToolUseBlock):
+                            tache.etapes += 1
+                            tache.action = decrire_action(bloc.name, bloc.input)
                 elif isinstance(message, ResultMessage):
                     resultat = message.result
                     cout = compteur.chiffres(message)
                     compteur.noter("taches", cout)
                     self._journal(f"   🧵 Tâche {tache.numero} : {compteur.dollars(cout['cout'])} (prix API)")
+            self._clore(tache, "finie")
             compte_rendu = (resultat or (textes[-1] if textes else "")).strip() or "(pas de compte rendu)"
             self._journal(f"   🧵 Tâche {tache.numero} finie : {compte_rendu[:200]}")
             self._standard.poster(Evenement(
                 "fini", f"(tâche de fond terminée) « {tache.titre} » : {compte_rendu}\n"
                         "Résume-le-lui en deux phrases."))
         except asyncio.CancelledError:
+            self._clore(tache, "annulée")
             self._journal(f"   🧵 Tâche {tache.numero} annulée.")
             raise
         except Exception as e:
+            self._clore(tache, "échec")
             self._journal(f"   🧵 Tâche {tache.numero} en échec : {e!r}")
             self._standard.poster(Evenement(
                 "fini", f"(tâche de fond terminée) « {tache.titre} » a échoué ({type(e).__name__}). "
                         "Dis-le-lui en une phrase et propose de réessayer."))
         finally:
-            self._taches.pop(tache.numero, None)
+            self._clore(tache, "échec")  # sans effet si elle est déjà close ; filet si une exception rare a filé
             with contextlib.suppress(Exception):
                 await client.disconnect()
 
@@ -339,14 +393,17 @@ async def notifier(titre: str, texte: str) -> None:
 def outils_fond(taches: Taches, programmateur: Programmateur) -> list:
     _t = outils._texte
 
-    @tool("lancer_tache_de_fond", "Confie une grosse tâche (coder, rechercher et comparer, rédiger un long "
-          "document, plus de dix étapes) à ton expert, qui travaille en arrière-plan : tu restes disponible et tu "
-          "seras prévenu quand c'est fini. `titre` = 3 à 6 mots ; `brief` = tout ce qu'il doit savoir : l'objectif, "
-          "ce que tu sais déjà, les contraintes, et ce qu'il doit te rendre.", {"titre": str, "brief": str})
+    @tool("lancer_tache_de_fond", "Confie un travail à un agent (ton expert) qui l'exécute en arrière-plan, en "
+          "parallèle des autres : tu restes disponible et tu seras prévenu quand c'est fini. À utiliser dès que "
+          "c'est long ou en plusieurs étapes : recherche sur le web ou sur LinkedIn, prospection, comparaison, "
+          "réservation, rédaction, code. Plusieurs travaux indépendants = plusieurs appels dans le même tour, un "
+          "agent chacun. `titre` = 3 à 6 mots ; `brief` = tout ce qu'il doit savoir : l'objectif, ce que tu sais "
+          "déjà, les contraintes, et ce qu'il doit te rendre.", {"titre": str, "brief": str})
     async def lancer_tache_de_fond(args: dict[str, Any]) -> dict[str, Any]:
         return _t(taches.lancer(args["titre"], args["brief"]))
 
-    @tool("taches_en_cours", "Liste les tâches de fond en cours.", {})
+    @tool("taches_en_cours", "Liste les agents de fond : ce que chacun fait en ce moment, depuis combien de temps, "
+          "et ceux qui viennent de finir.", {})
     async def taches_en_cours(_args: dict[str, Any]) -> dict[str, Any]:
         return _t(taches.lister())
 

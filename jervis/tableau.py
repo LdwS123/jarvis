@@ -378,6 +378,14 @@ class Tableau:
                 "en_repos": bool(config.VOIX_DIRECTE) and not ligne.disponible(), "lignes": ligne.ouvertes(),
                 "locale": config.VOIX_LOCALE if voix_locale.prete() else None}
 
+    def _agents(self) -> list[dict[str, Any]]:
+        """Les agents de fond que Steve a lancés : ceux qui tournent, puis les derniers finis."""
+        taches = getattr(self.etat, "taches", None)
+        try:
+            return taches.etat() if taches is not None else []
+        except Exception:  # un agent qui change pendant qu'on le lit : la page le redemandera dans 1,5 s
+            return []
+
     def instantane(self) -> dict[str, Any]:
         """Tout ce que la page affiche (elle le redemande toutes les secondes et demie)."""
         lu = self._du_journal()
@@ -389,7 +397,8 @@ class Tableau:
                 "usage": self._gardé("usage", 5, usage),
                 "systeme": self._gardé("systeme", 2, self._systeme),
                 "voix": self._voix(),
-                "souvenirs": self._gardé("souvenirs", 10, _souvenirs)}
+                "souvenirs": self._gardé("souvenirs", 10, _souvenirs),
+                "agents": self._agents()}
 
     def page(self) -> tuple[str, str]:
         """La page et son `nonce` (seul le script qui le porte a le droit de tourner)."""

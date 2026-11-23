@@ -209,7 +209,8 @@ etat.oreilles, oreilles.en_pause = oreilles, False
 
 e = ecran.instantane()
 verifier("instantané : ses clés", sorted(e), sorted(["prenom", "etat", "micro_en_pause", "echanges", "outils", "chronos",
-                                                    "mediane", "usage", "systeme", "voix", "souvenirs"]))
+                                                    "mediane", "usage", "systeme", "voix", "souvenirs", "agents"]))
+verifier("instantané : sans agents branchés", e["agents"], [])
 verifier("instantané : la médiane de ses temps de réponse", e["mediane"], 3.7)
 verifier("instantané : le Mac", (e["systeme"]["memoire"], e["systeme"]["batterie"], 0 <= e["systeme"]["processeur"] <= 1,
                                 0 < e["systeme"]["disque"] <= 1), (0.5, tableau.batterie(), True, True))

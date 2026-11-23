@@ -60,7 +60,7 @@ EFFORT = _env("EFFORT", "medium")
 # ce temps, et te prévient quand c'est fini. Mêmes outils, mêmes confirmations.
 MODELE_EXPERT = _env("MODELE_EXPERT", "opus")
 EFFORT_EXPERT = _env("EFFORT_EXPERT", "high")
-TACHES_MAX = int(_env("TACHES_MAX", "3"))   # tâches de fond en même temps
+TACHES_MAX = int(_env("TACHES_MAX", "5"))   # agents de fond en même temps
 # Après ce temps sans lui parler, il repart sur une conversation neuve (il garde sa mémoire et vos 3 derniers
 # échanges). Sinon toute la journée est relue à chaque phrase : plus lent, et ça mange ton abonnement.
 OUBLI_MIN = float(_env("OUBLI_MIN", "15"))

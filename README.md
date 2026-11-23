@@ -184,7 +184,7 @@ Ce qu'il faut savoir :
 | « J'ai déménagé à Paris » | il range l'ancienne adresse dans « Ce qui n'est plus vrai (jusqu'au …) » au lieu de garder les deux |
 | « Oublie ce que je t'ai dit sur Inès » | il efface ces lignes |
 | « Tu te souviens du resto qu'on a cherché la semaine dernière ? » | il fouille vos conversations passées (`espace/conversations.jsonl`) |
-| « Fais une recherche sur les vols pour Lisbonne en mars, et compare » | il lance une **tâche de fond** (Opus, qui réfléchit longtemps) et te rend la main tout de suite. Tu peux lui demander autre chose ; quand c'est fini, il te prévient et te résume le résultat. « Où en sont mes tâches ? », « annule la tâche 2 » |
+| « Fais une recherche sur les vols pour Lisbonne en mars, et compare » | il lance un **agent de fond** (Opus, qui réfléchit longtemps) et te rend la main tout de suite. Tu peux lui demander autre chose ; quand c'est fini, il te prévient et te résume le résultat. Plusieurs travaux d'un coup (« ajoute des fondateurs sur LinkedIn et trouve-moi des vols ») = un agent chacun, jusqu'à 5 en parallèle. « Où en sont mes agents ? » (il dit ce que chacun fait là, tout de suite), « annule la tâche 2 ». Les agents ont leur propre Chrome, vide : pas connectés à tes comptes |
 | « À 18 h 30, dis-moi de partir à la gare » | une annonce programmée : à l'heure dite, il te le dit à voix haute (et une notification s'affiche) |
 | « Tous les jours à 9 h, regarde si mon train a du retard » | il le fera lui-même chaque jour à 9 h, puis te dira le résultat. « Qu'est-ce que tu as de programmé ? », « annule le 3 » |
 | « Qu'est-ce que je faisais hier vers 15 h ? », « retrouve l'article sur l'IA que j'ai lu ce matin » | avec screenpipe (voir plus bas), il retrouve ce qui est passé sur ton écran |
@@ -291,6 +291,9 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   jetons jour par jour (pas de prix). Il te prévient à voix haute à 80 % puis 95 % d'une limite ; quand elle est
   atteinte, il te dit en une phrase à quelle heure ça se libère (« Tu as atteint la limite de ton abonnement, ça
   se libère à 21 h 50. ») et ne peut plus rien faire d'ici là.
+- **Ses agents** (à gauche) : chaque agent de fond qu'il a lancé, avec le temps qu'il y passe, l'outil qu'il utilise en
+  ce moment (« cherche sur le web : … », « Navigateur · ouvre une page ») et son nombre d'étapes ; les derniers finis restent
+  quelques minutes, grisés (✓ fini, ✕ échec).
 - **Les boutons** : couper ou rallumer le micro, ouvrir sa mémoire, ses conversations, son briefing, son journal.
 
 La page est servie par Steve lui-même sur `http://127.0.0.1:8765` : elle n'existe que sur ce Mac, et tant qu'elle
@@ -370,7 +373,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_CONFIRMATIONS` | confiance | `essentielles` = il confirme aussi chaque message envoyé ; `toutes` = il redemande avant chaque création ou modification |
 | `JERVIS_OUBLI_MIN` | 15 | après cette pause, conversation neuve (il garde sa mémoire et vos 3 derniers échanges) : moins cher et plus rapide |
 | `JERVIS_COUT` | oui | `non` = ne plus afficher « 💰 … » après chaque réponse |
-| `JERVIS_TACHES_MAX` | 3 | nombre de tâches de fond en même temps |
+| `JERVIS_TACHES_MAX` | 5 | nombre d'agents de fond en même temps |
 | `JERVIS_MEMOIRE_AUTO` | oui | `non` = il ne retient que ce que tu lui demandes |
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
 | `JERVIS_BRIEFING` | oui | `non` = pas de briefing du matin |
@@ -388,6 +391,7 @@ Test sans micro : `PYTHONPATH=. .venv/bin/python tests/test_naturel.py`. La lign
 Internet : `PYTHONPATH=. .venv/bin/python tests/test_ligne.py`. Sa voix locale, sans le modèle :
 `tests/test_voix.py` (et l'apprentissage de ta voix). Les chiffres écrits en mots : `tests/test_oral.py`.
 Cursor, la corbeille, effacer sa mémoire et les autorisations, sans rien ouvrir ni jeter : `tests/test_mac.py`.
+Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests/test_fond.py`.
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
 Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations…) sont dans `jervis/outils.py`.

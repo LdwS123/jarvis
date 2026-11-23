@@ -243,6 +243,7 @@ class Etat:
     def __init__(self) -> None:
         self.nom = "demarre"
         self.oreilles = None
+        self.taches = None  # les agents de fond (fond.Taches), pour le tableau de bord
 
     @property
     def icone(self) -> str:
@@ -729,6 +730,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             cerveau.fin_de_conversation()
 
     standard, taches, programmateur, outils_en_plus = _equipe()
+    etat.taches = taches
     cerveau = Cerveau(parler, confirmer, outils_en_plus=outils_en_plus,
                       anticiper=tts.anticiper, patience=config.PATIENCE)
     attente = [cerveau.demarrer()]
