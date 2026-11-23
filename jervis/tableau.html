@@ -152,11 +152,13 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
 /* --- Ses agents --- */
 .agents { margin-top: 26px; flex: none; }
 .agents ul { list-style: none; padding: 0; display: grid; gap: 9px; }
-.agents li { display: grid; grid-template-columns: 14px 1fr auto; column-gap: 8px; align-items: baseline; font-size: 13px; }
+.agents li { display: grid; grid-template-columns: 14px 1fr auto auto; column-gap: 8px; align-items: baseline; font-size: 13px; }
 .agents .pastille-agent { grid-row: 1; font-size: 10px; color: var(--cyan); }
 .agents .quoi-agent { grid-column: 2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .agents .duree { grid-column: 3; color: var(--brume); font: 14px/1 var(--chiffres); }
-.agents .detail { grid-column: 2 / 4; color: var(--brume); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agents .stop-agent { grid-column: 4; grid-row: 1; background: none; border: 0; color: var(--brume); cursor: pointer; font: 14px/1 var(--chiffres); padding: 0 2px; }
+.agents .stop-agent:hover, .agents .stop-agent:focus-visible { color: var(--alerte); }
+.agents .detail { grid-column: 2 / -1; color: var(--brume); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .agents li.vide { display: block; }
 .agents li.fini { opacity: .55; }
 .agents li.fini .pastille-agent { color: var(--brume); }
@@ -684,6 +686,17 @@ function peindreAgents(agents) {
     const pastille = el("span", "pastille-agent", signe);
     pastille.setAttribute("aria-hidden", "true");
     li.append(pastille, el("span", "quoi-agent", a.titre), el("span", "duree", tempsEcoule(a.secondes)));
+    if (a.statut === "en cours") {
+      const stop = el("button", "stop-agent", "×");
+      stop.type = "button";
+      stop.title = stop.ariaLabel = "Arrêter cet agent";
+      stop.addEventListener("click", async () => {
+        stop.disabled = true;
+        try { await fetch("/action/annuler-agent-" + a.numero, { method: "POST", headers: { "X-Jeton": JETON } }); } catch { }
+        await instantane();
+      });
+      li.append(stop);
+    }
     li.append(el("span", "detail", a.statut === "en cours"
       ? (a.action || "démarre") + (a.etapes > 1 ? " · " + a.etapes + " étapes" : "")
       : a.statut + (a.fini_il_y_a != null ? ", il y a " + tempsEcoule(a.fini_il_y_a) : "")));

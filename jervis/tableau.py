@@ -378,6 +378,16 @@ class Tableau:
                 "en_repos": bool(config.VOIX_DIRECTE) and not ligne.disponible(), "lignes": ligne.ouvertes(),
                 "locale": config.VOIX_LOCALE if voix_locale.prete() else None}
 
+    def action(self, nom: str) -> Callable[[], None] | None:
+        """Ce que fait un bouton : ceux de la barre (pause, mémoire…), ou « annuler-agent-3 » (le × d'un agent)."""
+        if nom in self.actions:
+            return self.actions[nom]
+        if m := re.fullmatch(r"annuler-agent-(\d{1,6})", nom):
+            taches = getattr(self.etat, "taches", None)
+            if taches is not None:
+                return lambda: taches.annuler_depuis_un_fil(int(m.group(1)))
+        return None
+
     def _agents(self) -> list[dict[str, Any]]:
         """Les agents de fond que Steve a lancés : ceux qui tournent, puis les derniers finis."""
         taches = getattr(self.etat, "taches", None)
@@ -453,7 +463,7 @@ class Tableau:
 
             def do_POST(self) -> None:
                 self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096))
-                action = tableau.actions.get(self.path.removeprefix("/action/"))
+                action = tableau.action(self.path.removeprefix("/action/"))
                 if not self._chez_nous() or not hmac.compare_digest(self.headers.get("X-Jeton", ""), tableau.jeton):
                     self._repondre(403)
                 elif action is None:

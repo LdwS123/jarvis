@@ -305,7 +305,7 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   se libère à 21 h 50. ») et ne peut plus rien faire d'ici là.
 - **Ses agents** (à gauche) : chaque agent de fond qu'il a lancé, avec le temps qu'il y passe, l'outil qu'il utilise en
   ce moment (« cherche sur le web : … », « Navigateur · ouvre une page ») et son nombre d'étapes ; les derniers finis restent
-  quelques minutes, grisés (✓ fini, ✕ échec).
+  quelques minutes, grisés (✓ fini, ✕ échec). Un **×** à droite d'un agent en cours l'arrête.
 - **Les boutons** : couper ou rallumer le micro, ouvrir sa mémoire, ses conversations, son briefing, son journal.
 
 La page est servie par Steve lui-même sur `http://127.0.0.1:8765` : elle n'existe que sur ce Mac, et tant qu'elle

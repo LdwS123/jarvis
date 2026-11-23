@@ -137,6 +137,23 @@ async def main() -> None:
     verifier("un agent qui plante en se lisant ne casse pas la page",
              tableau.Tableau(types.SimpleNamespace(nom="v", oreilles=None, taches=types.SimpleNamespace(etat=lambda: 1 / 0)))._agents(), [])
 
+    # --- 4. Le × d'un agent sur le tableau de bord (un autre fil que Steve) -------------------------------------
+    barrieres["charlie"] = asyncio.Event()
+    taches.lancer("Tâche charlie", "charlie")
+    await asyncio.sleep(0.05)
+    numero = next(t["numero"] for t in taches.etat() if t["titre"] == "Tâche charlie")
+    verifier("le × : l'action est reconnue", callable(ecran.action(f"annuler-agent-{numero}")), True)
+    verifier("une action inventée n'existe pas", (ecran.action("annuler-agent-x"), ecran.action("annuler-agent-1;rm"),
+                                                  ecran.action("rm -rf")), (None, None, None))
+    verifier("sans agents branchés, pas de ×", tableau.Tableau(types.SimpleNamespace(nom="v", oreilles=None)).action("annuler-agent-1"), None)
+    await asyncio.to_thread(ecran.action(f"annuler-agent-{numero}"))
+    await asyncio.sleep(0.1)
+    verifier("charlie est annulée par le fil du serveur", next(t["statut"] for t in taches.etat() if t["titre"] == "Tâche charlie"),
+             "annulée")
+    verifier("un numéro qui n'existe pas", taches.annuler_depuis_un_fil(999), False)
+    ecran.actions["pause"] = lambda: None
+    verifier("les boutons de la barre marchent toujours", callable(ecran.action("pause")), True)
+
 
 asyncio.run(main())
 print(f"\n{'✅' if not echecs else '❌'} fond : {total - len(echecs)}/{total} vérifications OK", flush=True)

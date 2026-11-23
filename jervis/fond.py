@@ -115,6 +115,7 @@ class Taches:
         self._taches: dict[int, Tache] = {}
         self._histoire: deque[Tache] = deque(maxlen=8)   # les dernières tâches finies, pour le tableau de bord
         self._suivant = 1
+        self._boucle: asyncio.AbstractEventLoop | None = None  # celle de Steve : le tableau y envoie ses annulations
 
     def lancer(self, titre: str, brief: str) -> str:
         if len(self._taches) >= config.TACHES_MAX:
@@ -122,7 +123,8 @@ class Taches:
                     "ou annules-en une.")
         tache = Tache(self._suivant, titre.strip() or "sans titre", datetime.now())
         self._suivant += 1
-        tache.travail = asyncio.get_running_loop().create_task(self._travailler(tache, brief))
+        self._boucle = asyncio.get_running_loop()
+        tache.travail = self._boucle.create_task(self._travailler(tache, brief))
         self._taches[tache.numero] = tache
         self._journal(f"   🧵 Tâche {tache.numero} lancée : {tache.titre}")
         return f"Tâche {tache.numero} lancée en arrière-plan. Tu seras prévenu quand elle sera finie."
@@ -165,6 +167,13 @@ class Taches:
         if tache.travail:
             tache.travail.cancel()
         return f"Tâche « {tache.titre} » annulée."
+
+    def annuler_depuis_un_fil(self, numero: int) -> bool:
+        """Le bouton du tableau de bord (un autre fil que Steve) : l'annulation passe par la boucle de Steve."""
+        if numero not in self._taches or self._boucle is None or self._boucle.is_closed():
+            return False
+        self._boucle.call_soon_threadsafe(self.annuler, numero)
+        return True
 
     async def arreter(self) -> None:
         for n in list(self._taches):
