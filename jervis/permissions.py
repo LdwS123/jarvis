@@ -131,8 +131,8 @@ def recherche_trop_large(outil: str, entree: dict[str, Any]) -> bool:
     motifs = [str(entree.get("glob") or "")] + ([str(entree.get("pattern") or "")] if outil == "Glob" else [])
     racines = [base] if base else []
     for motif in filter(None, motifs):
-        if ".." in Path(motif).parts:
-            return True  # « ../.ssh/* » remonterait hors du dossier donné
+        if ".." in motif or re.search(r"\{[^}]*(?:[/~]|[{,]\.)", motif):
+            return True  # « ../.ssh/* », « {../.ssh,x} », « {/Users/…,x} » : on ne sait pas où il irait
         fixe = re.split(r"[*?\[{]", motif)[0]
         fixe = fixe if fixe.endswith("/") or fixe == motif else fixe.rsplit("/", 1)[0] if "/" in fixe else ""
         if fixe.startswith(("/", "~")):
@@ -145,7 +145,8 @@ def recherche_trop_large(outil: str, entree: dict[str, Any]) -> bool:
 def dossier_sensible(chemin: str) -> bool:
     """Le dossier perso entier (ou plus haut), ~/Library ou un dossier caché du dossier perso (~/.ssh…)."""
     try:
-        dossier = Path(chemin).expanduser().resolve()
+        dossier = Path(chemin).expanduser()
+        dossier = (dossier if dossier.is_absolute() else config.ESPACE / dossier).resolve()  # son dossier de travail
     except (OSError, RuntimeError):
         return True
     maison = Path.home().resolve()
@@ -153,8 +154,8 @@ def dossier_sensible(chemin: str) -> bool:
         return True
     if not dossier.is_relative_to(maison):
         return False
-    premier = dossier.relative_to(maison).parts[0]
-    return premier == "Library" or premier.startswith(".")
+    premier = dossier.relative_to(maison).parts[0].casefold()  # le disque du Mac ignore la casse : ~/LIBRARY
+    return premier == "library" or premier.startswith(".")
 
 
 def _mac_confiance(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> Decision:

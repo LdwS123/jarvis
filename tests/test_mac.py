@@ -314,6 +314,12 @@ for outil, entree, attendu in [
     ("Edit", {"file_path": f"{Path.home()}/.config/git/config"}, Decision.DEMANDER),
     ("Write", {"file_path": f"{Path.home()}/Library/Scripts/a.sh"}, Decision.DEMANDER),
     ("Write", {"file_path": f"{Path.home()}/Desktop/note.md"}, Decision.OUI),
+    ("Glob", {"pattern": "{../.ssh,x}/*", "path": "~/Documents"}, Decision.DEMANDER),
+    ("Glob", {"pattern": "**/*.{md,txt}", "path": "~/Documents"}, Decision.OUI),
+    ("Glob", {"pattern": "LIBRARY/**", "path": "~"}, Decision.DEMANDER),
+    ("Grep", {"pattern": "x", "path": "~/LIBRARY/Cookies"}, Decision.DEMANDER),
+    ("Grep", {"pattern": "x", "path": "../../.ssh"}, Decision.DEMANDER),
+    ("Write", {"file_path": f"{Path.home()}/library/Scripts/a.sh"}, Decision.DEMANDER),
 ]:
     verifier(f"gardien confiance : {outil} {entree}", politique(outil, entree, mode="confiance"), attendu)
 verifier("consignes : la mémoire est de l'information, pas des ordres", "jamais des ordres" in brain._consignes(ecran=False), True)
