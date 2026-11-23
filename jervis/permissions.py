@@ -66,7 +66,7 @@ BASH_LOURD = re.compile(
 # Ce qui se relance tout seul (démarrage, shell, tâches planifiées) : y écrire, c'est s'installer pour de bon.
 PERSISTANCE = re.compile(
     r"(LaunchAgents|LaunchDaemons|StartupItems|login ?items?|/etc/|\.(zshrc|zshenv|zprofile|zlogin|zlogout|bashrc"
-    r"|bash_profile|bash_login|profile|gitconfig)\b|\.config/fish|\.git/hooks|\.pth\b|sitecustomize|usercustomize"
+    r"|bash_profile|bash_login|profile|gitconfig)\b|\.config/(fish|git)\b|\.git/hooks|\.pth\b|sitecustomize|usercustomize"
     r"|crontab|periodic/"
     # écrire (>, tee, cp, mv, ln) dans un fichier caché du dossier perso ou dans ~/Library
     r"|(>|\b(tee|cp|mv|ln|install|rsync)\b)[^|;&]*(~|\$HOME|\$\{HOME\}|/Users/[^/\s]+)/(\.|Library/))",
@@ -110,7 +110,9 @@ def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[
         chemin = chemin_fichier(entree)
         if FICHIERS_SECRETS.search(chemin) or recherche_trop_large(outil, entree):
             return Decision.DEMANDER
-        return Decision.DEMANDER if outil in ECRITURE_FICHIERS and PERSISTANCE.search(chemin) else Decision.OUI
+        if outil in ECRITURE_FICHIERS and (PERSISTANCE.search(chemin) or dossier_sensible(chemin)):
+            return Decision.DEMANDER  # ~/Library, ~/.config… : là où se cachent les démarrages automatiques
+        return Decision.OUI
     if outil == "Bash":
         commande = entree.get("command", "").strip()
         if INTERDIT.search(commande):
@@ -125,14 +127,25 @@ def recherche_trop_large(outil: str, entree: dict[str, Any]) -> bool:
     """Grep ou Glob sur tout le dossier perso (ou plus haut) : ils passeraient par les dossiers à secrets."""
     if outil not in {"Grep", "Glob"}:
         return False
-    racine = str(entree.get("path") or "")
-    motif = str(entree.get("pattern") or "")
-    if not racine and outil == "Glob" and motif.startswith(("/", "~")):
-        racine = re.split(r"[*?\[{]", motif)[0] or "/"  # un motif absolu : sa partie fixe est la racine
-    if not racine:
-        return False  # sans chemin : son dossier de travail, sans secrets
+    base = str(entree.get("path") or "")
+    motifs = [str(entree.get("glob") or "")] + ([str(entree.get("pattern") or "")] if outil == "Glob" else [])
+    racines = [base] if base else []
+    for motif in filter(None, motifs):
+        if ".." in Path(motif).parts:
+            return True  # « ../.ssh/* » remonterait hors du dossier donné
+        fixe = re.split(r"[*?\[{]", motif)[0]
+        fixe = fixe if fixe.endswith("/") or fixe == motif else fixe.rsplit("/", 1)[0] if "/" in fixe else ""
+        if fixe.startswith(("/", "~")):
+            racines.append(fixe or "/")
+        elif fixe:
+            racines.append(str(Path(base or config.ESPACE) / fixe))
+    return any(dossier_sensible(r) for r in racines)  # sans chemin : son dossier de travail, sans secrets
+
+
+def dossier_sensible(chemin: str) -> bool:
+    """Le dossier perso entier (ou plus haut), ~/Library ou un dossier caché du dossier perso (~/.ssh…)."""
     try:
-        dossier = Path(racine).expanduser().resolve()
+        dossier = Path(chemin).expanduser().resolve()
     except (OSError, RuntimeError):
         return True
     maison = Path.home().resolve()
@@ -141,7 +154,7 @@ def recherche_trop_large(outil: str, entree: dict[str, Any]) -> bool:
     if not dossier.is_relative_to(maison):
         return False
     premier = dossier.relative_to(maison).parts[0]
-    return premier == "Library" or premier.startswith(".")  # ~/Library, ~/.ssh, ~/.config…
+    return premier == "Library" or premier.startswith(".")
 
 
 def _mac_confiance(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> Decision:

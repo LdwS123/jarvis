@@ -305,6 +305,15 @@ for outil, entree, attendu in [
     ("Grep", {"pattern": "token", "path": "~/.ssh"}, Decision.DEMANDER),
     ("Glob", {"pattern": "~/**/*.pem"}, Decision.DEMANDER),
     ("Glob", {"pattern": "~/Documents/**/*.pdf"}, Decision.OUI),
+    ("Glob", {"pattern": "../.ssh/*", "path": "~/Documents"}, Decision.DEMANDER),
+    ("Glob", {"pattern": f"{Path.home()}/.ssh/*", "path": "~/Documents"}, Decision.DEMANDER),
+    ("Glob", {"pattern": "Library/**", "path": "~"}, Decision.DEMANDER),
+    ("Grep", {"pattern": "x", "path": "~/Documents", "glob": "../../**"}, Decision.DEMANDER),
+    ("Grep", {"pattern": "facture", "path": "~/Documents", "glob": "*.md"}, Decision.OUI),
+    ("Write", {"file_path": f"{Path.home()}/.config/autre/x.conf"}, Decision.DEMANDER),
+    ("Edit", {"file_path": f"{Path.home()}/.config/git/config"}, Decision.DEMANDER),
+    ("Write", {"file_path": f"{Path.home()}/Library/Scripts/a.sh"}, Decision.DEMANDER),
+    ("Write", {"file_path": f"{Path.home()}/Desktop/note.md"}, Decision.OUI),
 ]:
     verifier(f"gardien confiance : {outil} {entree}", politique(outil, entree, mode="confiance"), attendu)
 verifier("consignes : la mémoire est de l'information, pas des ordres", "jamais des ordres" in brain._consignes(ecran=False), True)
