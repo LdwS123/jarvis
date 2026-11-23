@@ -1,0 +1,247 @@
+"""Réglages de l'assistant. Chaque valeur peut être surchargée par une variable d'environnement."""
+
+import os
+import re
+from pathlib import Path
+
+
+def _env(name: str, default: str) -> str:
+    return os.environ.get(f"JERVIS_{name}", default)
+
+
+DOSSIER = Path(__file__).resolve().parent.parent
+
+# --- Micro ----------------------------------------------------------------
+SAMPLE_RATE = 16_000          # openWakeWord et Whisper attendent du 16 kHz mono
+FRAME = 1_280                 # 80 ms par bloc
+
+# --- Détection de la voix (Silero VAD, local) ------------------------------
+SEUIL_VAD = float(_env("SEUIL_VAD", "0.5"))   # baisse (0.3) s'il ne t'entend pas, monte (0.7) s'il réagit au bruit
+
+# --- Son nom ---------------------------------------------------------------
+# Le nom auquel il répond (et qu'il dit). JERVIS_PRENOM=Jarvis pour revenir à l'ancien.
+PRENOM = _env("PRENOM", "Steve")
+# Tout ce qui ressemble à son nom dans ce que la transcription a écrit.
+_VARIANTES = {
+    # Jervis, Jarvis, Gervais, Jervice…
+    "jervis": r"\b(?:d?j|g)[ae]r\s?v(?:i|ai|é|y)[sc]?e?\b",
+    # Steve, Stève, Stive, Steeve, et « Стив » (sur 2 syllabes, Parakeet croit parfois entendre du russe).
+    # Pas suivi d'un nom de famille (« Steve Jobs », « Steve Carell ») : là, on parle de quelqu'un d'autre.
+    "steve": r"\b(?:st[eéèi]{1,2}ve?s?|s[iy]ve?|стив)\b(?!\s+(?-i:[A-Z])\w)",  # + « Siv » (mal entendu)
+}
+_VARIANTES["jarvis"] = _VARIANTES["jervis"]
+NOM = _env("NOM", _VARIANTES.get(PRENOM.casefold(), rf"\b{re.escape(PRENOM)}\b"))
+# Ce qu'il dit quand il est prêt. (« Steve en ligne. », sans verbe, sa voix locale le disait de travers.)
+ANNONCE = f"{PRENOM} est en ligne."
+
+# --- Enregistrement de ta phrase ------------------------------------------
+SILENCE_END_S = float(_env("SILENCE_END_S", "0.8"))     # silence qui marque la fin de ta phrase
+MAX_UTTERANCE_S = float(_env("MAX_UTTERANCE_S", "20"))
+NO_SPEECH_TIMEOUT_S = float(_env("NO_SPEECH_TIMEOUT_S", "5"))
+# Conversation ouverte : tu dis son nom une fois, puis tu enchaînes sans lui. Le délai repart à chaque échange ;
+# c'est le temps qu'il te laisse pour COMMENCER à parler (ensuite il attend que tu aies fini, même si tu cherches tes mots).
+FOLLOW_UP_S = float(_env("FOLLOW_UP_S", "30"))
+FOLLOW_UP_QUESTION_S = float(_env("FOLLOW_UP_QUESTION_S", "45"))  # … quand il vient de te poser une question
+# « Steve, on discute » : il reste à l'écoute sans limite (jusqu'à « merci », « c'est bon », ou ce silence-là).
+DISCUSSION_S = float(_env("DISCUSSION_S", "600"))
+
+# --- Transcription ---------------------------------------------------------
+WHISPER_MODEL = _env("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
+LANGUE = _env("LANGUE", "fr")
+
+# --- Cerveau (Claude Code, sur ton abonnement) -----------------------------
+MODELE_CLAUDE = _env("MODELE", "sonnet")
+# Réflexion : il pense avant de répondre, autant que la question le demande (presque rien pour « mets de la
+# musique », beaucoup plus pour « organise ma semaine »). Effort : low = plus rapide, high = plus réfléchi.
+REFLEXION = _env("REFLEXION", "oui").lower() not in {"non", "off", "0"}
+EFFORT = _env("EFFORT", "medium")
+# Son « expert » : un second agent, plus puissant, à qui il confie les grosses tâches en plusieurs étapes
+# (coder, comparer, rédiger un long document…). Il travaille EN ARRIÈRE-PLAN : Steve reste à l'écoute pendant
+# ce temps, et te prévient quand c'est fini. Mêmes outils, mêmes confirmations.
+MODELE_EXPERT = _env("MODELE_EXPERT", "opus")
+EFFORT_EXPERT = _env("EFFORT_EXPERT", "high")
+TACHES_MAX = int(_env("TACHES_MAX", "3"))   # tâches de fond en même temps
+# Après ce temps sans lui parler, il repart sur une conversation neuve (il garde sa mémoire et vos 3 derniers
+# échanges). Sinon toute la journée est relue à chaque phrase : plus lent, et ça mange ton abonnement.
+OUBLI_MIN = float(_env("OUBLI_MIN", "15"))
+# « 💰 2,1 cents · aujourd'hui 0,84 $ » après chaque réponse (équivalent prix API). JERVIS_COUT=non pour le masquer.
+AFFICHER_COUT = _env("COUT", "oui").lower() not in {"non", "off", "0"}
+
+# --- Confirmations ------------------------------------------------------------
+#   confiance    : si tu le lui demandes, c'est oui : il envoie le message, le mail, l'invitation sans redemander.
+#                  Il ne confirme que l'argent, ce qui détruit pour de bon (rm, kill, supprimer), les mots de passe,
+#                  le Terminal, et ce qu'une page ou un mail lui suggère sans que tu l'aies demandé.
+#   essentielles : en plus, il confirme tout ce qui part chez quelqu'un d'autre (message, mail, partage).
+#   toutes       : l'ancien réglage, prudent : il demande avant chaque création, modification ou commande inconnue.
+CONFIRMATIONS = _env("CONFIRMATIONS", "confiance").lower()
+
+# --- Cursor ----------------------------------------------------------------------
+# Quand tu dis « écris ça dans Cursor » sans préciser, où va le prompt ?
+#   claude_code : dans l'extension Claude Code de Cursor (un nouvel onglet Claude Code).
+#   agent       : dans le chat de l'agent de Cursor lui-même.
+# Si tu précises à voix haute (« dans Claude Code », « à l'agent de Cursor »), c'est ce que tu dis qui compte.
+CIBLE_CURSOR = _env("CURSOR_CIBLE", "claude_code").strip().lower()
+
+# --- Mémoire ---------------------------------------------------------------------
+# Après chaque conversation, un petit modèle relit ce que vous vous êtes dit et retient seul ce qui compte
+# (en remplaçant ce qui n'est plus vrai). Chaque échange est aussi gardé dans espace/conversations.jsonl.
+MEMOIRE_AUTO = _env("MEMOIRE_AUTO", "oui").lower() not in {"non", "off", "0"}
+MODELE_MEMOIRE = _env("MODELE_MEMOIRE", "haiku")
+
+# --- Briefing du matin et annonces programmées ------------------------------------
+# Le premier moment où tu es devant ton Mac après cette heure (et avant midi), il te fait le point.
+# Ce qu'il dit est dans briefing.md (modifie-le comme tu veux). JERVIS_BRIEFING=non pour le couper.
+BRIEFING = _env("BRIEFING", "oui").lower() not in {"non", "off", "0"}
+BRIEFING_HEURE = _env("BRIEFING_HEURE", "07:30")
+FICHIER_BRIEFING = DOSSIER / "briefing.md"
+PRESENT_S = float(_env("PRESENT_S", "120"))   # tu es « devant le Mac » si tu as touché clavier ou souris depuis ça
+
+# --- Mémoire de l'écran (screenpipe, optionnel) -----------------------------------
+# screenpipe enregistre en local ce qui passe sur ton écran (texte lu par OCR) et dans ton micro.
+# auto = branché seulement s'il tourne (npx screenpipe record). oui / non pour forcer.
+SCREENPIPE = _env("SCREENPIPE", "auto").lower()
+SCREENPIPE_URL = _env("SCREENPIPE_URL", "http://localhost:3030")
+SCREENPIPE_MCP = _env("SCREENPIPE_MCP", "screenpipe-mcp@0.18.14")
+
+# --- Fluidité de la conversation -------------------------------------------------
+# Pendant qu'il réfléchit, s'il n'a encore rien dit au bout de PATIENCE_S secondes, il lâche un petit
+# « Voyons… » (préparé à l'avance : il part sans délai). JERVIS_PATIENCE=non pour le couper.
+PATIENCE = _env("PATIENCE", "oui").lower() not in {"non", "off", "0"}
+PATIENCE_S = float(_env("PATIENCE_S", "1.8"))
+PHRASES_PATIENCE = [p.strip() for p in _env("PHRASES_PATIENCE", "Voyons…|Alors…|Une seconde.|Je regarde.").split("|")
+                    if p.strip()]
+# Quand tu commences à lui parler pendant qu'il parle, il baisse la voix (à ce volume, de 0 à 1) le temps
+# de comprendre si tu lui coupes la parole. 1 = ne baisse pas.
+VOLUME_SI_TU_PARLES = float(_env("VOLUME_SI_TU_PARLES", "0.35"))
+# Chrono : après chaque réponse, une ligne grise dit combien de temps il a mis entre la fin de ta phrase et
+# le premier son de sa voix, et où ce temps est passé. JERVIS_CHRONO=non pour la masquer.
+CHRONO = _env("CHRONO", "oui").lower() not in {"non", "off", "0"}
+
+# Tableau de bord : un écran holographique (son état, vos échanges, ses temps de réponse, ce qu'il coûte, le Mac).
+# Menu « Tableau de bord », ou « Steve, affiche ton tableau de bord ». Il ne répond qu'à cette machine.
+# JERVIS_TABLEAU=non pour ne pas le servir ; JERVIS_TABLEAU_AU_DEMARRAGE=oui pour l'ouvrir à chaque lancement.
+TABLEAU = _env("TABLEAU", "oui").lower() not in {"non", "off", "0"}
+TABLEAU_PORT = int(_env("TABLEAU_PORT", "8765"))
+TABLEAU_AU_DEMARRAGE = _env("TABLEAU_AU_DEMARRAGE", "non").lower() in {"oui", "on", "1"}
+
+# --- Voix -----------------------------------------------------------------
+# Sa voix de tous les jours : Pocket TTS (Kyutai), un modèle qui tourne sur le Mac (jervis/voix_locale.py).
+# Rien ne part sur Internet et une phrase sort en 0,1 à 0,5 s. Le nom est celui d'une des voix fournies :
+# giovanni (homme), estelle (femme, la seule enregistrée par une Française), charles, rafael, javert…
+# `outils/choisir_voix.command` te les fait écouter et note ton choix dans voix_choisie.txt.
+# JERVIS_VOIX_LOCALE=non : il reprend la voix Microsoft ci-dessous.
+def _voix_choisie() -> str:
+    try:
+        return (DOSSIER / "voix_choisie.txt").read_text(encoding="utf-8").strip() or "giovanni"
+    except OSError:
+        return "giovanni"
+
+
+VOIX_LOCALE = _env("VOIX_LOCALE", _voix_choisie())
+VOIX_LOCALE_LANGUE = _env("VOIX_LOCALE_LANGUE", "french")
+VOIX_LOCALE_VOLUME = float(_env("VOIX_LOCALE_VOLUME", "1.0"))
+# Voix neuronale Microsoft (gratuite, très naturelle, demande Internet).
+# Autres : fr-FR-HenriNeural, fr-FR-VivienneMultilingualNeural (femme), fr-FR-DeniseNeural (femme).
+# Mets JERVIS_VOIX_NEURONALE=non pour rester 100 % local avec la voix macOS.
+VOIX_NEURONALE = _env("VOIX_NEURONALE", "fr-FR-RemyMultilingualNeural")
+VITESSE = _env("VITESSE", "+8%")
+# La ligne directe (jervis/ligne.py) : la connexion au service de voix est ouverte d'avance et ressert d'une
+# phrase à l'autre, et le début d'une réponse est demandé deux fois pour garder la demande la plus rapide.
+# JERVIS_VOIX_DIRECTE=non pour revenir à une connexion neuve par phrase.
+VOIX_DIRECTE = _env("VOIX_DIRECTE", "oui").lower() not in {"non", "off", "0"}
+VOIX = _env("VOIX", "Thomas")   # voix macOS de secours (sans Internet)
+DEBIT = _env("DEBIT", "195")    # mots par minute, pour la voix macOS
+
+# Connecteurs claude.ai que Jervis garde (les autres sont coupés au démarrage pour aller plus vite).
+# Chacun doit être connecté sur claude.ai → Paramètres → Connecteurs. Zapier ouvre 9 000 apps (Notion, Slack…).
+_CONNECTEURS = "claude.ai Gmail,claude.ai Google Calendar,claude.ai Google Drive,claude.ai Zapier"
+CONNECTEURS = [c.strip() for c in _env("CONNECTEURS", _CONNECTEURS).split(",") if c.strip()]
+# Dossier de travail de la session Claude (isolé, pour ne pas toucher aux réglages de tes autres projets).
+ESPACE = DOSSIER / "espace"
+
+# --- Navigateur (Chrome piloté par Jervis, via Playwright) ------------------
+# Un Chrome à lui, avec son propre profil : tes comptes et ton Chrome perso restent à part.
+# Tu te connectes une fois dans sa fenêtre aux sites que tu veux qu'il utilise, et il s'en souvient.
+NAVIGATEUR = _env("NAVIGATEUR", "oui").lower() not in {"non", "off", "0"}
+NAVIGATEUR_INVISIBLE = _env("NAVIGATEUR_INVISIBLE", "non").lower() in {"oui", "on", "1"}
+PROFIL_NAVIGATEUR = DOSSIER / "navigateur"
+PLAYWRIGHT_MCP = _env("PLAYWRIGHT_MCP", "@playwright/mcp@0.0.86")
+
+# --- Ton Chrome à toi (extension « Claude in Chrome ») ------------------------------
+# Il pilote TON Chrome, avec tes comptes déjà connectés, comme Claude Code : ouvrir des onglets, lire,
+# cliquer, remplir. Il faut l'extension Claude (claude.ai/chrome) installée et connectée au même compte.
+# Son Chrome à lui (ci-dessus) reste là en secours si l'extension ne répond pas.
+CHROME_PERSO = _env("CHROME_PERSO", "oui").lower() not in {"non", "off", "0"}
+
+# --- Les apps du Mac (Peekaboo) ----------------------------------------------
+# Il voit et pilote n'importe quelle app (Finder, Notes, Spotify, Réglages…) par l'accessibilité de macOS,
+# en arrière-plan : il ne te vole ni la souris ni le clavier. Demande l'autorisation « Accessibilité ».
+MAC = _env("MAC", "oui").lower() not in {"non", "off", "0"}
+PEEKABOO_MCP = _env("PEEKABOO_MCP", "@steipete/peekaboo@4.9.8")
+
+# --- Détection de la voix, version « Jarvis » (voir jervis/voix.py) --------------------------
+# Mot-clé : un petit modèle openWakeWord qui reconnaît une formule précise, en continu.
+# Pour « Hey Steve », entraîne le tien (outils/entrainer_hey_steve.command) : dès que modeles/voix/hey_steve.onnx
+# existe, il est utilisé tout seul. Sans lui, il se fie à son nom dans la phrase transcrite.
+# Valeurs : un modèle fourni (hey_jarvis, alexa, hey_mycroft…) ou le chemin d'un .onnx que tu as entraîné
+# (openWakeWord ou livekit-wakeword, reconnu tout seul).
+_JARVIS = PRENOM.casefold() in {"jervis", "jarvis"}
+_PERSO = DOSSIER / "modeles" / "voix" / f"hey_{re.sub(r'\W+', '_', PRENOM.casefold())}.onnx"
+MOTCLE_MODELE = _env("MOTCLE_MODELE", "hey_jarvis" if _JARVIS else (str(_PERSO) if _PERSO.exists() else ""))
+PHRASE_MOTCLE = _env("PHRASE_MOTCLE", "Hey Jarvis" if MOTCLE_MODELE == "hey_jarvis" else f"Hey {PRENOM}")
+# Comment il sait que tu lui parles :
+#   hybride : le mot-clé détecté par le petit modèle, OU son nom dans la phrase transcrite (« Salut Steve »)
+#   motcle  : seulement le mot-clé (rien n'est transcrit tant que tu ne l'as pas dit : moins de calcul)
+#   whisper : seulement son nom dans la phrase transcrite (le choix par défaut quand il n'y a pas de mot-clé)
+DETECTION = _env("DETECTION", "hybride" if MOTCLE_MODELE else "whisper").lower()
+SEUIL_MOTCLE = float(_env("SEUIL_MOTCLE", "0.5"))       # baisse (0.3) s'il rate le mot-clé, monte (0.7) s'il se réveille seul
+# Fin de phrase intelligente (smart-turn) : après une courte pause, il devine si tu as fini.
+FIN_INTELLIGENTE = _env("FIN_INTELLIGENTE", "oui").lower() not in {"non", "off", "0"}
+# Il se repose la question tout au long de ta pause, en étant de moins en moins exigeant : juste après un
+# blanc il lui faut être sûr à SEUIL_FIN (« Quelle heure il est ? » part tout de suite), puis il se contente
+# de moins en moins, jusqu'à SEUIL_FIN_TARD à la fin de SILENCE_MAX_S. Tu cherches tes mots ? Il attend.
+SILENCE_COURT_S = float(_env("SILENCE_COURT_S", "0.35"))  # pause après laquelle il se pose la question
+SILENCE_MAX_S = float(_env("SILENCE_MAX_S", "2.5"))       # pause après laquelle il coupe quoi qu'il arrive
+SEUIL_FIN = float(_env("SEUIL_FIN", "0.8"))               # monte-le (0.9) s'il te coupe encore
+SEUIL_FIN_TARD = float(_env("SEUIL_FIN_TARD", "0.3"))
+# Phrase qui finit en l'air (« Steve, est-ce que tu peux ouvrir… ») : il t'écoute encore ce temps-là
+# pour avoir la suite, en silence, au lieu de te répondre « ouvrir quoi ? » (moitié moins si la transcription
+# a quand même mis un point ou un « ? » au bout).
+SUITE_PHRASE_S = float(_env("SUITE_PHRASE_S", "5"))
+# Phrase de trois mots ou plus sans point final (« No parce que Scott ») : la transcription ne met un point
+# que quand ta voix retombe. Sans point, tu allais sûrement continuer : il attend encore ce temps-là.
+SUITE_SANS_POINT_S = float(_env("SUITE_SANS_POINT_S", "1.5"))
+# Tu reprends la parole alors qu'il n'a encore rien répondu (il a cru ta phrase finie) : il lâche ce qu'il
+# commençait et repart avec ta phrase entière. Valable pendant FUSION_S secondes après ta phrase, et au plus
+# FUSIONS_MAX fois de suite (après, ce que tu ajoutes est traité juste après sa réponse).
+FUSION_S = float(_env("FUSION_S", "8"))
+FUSIONS_MAX = int(_env("FUSIONS_MAX", "3"))
+# Tant que tu parles, il ne commence pas à parler : il se retient RETENUE_S après le début de ta voix (le temps
+# d'un morceau d'écoute), et jamais plus de RETENUE_MAX_S en tout (une télé allumée ne doit pas le rendre muet).
+RETENUE_S = float(_env("RETENUE_S", "3.2"))
+RETENUE_MAX_S = float(_env("RETENUE_MAX_S", "6"))
+# Tu parles par-dessus sa réponse (au moins ce nombre de mots, pas juste « hm ») : il se tait et te répond.
+COUPER_SI_TU_PARLES = _env("COUPER_SI_TU_PARLES", "oui").lower() not in {"non", "off", "0"}
+MOTS_POUR_COUPER = int(_env("MOTS_POUR_COUPER", "3"))
+# Transcription : parakeet (NVIDIA Parakeet v3, très rapide) ou whisper.
+STT = _env("STT", "parakeet").lower()
+PARAKEET_MODEL = _env("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
+# Une phrase courte que Parakeet écrit en anglais (« Skip the mail. ») est réécoutée par Whisper, en français
+# imposé (0,4 s de plus, et 2 à 3 s la toute première fois). JERVIS_DEUXIEME_AVIS=non pour t'en passer.
+DEUXIEME_AVIS = _env("DEUXIEME_AVIS", "oui").lower() not in {"non", "off", "0"}
+# Quand Parakeet ne trouve pas son nom du premier coup, il réécoute en le lui soufflant (indispensable pour
+# « Jervis », qu'il ne connaît pas ; un simple filet de sécurité pour « Steve », qu'il connaît).
+# Monte (6) s'il rate son nom, baisse (3) ou 0 s'il croit l'entendre dans des phrases qui ne le contiennent pas.
+# Par défaut : 4 pour « Jervis », 0 (coupé) pour un prénom courant comme Steve, qui ferait entendre « steve » dans « steak ».
+BOOST_NOM = float(_env("BOOST_NOM", "4" if _JARVIS else "0"))
+# Annulation d'écho : il n'entend plus sa propre voix dans le haut-parleur.
+ANTI_ECHO = _env("ANTI_ECHO", "oui").lower() not in {"non", "off", "0"}
+# Débruitage (DPDFNet) : « detection » = seulement pour savoir si tu parles, « tout » = aussi pour la transcription.
+DEBRUITAGE = _env("DEBRUITAGE", "detection").lower()
+# Ta voix : si voix.npy existe (python -m jervis --apprendre-ma-voix), il ignore les autres voix.
+SEUIL_VOIX = float(_env("SEUIL_VOIX", "0.5"))   # baisse-le (0.4) s'il ignore ta propre voix
+# Il apprend ta voix tout seul (les phrases où tu dis son nom), puis l'affine à chaque phrase de toi.
+APPRENDRE_VOIX = _env("APPRENDRE_VOIX", "oui").lower() not in {"non", "off", "0"}
+SEUIL_APPRENDRE = float(_env("SEUIL_APPRENDRE", "0.65"))  # il n'apprend que des phrases où il est sûr que c'est toi
+# Taille max d'un message de Claude Code : une capture d'écran (outil « see ») dépasse le 1 Mo par défaut.
+TAMPON_MAX = 64 * 1024 * 1024

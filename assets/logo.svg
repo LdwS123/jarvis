@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Jarvis">
+  <defs>
+    <linearGradient id="fond" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0D2A4D"/>
+      <stop offset="1" stop-color="#051120"/>
+    </linearGradient>
+    <linearGradient id="anneau" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2C7FC9"/>
+      <stop offset="1" stop-color="#6FE0FF"/>
+    </linearGradient>
+    <linearGradient id="barre" gradientUnits="userSpaceOnUse" x1="0" y1="160" x2="0" y2="316">
+      <stop offset="0" stop-color="#E3F6FF"/>
+      <stop offset="1" stop-color="#6FE0FF"/>
+    </linearGradient>
+    <filter id="lueur" filterUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <feGaussianBlur stdDeviation="9" result="flou"/>
+      <feMerge><feMergeNode in="flou"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#fond)"/>
+  <!-- la bulle : il te répond à voix haute -->
+  <path d="M151.3 340.7 A148 148 0 1 1 230.3 381.8 L112 418 Z" fill="none" stroke="url(#anneau)"
+        stroke-width="30" stroke-linejoin="round" filter="url(#lueur)"/>
+  <!-- l'arc intérieur, comme l'anneau du tableau de bord -->
+  <path d="M159.1 180 A112 112 0 0 1 352.9 180" fill="none" stroke="#6FE0FF" stroke-opacity=".45"
+        stroke-width="7" stroke-linecap="round"/>
+  <!-- ta voix -->
+  <g stroke="url(#barre)" stroke-width="22" stroke-linecap="round" filter="url(#lueur)">
+    <line x1="184" y1="214" x2="184" y2="262"/>
+    <line x1="220" y1="186" x2="220" y2="290"/>
+    <line x1="256" y1="160" x2="256" y2="316"/>
+    <line x1="292" y1="192" x2="292" y2="284"/>
+    <line x1="328" y1="220" x2="328" y2="256"/>
+  </g>
+  <!-- le voyant : il t'écoute -->
+  <circle cx="360.7" cy="131.3" r="15" fill="#FFB25B" filter="url(#lueur)"/>
+</svg>

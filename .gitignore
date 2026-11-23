@@ -1,0 +1,22 @@
+# Environnement et modèles (lourds, se refont avec requirements.txt)
+.venv/
+modeles/
+voix_sures/
+Jervis.app/
+__pycache__/
+*.pyc
+
+# Tes données personnelles : elles restent sur ton Mac
+navigateur/
+espace/
+jervis.log
+memoire.md
+*.npy
+voix_choisie.txt
+.env
+.env.*
+
+# Outils locaux
+.claude/
+.playwright-mcp/
+.DS_Store
