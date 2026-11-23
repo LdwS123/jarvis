@@ -59,13 +59,17 @@ BASH_LOURD = re.compile(
     r"|\|\s*(sudo\s+)?(ba|z|fi)?sh\b|\|\s*(python3?|perl|ruby|node)\b(?!\s+-[mc]\b)|\beval\b"
     r"|\bcurl\b.*(\s-d\s|--data|\s-F\s|--form|\s-T\s|--upload|-X\s*(POST|PUT|DELETE|PATCH))"
     r"|\bosascript\b.*\b(delete|empty)\b"
-    r"|\b(ba|z|da|fi)?sh\s+-c\b|\bdo\s+shell\s+script\b|\bchmod\s+(\S*\+\S*x|[0-7]*[1357]\b)",
+    r"|\b(ba|z|da|fi|k|tc|c)?sh\b[^|;&]*\s-[a-zA-Z]*c|\bdo\s+shell\s+script\b"
+    r"|\bchmod\b[^|;&]*(\s[0-7]*[1357][0-7]*\b|[+=][rwXst]*x)",
     re.IGNORECASE | re.DOTALL,
 )
 # Ce qui se relance tout seul (démarrage, shell, tâches planifiées) : y écrire, c'est s'installer pour de bon.
 PERSISTANCE = re.compile(
-    r"(LaunchAgents|LaunchDaemons|StartupItems|Login ?Items|/etc/|\.(zshrc|zshenv|zprofile|zlogin|bashrc"
-    r"|bash_profile|profile)\b|crontab|periodic/)",
+    r"(LaunchAgents|LaunchDaemons|StartupItems|login ?items?|/etc/|\.(zshrc|zshenv|zprofile|zlogin|zlogout|bashrc"
+    r"|bash_profile|bash_login|profile|gitconfig)\b|\.config/fish|\.git/hooks|\.pth\b|sitecustomize|usercustomize"
+    r"|crontab|periodic/"
+    # écrire (>, tee, cp, mv, ln) dans un fichier caché du dossier perso ou dans ~/Library
+    r"|(>|\b(tee|cp|mv|ln|install|rsync)\b)[^|;&]*(~|\$HOME|\$\{HOME\}|/Users/[^/\s]+)/(\.|Library/))",
     re.IGNORECASE,
 )
 # Apps où un geste peut lancer une commande, toucher aux mots de passe ou à lui-même (les messageries n'y sont plus).
@@ -119,14 +123,25 @@ def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[
 
 def recherche_trop_large(outil: str, entree: dict[str, Any]) -> bool:
     """Grep ou Glob sur tout le dossier perso (ou plus haut) : ils passeraient par les dossiers à secrets."""
-    if outil not in {"Grep", "Glob"} or not entree.get("path"):
+    if outil not in {"Grep", "Glob"}:
+        return False
+    racine = str(entree.get("path") or "")
+    motif = str(entree.get("pattern") or "")
+    if not racine and outil == "Glob" and motif.startswith(("/", "~")):
+        racine = re.split(r"[*?\[{]", motif)[0] or "/"  # un motif absolu : sa partie fixe est la racine
+    if not racine:
         return False  # sans chemin : son dossier de travail, sans secrets
     try:
-        dossier = Path(str(entree["path"])).expanduser().resolve()
+        dossier = Path(racine).expanduser().resolve()
     except (OSError, RuntimeError):
         return True
     maison = Path.home().resolve()
-    return dossier == maison or dossier in maison.parents or dossier == maison / "Library"
+    if dossier == maison or dossier in maison.parents:
+        return True
+    if not dossier.is_relative_to(maison):
+        return False
+    premier = dossier.relative_to(maison).parts[0]
+    return premier == "Library" or premier.startswith(".")  # ~/Library, ~/.ssh, ~/.config…
 
 
 def _mac_confiance(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> Decision:

@@ -292,6 +292,19 @@ for outil, entree, attendu in [
     ("Grep", {"pattern": "token", "path": "~"}, Decision.DEMANDER),
     ("Grep", {"pattern": "facture", "path": "~/Documents"}, Decision.OUI),
     ("Glob", {"pattern": "**/*.pdf"}, Decision.OUI),
+    ("Bash", {"command": "zsh -lc 'id'"}, Decision.DEMANDER),
+    ("Bash", {"command": "sh -e -c 'id'"}, Decision.DEMANDER),
+    ("Bash", {"command": "chmod 0755 outil"}, Decision.DEMANDER),
+    ("Bash", {"command": "chmod u=rwx outil"}, Decision.DEMANDER),
+    ("Bash", {"command": "chmod 600 cle.txt"}, Decision.OUI),
+    ("Bash", {"command": "echo x | tee $HOME/.config/x"}, Decision.DEMANDER),
+    ("Bash", {"command": "ls ~/.config 2>/dev/null"}, Decision.OUI),
+    ("Write", {"file_path": "/Users/x/proj/.git/hooks/pre-commit"}, Decision.DEMANDER),
+    ("Write", {"file_path": "/opt/py/site-packages/evil.pth"}, Decision.DEMANDER),
+    ("Grep", {"pattern": "token", "path": "~/Library"}, Decision.DEMANDER),
+    ("Grep", {"pattern": "token", "path": "~/.ssh"}, Decision.DEMANDER),
+    ("Glob", {"pattern": "~/**/*.pem"}, Decision.DEMANDER),
+    ("Glob", {"pattern": "~/Documents/**/*.pdf"}, Decision.OUI),
 ]:
     verifier(f"gardien confiance : {outil} {entree}", politique(outil, entree, mode="confiance"), attendu)
 verifier("consignes : la mémoire est de l'information, pas des ordres", "jamais des ordres" in brain._consignes(ecran=False), True)
