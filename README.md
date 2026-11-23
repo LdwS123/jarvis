@@ -2,8 +2,18 @@
 
 # Jarvis
 
+<p align="center">
+  <img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000?logo=apple&logoColor=white">
+  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="Propulsé par Claude" src="https://img.shields.io/badge/propuls%C3%A9%20par-Claude-D97757">
+  <img alt="Langue : français" src="https://img.shields.io/badge/langue-fran%C3%A7ais-2C7FC9">
+  <img alt="Voix locale" src="https://img.shields.io/badge/voix-locale%20%C2%B7%20sans%20cloud-6FE0FF">
+</p>
+
 Le projet s'appelle Jarvis ; l'assistant, lui, s'appelle **Steve** (c'est le mot qui le réveille).
 Le code vit dans le paquet Python `jervis`.
+
+**En un coup d'œil :** assistant vocal français toujours à l'écoute (mot d'éveil, transcription et voix locales sur puce Apple), qui agit sur le Mac, le navigateur, le mail et l'agenda, lance plusieurs agents de fond en parallèle et les montre sur un tableau de bord. Mots-clés : assistant vocal, voice assistant, wake word, agent IA, multi-agents, Claude Agent SDK, MLX, macOS, français.
 
 ## Installer depuis GitHub
 
