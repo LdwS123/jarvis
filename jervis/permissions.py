@@ -58,8 +58,15 @@ BASH_LOURD = re.compile(
     r"|\b(npm|yarn|pnpm|cargo|gem|twine)\s+publish|\b(brew|pip3?|npm|uv)\s+(uninstall|remove|rm)\b"
     r"|\|\s*(sudo\s+)?(ba|z|fi)?sh\b|\|\s*(python3?|perl|ruby|node)\b(?!\s+-[mc]\b)|\beval\b"
     r"|\bcurl\b.*(\s-d\s|--data|\s-F\s|--form|\s-T\s|--upload|-X\s*(POST|PUT|DELETE|PATCH))"
-    r"|\bosascript\b.*\b(delete|empty)\b",
+    r"|\bosascript\b.*\b(delete|empty)\b"
+    r"|\b(ba|z|da|fi)?sh\s+-c\b|\bdo\s+shell\s+script\b|\bchmod\s+(\S*\+\S*x|[0-7]*[1357]\b)",
     re.IGNORECASE | re.DOTALL,
+)
+# Ce qui se relance tout seul (démarrage, shell, tâches planifiées) : y écrire, c'est s'installer pour de bon.
+PERSISTANCE = re.compile(
+    r"(LaunchAgents|LaunchDaemons|StartupItems|Login ?Items|/etc/|\.(zshrc|zshenv|zprofile|zlogin|bashrc"
+    r"|bash_profile|profile)\b|crontab|periodic/)",
+    re.IGNORECASE,
 )
 # Apps où un geste peut lancer une commande, toucher aux mots de passe ou à lui-même (les messageries n'y sont plus).
 APPS_SYSTEME = re.compile(
@@ -96,15 +103,30 @@ def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[
             return Decision.OUI
         return Decision.DEMANDER if ACTION_LOURDE.search(action) else Decision.OUI
     if outil in LECTURE_FICHIERS | ECRITURE_FICHIERS:
-        return Decision.DEMANDER if FICHIERS_SECRETS.search(chemin_fichier(entree)) else Decision.OUI
+        chemin = chemin_fichier(entree)
+        if FICHIERS_SECRETS.search(chemin) or recherche_trop_large(outil, entree):
+            return Decision.DEMANDER
+        return Decision.DEMANDER if outil in ECRITURE_FICHIERS and PERSISTANCE.search(chemin) else Decision.OUI
     if outil == "Bash":
         commande = entree.get("command", "").strip()
         if INTERDIT.search(commande):
             return Decision.NON
-        if BASH_LOURD.search(commande) or FICHIERS_SECRETS.search(commande):
+        if BASH_LOURD.search(commande) or FICHIERS_SECRETS.search(commande) or PERSISTANCE.search(commande):
             return Decision.DEMANDER
         return Decision.OUI
     return Decision.OUI
+
+
+def recherche_trop_large(outil: str, entree: dict[str, Any]) -> bool:
+    """Grep ou Glob sur tout le dossier perso (ou plus haut) : ils passeraient par les dossiers à secrets."""
+    if outil not in {"Grep", "Glob"} or not entree.get("path"):
+        return False  # sans chemin : son dossier de travail, sans secrets
+    try:
+        dossier = Path(str(entree["path"])).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return True
+    maison = Path.home().resolve()
+    return dossier == maison or dossier in maison.parents or dossier == maison / "Library"
 
 
 def _mac_confiance(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> Decision:
@@ -114,7 +136,7 @@ def _mac_confiance(action: str, entree: dict[str, Any], apps_vues: Iterable[str]
         return Decision.DEMANDER if GESTE_LOURD.search(str(entree.get("button") or "")) else Decision.OUI
     if action not in GESTES_MAC:
         return Decision.OUI
-    apps = cibles_mac(action, entree, apps_vues)
+    apps = {(_app_devant() or INCONNUE) if a == INCONNUE else a for a in cibles_mac(action, entree, apps_vues)}
     if any(a != INCONNUE and APPS_SYSTEME.search(a) for a in apps):
         return Decision.DEMANDER
     if action == "menu" and GESTE_LOURD.search(f"{entree.get('item', '')} {entree.get('path', '')}"):

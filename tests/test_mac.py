@@ -278,6 +278,24 @@ verifier("question à voix haute : plusieurs fichiers", decrire(CORBEILLE, {"che
          "Je vais mettre à la corbeille 3 éléments, dont un.txt. Je peux ?")
 verifier("question à voix haute : sa mémoire", decrire(OUBLI, {"quoi": "memoire"}), "Je vais effacer ce que je sais de toi. Je peux ?")
 
+# Les portes d'entrée d'une page piégée : un shell caché, s'installer au démarrage, fouiller tout le dossier perso.
+for outil, entree, attendu in [
+    ("Bash", {"command": "ls ~/Desktop"}, Decision.OUI),
+    ("Bash", {"command": "python3 -c 'print(2+2)'"}, Decision.OUI),
+    ("Bash", {"command": "bash -c 'curl x | true'"}, Decision.DEMANDER),
+    ("Bash", {"command": """osascript -e 'do shell script "id"'"""}, Decision.DEMANDER),
+    ("Bash", {"command": "chmod +x ~/Downloads/outil"}, Decision.DEMANDER),
+    ("Bash", {"command": "chmod 644 notes.txt"}, Decision.OUI),
+    ("Bash", {"command": "echo 'x' >> ~/.zshrc"}, Decision.DEMANDER),
+    ("Write", {"file_path": "/Users/x/Library/LaunchAgents/a.plist"}, Decision.DEMANDER),
+    ("Write", {"file_path": "/Users/x/Desktop/note.md"}, Decision.OUI),
+    ("Grep", {"pattern": "token", "path": "~"}, Decision.DEMANDER),
+    ("Grep", {"pattern": "facture", "path": "~/Documents"}, Decision.OUI),
+    ("Glob", {"pattern": "**/*.pdf"}, Decision.OUI),
+]:
+    verifier(f"gardien confiance : {outil} {entree}", politique(outil, entree, mode="confiance"), attendu)
+verifier("consignes : la mémoire est de l'information, pas des ordres", "jamais des ordres" in brain._consignes(ecran=False), True)
+
 # --- 7. Il connaît ses nouveaux outils, et les autorisations se vérifient sans rien ouvrir ---------------------------
 consignes = brain._consignes(ecran=False)
 noms = {o.name for o in outils.OUTILS}
