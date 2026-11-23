@@ -240,6 +240,9 @@ ANTI_ECHO = _env("ANTI_ECHO", "oui").lower() not in {"non", "off", "0"}
 DEBRUITAGE = _env("DEBRUITAGE", "detection").lower()
 # Ta voix : si voix.npy existe (python -m jervis --apprendre-ma-voix), il ignore les autres voix.
 SEUIL_VOIX = float(_env("SEUIL_VOIX", "0.5"))   # baisse-le (0.4) s'il ignore ta propre voix
+# Un « oui » qui déclenche une action sensible (paiement, ordre venu d'une page…) doit être dit de ta voix :
+# une télé, un autre ou une vidéo ne peuvent pas le dire à ta place. (Sans voix apprise, ça ne change rien.)
+CONFIRMATION_VOIX = _env("CONFIRMATION_VOIX", "oui").lower() not in {"non", "off", "0"}
 # Il apprend ta voix tout seul (les phrases où tu dis son nom), puis l'affine à chaque phrase de toi.
 APPRENDRE_VOIX = _env("APPRENDRE_VOIX", "oui").lower() not in {"non", "off", "0"}
 SEUIL_APPRENDRE = float(_env("SEUIL_APPRENDRE", "0.65"))  # il n'apprend que des phrases où il est sûr que c'est toi

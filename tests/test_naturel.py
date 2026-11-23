@@ -521,6 +521,20 @@ AVIS = [
 for phrase, attendu in AVIS:
     verifier(f"avis de limite « {phrase} »", avis_limite(phrase), attendu)
 
+# Un « oui » sensible doit être de ta voix (si sa voix est apprise).
+SEUIL = config.SEUIL_VOIX
+for nom, voix, connue, actif, attendu in [
+    ("ta voix, reconnue", SEUIL + 0.2, True, True, "ok"),
+    ("juste au seuil", SEUIL, True, True, "ok"),
+    ("une autre voix", SEUIL - 0.2, True, True, "inconnue"),
+    ("un « oui » trop court pour être signé", None, True, True, "courte"),
+    ("aucune voix apprise : rien ne change", None, False, True, "ok"),
+    ("aucune voix apprise, autre score", SEUIL - 0.3, False, True, "ok"),
+    ("contrôle coupé (court)", None, True, False, "ok"),
+    ("contrôle coupé (autre voix)", SEUIL - 0.3, True, False, "ok"),
+]:
+    verifier(f"oui sensible : {nom}", m.controle_voix(voix, connue, actif), attendu)
+
 print(f"\n{'✅' if not echecs else '❌'} naturel : {total - len(echecs)}/{total} vérifications OK "
       f"({len(REPONSES) + len(TRANSCRIPTIONS) + len(PHRASES) + len(CERVEAU)} phrases d'exemple)", flush=True)
 os._exit(0 if not echecs else 1)

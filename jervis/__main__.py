@@ -50,6 +50,17 @@ def lire_accord(reponse: str | None) -> bool | None:
     if oui != non:
         return oui
     return None
+def controle_voix(voix: float | None, voix_connue: bool, actif: bool = True) -> str:
+    """Un « oui » peut-il déclencher une action sensible ? « ok » : c'est bien ta voix (ou aucune voix apprise,
+    ou contrôle coupé). « courte » : trop bref pour reconnaître une voix (un « oui » seul) : il demande une
+    phrase. « inconnue » : une autre voix, il n'y va pas."""
+    if not actif or not voix_connue:
+        return "ok"
+    if voix is None:
+        return "courte"
+    return "ok" if voix >= config.SEUIL_VOIX else "inconnue"
+
+
 # Ce qui te permet de lui couper la parole (en plus de son nom).
 STOP = re.compile(r"\b(stop|arrête|tais-toi|chut|silence|attends|laisse tomber|ça suffit|c'est bon)\b", re.IGNORECASE)
 # Phrases que la transcription invente quand il n'entend que du bruit.
@@ -352,10 +363,12 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         ou si `arret` sonne (jamais au milieu de ta phrase). `garder` : garde le son arrivé depuis la
         phrase précédente (tu continuais à parler pendant la transcription)."""
         async with micro:
+            chrono["voix"] = None
             phrase = await asyncio.to_thread(oreilles.ecouter_phrase, attente, arret, veille=veille,
                                              laisser_finir=arret is not None, repartir_a_zero=not garder)
             if phrase is None:
                 return None, False
+            chrono["voix"] = getattr(phrase, "voix", None)  # le score de ta voix : confirmer s'en sert pour les oui sensibles
             entendue = time.monotonic()
             texte = corriger_transcription(await asyncio.to_thread(stt.transcrire, phrase.audio, veille) or "")
             chrono.update(fin=entendue - phrase.silence, silence=phrase.silence,
@@ -597,6 +610,18 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 reponse, _ = await entendre(12)
                 print(f"🧑 Toi : {reponse or '(rien)'}")
                 accord = lire_accord(reponse)
+                if accord:
+                    controle = controle_voix(chrono.get("voix"), oreilles.voix_connue, config.CONFIRMATION_VOIX)
+                    if controle == "inconnue":
+                        print("   \033[2m(ce « oui » n'est pas de ta voix : je n'y vais pas)\033[0m", flush=True)
+                        await parler("Ce n'est pas ta voix, je n'y vais pas.", interruptible=False)
+                        return False
+                    if controle == "courte":  # un « oui » seul est trop bref pour reconnaître ta voix
+                        if essai < 2:
+                            await parler("Dis-le en une phrase, que je reconnaisse ta voix : « oui, vas-y ».",
+                                         interruptible=False)
+                            continue
+                        return False
                 if accord is not None:
                     return accord
                 if reponse and len(re.findall(r"\w+", reponse)) >= 3 and not en_anglais(reponse):

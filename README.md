@@ -154,6 +154,8 @@ et lis les 6 phrases. Il crée `voix.npy` et, ensuite, ignore les autres voix. P
 Sans ça, il l'apprend tout seul : après 4 phrases qui se ressemblent où tu dis « Steve » (la télé ne l'appelle pas), il crée l'empreinte. Ces phrases sont gardées dans `voix_debut.npy` : relancer Steve ne remet pas le compteur à zéro, et une autre voix qui dit son nom ne compte pas. Ensuite chaque phrase où il est sûr que c'est toi l'affine un peu, sans jamais trop s'éloigner de l'empreinte de départ (`voix_depart.npy`).
 C'est un filtre contre la télé et les conversations autour, pas un verrou de sécurité : une voix très proche de la tienne peut passer.
 
+**Un « oui » qu'on ne peut pas te voler.** Quand il te demande confirmation (paiement, ordre venu d'une page web…), ta voix apprise doit être reconnue sur la réponse : une autre voix, une vidéo ou la télé qui dit « oui » ne déclenche rien (« Ce n'est pas ta voix, je n'y vais pas »). Un « oui » tout seul est trop bref pour être signé : il te demande de le dire en une phrase (« oui, vas-y »). Sans voix apprise, rien ne change. Coupe-le avec `JERVIS_CONFIRMATION_VOIX=non`.
+
 **Un vrai mot de réveil « Hey Steve »** (facultatif) : double-clique `outils/entrainer_hey_steve.command`.
 Il utilise [livekit-wakeword](https://github.com/livekit/livekit-wakeword) pour fabriquer des milliers d'exemples de
 « hey steve » en voix de synthèse, et des phrases qui y ressemblent pour apprendre à ne pas réagir. Il entraîne ensuite
@@ -362,6 +364,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_SEUIL_VOIX` | 0.5 | si ta voix est apprise : baisse-le (0.4) s'il t'ignore, monte-le (0.6) s'il écoute les autres |
 | `JERVIS_APPRENDRE_VOIX` | oui | il apprend ta voix tout seul (4 phrases où tu dis son nom), puis l'affine à chaque phrase de toi |
 | `JERVIS_SEUIL_APPRENDRE` | 0.65 | il n'affine ta voix qu'avec les phrases où il est au moins aussi sûr que c'est toi |
+| `JERVIS_CONFIRMATION_VOIX` | oui | un « oui » sensible doit être de ta voix (si elle est apprise) ; `non` pour couper |
 | `JERVIS_MODELE` | sonnet | modèle Claude (`haiku` pour encore plus rapide) |
 | `JERVIS_REFLEXION` | oui | `non` = il ne réfléchit plus avant de répondre (un peu plus rapide, moins malin) |
 | `JERVIS_EFFORT` | medium | `low` = plus rapide (surtout pour bavarder), `high` = réfléchit plus |
