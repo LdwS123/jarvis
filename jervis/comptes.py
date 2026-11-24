@@ -161,6 +161,7 @@ async def retrouver(site: str, identifiant: str) -> str | None:
 _minuteur: asyncio.TimerHandle | None = None
 _copie_jusqua = 0.0   # tant qu'un mot de passe peut être dans le presse-papiers, rien ne le lit (permissions.py)
 _secret: str | None = None
+_en_attente: set[str] = set()   # tous les secrets copiés pas encore vus partis (un ancien peut y être resté)
 _tour = 0             # chaque copie a son numéro : un minuteur d'une copie précédente ne touche plus à rien
 COLLAGE_S = 15.0      # une fois collé, il part vite : le temps de coller aussi dans le champ de confirmation
 REESSAI_S = 5.0       # macOS n'a pas répondu : on réessaie de le retirer
@@ -186,11 +187,13 @@ async def copier(secret: str) -> str | None:
     # voit que ce n'est plus son tour et ne rouvre rien.
     _tour += 1
     _secret, _copie_jusqua = secret, time.monotonic() + config.PRESSE_PAPIERS_S + 5
+    _en_attente.add(secret)
     if _minuteur:
         _minuteur.cancel()
         _minuteur = None
     code, sortie = await _lancer("pbcopy", entree=secret)
-    if code:   # on ne sait pas s'il y est : ça reste fermé jusqu'au délai
+    if code:   # raté : celui-ci (ou le précédent) peut y être ; fermé, et on vérifie bientôt
+        _vider_dans(REESSAI_S)
         return sortie or "le presse-papiers ne répond pas"
     _vider_dans(config.PRESSE_PAPIERS_S)
     return None
@@ -198,7 +201,7 @@ async def copier(secret: str) -> str | None:
 
 def apres_collage() -> None:
     """Il vient de coller (cmd+v) : inutile de l'y laisser 90 secondes, il part COLLAGE_S après le dernier collage."""
-    if _secret is not None and secret_au_presse_papiers():
+    if _en_attente and secret_au_presse_papiers():
         _vider_dans(COLLAGE_S)
 
 
@@ -207,13 +210,12 @@ async def _vider_si(tour: int) -> None:
     si macOS ne répond pas, il reste fermé et on réessaie dans quelques secondes. Après chaque attente, on revérifie
     que c'est toujours le tour de cette copie : sinon la suivante décide, et celle-ci ne touche à rien."""
     global _secret, _copie_jusqua
-    secret = _secret
-    if tour != _tour or secret is None:
+    if tour != _tour or not _en_attente:
         return
     code, actuel = await _lancer("pbpaste")
     if tour != _tour:
         return
-    if not code and actuel == secret:
+    if not code and actuel in _en_attente:
         code, _ = await _lancer("pbcopy", entree="")
         if tour != _tour:
             return
@@ -221,9 +223,10 @@ async def _vider_si(tour: int) -> None:
             code, actuel = await _lancer("pbpaste")
             if tour != _tour:
                 return
-    if code or actuel == secret:
+    if code or actuel in _en_attente:
         _vider_dans(REESSAI_S)
         return
+    _en_attente.clear()   # aucun d'eux n'y est plus : rouvert
     _secret, _copie_jusqua = None, 0.0
 
 

@@ -286,6 +286,23 @@ async def deux_copies_qui_se_croisent():
 verifier("presse-papiers : un ancien minuteur ne rouvre pas pendant la copie suivante",
          asyncio.run(deux_copies_qui_se_croisent()), (True, True, "Second-2"))
 comptes._copie_jusqua, comptes._secret = 0.0, None
+comptes._en_attente.clear()
+
+
+async def seconde_copie_ratee():
+    """La seconde copie échoue : la première est restée dans le presse-papiers. Il la retire avant de rouvrir."""
+    config.PRESSE_PAPIERS_S, comptes.REESSAI_S = 30, 0.05
+    await comptes.copier("Premier-1")
+    macos_repond[0] = False
+    erreur = await comptes.copier("Second-2")
+    macos_repond[0] = True
+    pendant = comptes.secret_au_presse_papiers()
+    await asyncio.sleep(0.3)
+    return bool(erreur), pendant, presse_papiers[-1], comptes.secret_au_presse_papiers()
+
+
+verifier("presse-papiers : copie ratée → fermé, l'ancien mot de passe retiré, puis rouvert",
+         asyncio.run(seconde_copie_ratee()), (True, True, "", False))
 
 comptes.REESSAI_S = 30
 verifier("presse-papiers : macOS ne répond pas → il reste fermé ; puis vidé et rouvert",
