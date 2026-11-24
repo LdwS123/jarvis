@@ -36,6 +36,31 @@ def _erreur(t: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": t}], "is_error": True}
 
 
+# Les erreurs de macOS qui veulent dire « tu n'as pas l'autorisation » (-1743 : « Not authorized to send Apple events »).
+_REFUS_MAC = re.compile(r"-1743|-1744|-25211|\(1002\)|not allowed|pas autoris|not authori[sz]ed|"
+                        r"operation not permitted|assistive", re.I)
+
+
+# Quelle app a besoin de quels volets de Réglages (voir VOLETS) : l'Automatisation pour la piloter, et pour
+# Contacts, son propre volet en plus (c'est lui que macOS demande pour lire les fiches).
+_VOLETS_DE_L_APP = {"Contacts": "Automatisation et Contacts"}
+
+
+def _echec_app(app: str, sortie: str, ce_qui_a_rate: str) -> dict[str, Any]:
+    """Une app pilotée a échoué. Si c'est macOS qui refuse (-1743…), il ne dit pas « panne » : il guide vers
+    verifier_autorisations. Si macOS attend encore la réponse à sa fenêtre, il le dit aussi."""
+    if _REFUS_MAC.search(sortie):
+        volets = _VOLETS_DE_L_APP.get(app, "Automatisation")
+        return _erreur(f"macOS ne laisse pas {config.PRENOM} piloter {app} : il manque l'autorisation « {volets} » "
+                       f"pour « Jervis ». Ce n'est pas une panne. Appelle verifier_autorisations (il ouvre la bonne "
+                       f"page de Réglages), puis dis-lui en une phrase quel interrupteur allumer ; ensuite il te "
+                       f"redemande la même chose. Détail : {sortie[:150]}")
+    if "trop long" in sortie:
+        return _erreur(f"{app} n'a pas répondu : une fenêtre de macOS « Jervis veut contrôler {app} » attend peut-être "
+                       "sa réponse. Dis-lui de cliquer sur Autoriser, puis de te redemander.")
+    return _erreur(f"{ce_qui_a_rate} : {sortie}")
+
+
 async def _lancer(*cmd: str, entree: str | None = None, delai: float = 30) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -249,7 +274,7 @@ end run
 async def chercher_contact(args: dict[str, Any]) -> dict[str, Any]:
     code, sortie = await _applescript(_CONTACT, args["nom"])
     if code:
-        return _erreur(f"Contacts inaccessible : {sortie}")
+        return _echec_app("Contacts", sortie, "Contacts inaccessible")
     return _texte(sortie or "Personne de ce nom dans les contacts.")
 
 
@@ -271,7 +296,7 @@ end run
        "required": ["destinataire", "texte"]})
 async def envoyer_imessage(args: dict[str, Any]) -> dict[str, Any]:
     code, sortie = await _applescript(_IMESSAGE, args["destinataire"], args["texte"])
-    return _erreur(f"Échec de l'envoi : {sortie}") if code else _texte("Message envoyé.")
+    return _echec_app("Messages", sortie, "Échec de l'envoi") if code else _texte("Message envoyé.")
 
 
 # --- Rappels -----------------------------------------------------------------
@@ -324,13 +349,13 @@ async def creer_rappel(args: dict[str, Any]) -> dict[str, Any]:
             return _erreur("`quand` doit être au format AAAA-MM-JJ HH:MM")
         morceaux += [str(d.year), str(d.month), str(d.day), str(d.hour * 3600 + d.minute * 60)]
     code, sortie = await _applescript(_RAPPEL, *morceaux)
-    return _erreur(f"Rappels inaccessible : {sortie}") if code else _texte("Rappel créé.")
+    return _echec_app("Reminders", sortie, "Rappels inaccessible") if code else _texte("Rappel créé.")
 
 
 @tool("lister_rappels", "Liste les rappels non terminés de l'app Rappels.", {})
 async def lister_rappels(_args: dict[str, Any]) -> dict[str, Any]:
     code, sortie = await _applescript(_LISTE_RAPPELS)
-    return _erreur(f"Rappels inaccessible : {sortie}") if code else _texte(sortie or "Aucun rappel en cours.")
+    return _echec_app("Reminders", sortie, "Rappels inaccessible") if code else _texte(sortie or "Aucun rappel en cours.")
 
 
 # --- Notes -------------------------------------------------------------------
@@ -351,7 +376,7 @@ async def creer_note(args: dict[str, Any]) -> dict[str, Any]:
         f"<div>{html.escape(l) or '<br>'}</div>" for l in args["contenu"].splitlines()
     )
     code, sortie = await _applescript(_NOTE, corps)
-    return _erreur(f"Notes inaccessible : {sortie}") if code else _texte("Note créée.")
+    return _echec_app("Notes", sortie, "Notes inaccessible") if code else _texte("Note créée.")
 
 
 # --- Raccourcis Apple (et donc la maison : lumières, scènes HomeKit…) --------
@@ -424,8 +449,6 @@ LIENS_CURSOR = {
 NOMS_CURSOR = {"claude_code": "Claude Code dans Cursor", "agent": "l'agent de Cursor"}
 LONGUEUR_MAX_LIEN = 8000
 ATTENTE_CURSOR_S = 2.5   # le temps que l'onglet s'ouvre et que le champ prenne le curseur
-_REFUS_MAC = re.compile(r"-1743|-1744|-25211|\(1002\)|not allowed|pas autoris|not authori[sz]ed|"
-                        r"operation not permitted|assistive", re.I)
 
 
 def cible_cursor(demandee: Any = None) -> str:
@@ -706,6 +729,7 @@ VOLETS = {   # dans l'ordre où on les règle : nom du volet macOS, et son nom d
     "accessibilite": ("Accessibility", "Accessibilité"),
     "ecran": ("ScreenCapture", "Enregistrement de l'écran et de l'audio système"),
     "automatisation": ("Automation", "Automatisation"),
+    "contacts": ("Contacts", "Contacts"),
 }
 _APPS_PILOTEES = [("System Events", "count processes"), ("Finder", "count windows"),
                   ("Contacts", "count people"), ("Messages", "count accounts"),
@@ -756,6 +780,8 @@ async def verifier_autorisations(_args: dict[str, Any]) -> dict[str, Any]:
             refusees.append(app)
     if refusees:
         manquantes.append("automatisation")
+    if "Contacts" in refusees:  # son propre volet aussi : sans lui, « écris à Marie » ne retrouve aucun numéro
+        manquantes.append("contacts")
     lignes = []
     if bonnes:
         lignes.append("Déjà bon : " + ", ".join(bonnes) + ".")

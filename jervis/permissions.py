@@ -115,9 +115,10 @@ def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[
         return Decision.OUI
     if outil == "Bash":
         commande = entree.get("command", "").strip()
-        if INTERDIT.search(commande):
+        if INTERDIT.search(commande) or SUPPRESSION_DIRECTE.search(commande):
             return Decision.NON
-        if BASH_LOURD.search(commande) or FICHIERS_SECRETS.search(commande) or PERSISTANCE.search(commande):
+        if (BASH_LOURD.search(commande) or TELECHARGE_ET_LANCE.search(commande)
+                or FICHIERS_SECRETS.search(commande) or PERSISTANCE.search(commande)):
             return Decision.DEMANDER
         return Decision.OUI
     return Decision.OUI
@@ -251,7 +252,7 @@ def politique_essentielle(outil: str, entree: dict[str, Any], apps_vues: Iterabl
         return Decision.DEMANDER if FICHIERS_SECRETS.search(chemin_fichier(entree)) else Decision.OUI
     if outil == "Bash":
         commande = entree.get("command", "").strip()
-        if INTERDIT.search(commande):
+        if INTERDIT.search(commande) or SUPPRESSION_DIRECTE.search(commande):
             return Decision.NON
         if BASH_A_CONFIRMER.search(commande) or FICHIERS_SECRETS.search(commande):
             return Decision.DEMANDER
@@ -312,7 +313,7 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
         return Decision.DEMANDER if FICHIERS_SECRETS.search(chemin_fichier(entree)) else Decision.OUI
     if outil == "Bash":
         commande = entree.get("command", "").strip()
-        if INTERDIT.search(commande):
+        if INTERDIT.search(commande) or SUPPRESSION_DIRECTE.search(commande):
             return Decision.NON
         if SANS_RISQUE.match(commande) and not re.search(r"[;&|`$<>]", commande):
             return Decision.OUI
@@ -351,6 +352,10 @@ SANS_RISQUE = re.compile(
     re.IGNORECASE,
 )
 INTERDIT = re.compile(r"\b(sudo|rm\s+-rf|mkfs|diskutil\s+erase|shutdown|reboot)\b")
+# Supprimer en direct : jamais. Tout ce qui s'efface passe par la corbeille (mettre_a_la_corbeille), qui se rattrape.
+SUPPRESSION_DIRECTE = re.compile(_COMMANDE + r"(rm|rmdir|unlink|shred|srm)\b|\bfind\b[^|;&]*\s-delete\b", re.IGNORECASE)
+# Une commande qui télécharge puis lance d'un coup : « bash <(curl …) » (« curl … | sh » est déjà dans BASH_LOURD).
+TELECHARGE_ET_LANCE = re.compile(r"<\(\s*(?:curl|wget)\b", re.IGNORECASE)
 # Fichiers : lire et chercher se fait seul ; écrire (Write, Edit) demande, une fois par dossier et par demande.
 LECTURE_FICHIERS = {"Read", "Glob", "Grep"}
 ECRITURE_FICHIERS = {"Write", "Edit"}
@@ -629,6 +634,20 @@ ACTIONS = {
 PAR_APPEL = {"send_message", "reply", "forward", "share_file", "execute_zapier_write_action", "request_access"}
 
 
+def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
+    """Pourquoi le gardien refuse d'office une commande Bash, et ce que Steve doit faire à la place ("" sinon)."""
+    if outil != "Bash":
+        return ""
+    commande = str(entree.get("command", "")).strip()
+    if INTERDIT.search(commande):
+        return ("Le gardien interdit cette commande (sudo, rm -rf, formater un disque, éteindre ou redémarrer le "
+                "Mac). Ne la contourne pas : dis-lui en une phrase que tu ne peux pas le faire d'ici.")
+    if SUPPRESSION_DIRECTE.search(commande):
+        return ("Le gardien interdit de supprimer avec rm, rmdir, unlink ou find -delete. Utilise l'outil "
+                "mettre_a_la_corbeille avec les chemins complets : la corbeille se rattrape.")
+    return ""
+
+
 class Gardien:
     """Branche la politique sur le SDK (c'est le `can_use_tool`).
 
@@ -661,6 +680,8 @@ class Gardien:
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)
+        if decision is Decision.NON and (motif := motif_interdit(outil, entree)):
+            return PermissionResultDeny(message=motif)  # refusé d'office : pas de question, et il sait quoi faire à la place
         if decision is Decision.DEMANDER:
             # Une réponse vaut pour toutes les actions identiques de la demande (6 mails à la corbeille),
             # mais chaque message envoyé à quelqu'un est confirmé à part.
