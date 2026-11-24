@@ -38,6 +38,10 @@ ANNONCE = f"{PRENOM} est en ligne."
 SILENCE_END_S = float(_env("SILENCE_END_S", "0.8"))     # silence qui marque la fin de ta phrase
 MAX_UTTERANCE_S = float(_env("MAX_UTTERANCE_S", "20"))
 NO_SPEECH_TIMEOUT_S = float(_env("NO_SPEECH_TIMEOUT_S", "5"))
+# Le son gardé juste avant le début de ta voix (la première syllabe, souvent douce, n'est pas perdue).
+AVANT_PAROLE_S = float(_env("AVANT_PAROLE_S", "0.32"))
+# En dessous de ce temps de parole, c'est un bruit (toux, porte, clavier) : il n'en fait pas une phrase.
+MIN_PAROLE_S = float(_env("MIN_PAROLE_S", "0.35"))
 # Conversation ouverte : tu dis son nom une fois, puis tu enchaînes sans lui. Le délai repart à chaque échange ;
 # c'est le temps qu'il te laisse pour COMMENCER à parler (ensuite il attend que tu aies fini, même si tu cherches tes mots).
 FOLLOW_UP_S = float(_env("FOLLOW_UP_S", "30"))
@@ -61,6 +65,15 @@ EFFORT = _env("EFFORT", "medium")
 MODELE_EXPERT = _env("MODELE_EXPERT", "opus")
 EFFORT_EXPERT = _env("EFFORT_EXPERT", "high")
 TACHES_MAX = int(_env("TACHES_MAX", "5"))   # agents de fond en même temps
+# Quand un agent a fini (ou une annonce tombe), il ne te coupe jamais : il attend un blanc, personne ne parle depuis
+# ANNONCE_CALME_S. Si on parle sans arrêt à côté (télé, appel), il le dit quand même au bout d'ANNONCE_ATTENTE_MAX_S.
+# En pleine conversation, il le dit entre deux de tes phrases, sans quitter la conversation.
+ANNONCE_CALME_S = float(_env("ANNONCE_CALME_S", "1.2"))
+ANNONCE_ATTENTE_MAX_S = float(_env("ANNONCE_ATTENTE_MAX_S", "20"))
+# Une question d'un agent (« je peux envoyer ? ») sans réponse pendant ce temps : c'est non, l'agent continue.
+QUESTION_FOND_S = float(_env("QUESTION_FOND_S", "1800"))
+# Un agent attend au plus ce temps que les connecteurs claude.ai (Gmail, Agenda…) soient prêts avant de démarrer.
+CONNECTEURS_FOND_S = float(_env("CONNECTEURS_FOND_S", "10"))
 # Après ce temps sans lui parler, il repart sur une conversation neuve (il garde sa mémoire et vos 3 derniers
 # échanges). Sinon toute la journée est relue à chaque phrase : plus lent, et ça mange ton abonnement.
 OUBLI_MIN = float(_env("OUBLI_MIN", "15"))
@@ -77,7 +90,8 @@ CONFIRMATIONS = _env("CONFIRMATIONS", "confiance").lower()
 
 # --- Cursor ----------------------------------------------------------------------
 # Quand tu dis « écris ça dans Cursor » sans préciser, où va le prompt ?
-#   claude_code : dans l'extension Claude Code de Cursor (un nouvel onglet Claude Code).
+#   claude_code : dans l'extension Claude Code de Cursor (collé dans l'onglet Claude Code déjà ouvert ;
+#                 un nouvel onglet ou une nouvelle fenêtre seulement si tu le demandes).
 #   agent       : dans le chat de l'agent de Cursor lui-même.
 # Si tu précises à voix haute (« dans Claude Code », « à l'agent de Cursor »), c'est ce que tu dis qui compte.
 CIBLE_CURSOR = _env("CURSOR_CIBLE", "claude_code").strip().lower()
@@ -204,6 +218,8 @@ SILENCE_COURT_S = float(_env("SILENCE_COURT_S", "0.35"))  # pause après laquell
 SILENCE_MAX_S = float(_env("SILENCE_MAX_S", "2.5"))       # pause après laquelle il coupe quoi qu'il arrive
 SEUIL_FIN = float(_env("SEUIL_FIN", "0.8"))               # monte-le (0.9) s'il te coupe encore
 SEUIL_FIN_TARD = float(_env("SEUIL_FIN_TARD", "0.3"))
+# Pendant ta pause, il se repose la question toutes les ENTRE_QUESTIONS_S secondes.
+ENTRE_QUESTIONS_S = float(_env("ENTRE_QUESTIONS_S", "0.25"))
 # Phrase qui finit en l'air (« Steve, est-ce que tu peux ouvrir… ») : il t'écoute encore ce temps-là
 # pour avoir la suite, en silence, au lieu de te répondre « ouvrir quoi ? » (moitié moins si la transcription
 # a quand même mis un point ou un « ? » au bout).
@@ -211,6 +227,10 @@ SUITE_PHRASE_S = float(_env("SUITE_PHRASE_S", "5"))
 # Phrase de trois mots ou plus sans point final (« No parce que Scott ») : la transcription ne met un point
 # que quand ta voix retombe. Sans point, tu allais sûrement continuer : il attend encore ce temps-là.
 SUITE_SANS_POINT_S = float(_env("SUITE_SANS_POINT_S", "1.5"))
+# Tu réfléchis à voix haute (« Steve, mets-moi… euh… », « … et du coup ») : il attend la suite ce temps-là.
+SUITE_HESITATION_S = float(_env("SUITE_HESITATION_S", "4"))
+# Tu parlais encore quand il a repris ta phrase : il écoute au moins ce temps-là pour avoir la fin.
+ENCORE_S = float(_env("ENCORE_S", "1.2"))
 # Tu reprends la parole alors qu'il n'a encore rien répondu (il a cru ta phrase finie) : il lâche ce qu'il
 # commençait et repart avec ta phrase entière. Valable pendant FUSION_S secondes après ta phrase, et au plus
 # FUSIONS_MAX fois de suite (après, ce que tu ajoutes est traité juste après sa réponse).
@@ -240,6 +260,25 @@ ANTI_ECHO = _env("ANTI_ECHO", "oui").lower() not in {"non", "off", "0"}
 DEBRUITAGE = _env("DEBRUITAGE", "detection").lower()
 # Ta voix : si voix.npy existe (python -m jervis --apprendre-ma-voix), il ignore les autres voix.
 SEUIL_VOIX = float(_env("SEUIL_VOIX", "0.5"))   # baisse-le (0.4) s'il ignore ta propre voix
+# Une phrase courte (moins de VOIX_LONGUE_S de parole) donne une empreinte moins nette : le seuil descend en douceur
+# jusqu'à SEUIL_VOIX_COURTE pour les plus courtes (MIN_VERIF_VOIX_S). En dessous de MIN_VERIF_VOIX_S, trop court
+# pour juger : la phrase passe (une confirmation sensible, elle, demande toujours une vraie phrase).
+SEUIL_VOIX_COURTE = float(_env("SEUIL_VOIX_COURTE", "0.42"))
+VOIX_LONGUE_S = float(_env("VOIX_LONGUE_S", "2"))
+MIN_VERIF_VOIX_S = float(_env("MIN_VERIF_VOIX_S", "0.8"))
+# Le mot-clé (« Hey Steve ») bien entendu par son modèle : la télé ne le dit pas. Le seuil descend alors jusque-là.
+SEUIL_VOIX_REVEIL = float(_env("SEUIL_VOIX_REVEIL", "0.42"))
+# Ta voix n'a pas une seule empreinte mais jusqu'à VOIX_CENTRES : voix.npy, plus d'autres dans voix_centres.npy
+# (ta voix du matin, fatiguée, au micro du casque…). Une phrase est à toi si elle ressemble à l'une d'elles.
+# Une nouvelle se crée quand tu dis son nom d'une voix qu'il reconnaissait mal. Garde-fous contre la dérive :
+# chacune reste proche de ta voix de départ (ressemblance ≥ ECART_CENTRE avec voix_depart.npy), et une phrase
+# reconnue seulement par ces empreintes-là doit aussi ressembler un minimum (VOIX_PLANCHER) à ta voix de départ.
+# JERVIS_VOIX_CENTRES=1 : une seule empreinte, comme avant.
+VOIX_CENTRES = int(_env("VOIX_CENTRES", "4"))
+ECART_CENTRE = float(_env("ECART_CENTRE", "0.5"))
+VOIX_PLANCHER = float(_env("VOIX_PLANCHER", "0.3"))
+# JERVIS_DIAGNOSTIC_VOIX=oui : chaque phrase écrit son score de voix dans jervis.log (pour régler SEUIL_VOIX).
+DIAGNOSTIC_VOIX = _env("DIAGNOSTIC_VOIX", "non").lower() in {"oui", "on", "1"}
 # Un « oui » qui déclenche une action sensible (paiement, ordre venu d'une page…) doit être dit de ta voix :
 # une télé, un autre ou une vidéo ne peuvent pas le dire à ta place. (Sans voix apprise, ça ne change rien.)
 CONFIRMATION_VOIX = _env("CONFIRMATION_VOIX", "oui").lower() not in {"non", "off", "0"}

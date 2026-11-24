@@ -73,7 +73,7 @@ async def sans_connecteurs(*_a, **_k) -> None: ...
 fond.ClaudeSDKClient = FauxClient
 fond.preparer_connecteurs = sans_connecteurs
 compteur.noter = lambda *_a, **_k: None  # ne pas écrire dans les vraies dépenses
-fond.Taches._options = lambda self, titre: None
+fond.Taches._options = lambda self, tache: None
 
 
 async def main() -> None:
@@ -97,6 +97,18 @@ async def main() -> None:
     verifier("et son nombre d'étapes", [t["etapes"] for t in etat], [2, 2])
     verifier("la voix décrit chacun", [("en ce moment : Navigateur" in ligne) for ligne in taches.lister().splitlines()],
              [True, True])
+
+    bravo = next(t for t in taches._taches.values() if t.titre == "Tâche bravo")
+    bravo.attend = "j'envoie le mail à Paul ?"   # ce que fait sa confirmation pendant qu'il attend ta réponse
+    par_titre = {t["titre"]: t for t in taches.etat()}
+    verifier("le tableau montre l'agent qui attend ta réponse",
+             (par_titre["Tâche bravo"]["attend"], par_titre["Tâche bravo"]["action"]),
+             (True, "attend ta réponse : j'envoie le mail à Paul ?"))
+    verifier("les autres travaillent", par_titre["Tâche alpha"]["attend"], False)
+    verifier("la voix le dit aussi", "en ce moment : attend ta réponse : j'envoie le mail à Paul ?" in taches.lister(), True)
+    bravo.attend = ""
+    verifier("ta réponse donnée, il reprend son action", next(t["action"] for t in taches.etat() if t["titre"] == "Tâche bravo"),
+             "Navigateur · ouvre une page · https://a.fr")
 
     barrieres["casse"] = asyncio.Event()
     taches.lancer("Tâche cassée", "casse")
@@ -176,6 +188,19 @@ async def main() -> None:
     verifier("un numéro qui n'existe pas", taches.annuler_depuis_un_fil(999), False)
     ecran.actions["pause"] = lambda: None
     verifier("les boutons de la barre marchent toujours", callable(ecran.action("pause")), True)
+
+    # --- 5. Une question restée sans réponse ne traîne pas dans la file ------------------------------------------
+    verifier("sans réponse, c'est non (et la question est retirée)",
+             (await standard.demander("j'envoie ?", delai=0.05), standard.en_attente(), standard.sonnerie.is_set()),
+             (False, False, False))
+    config.QUESTION_FOND_S = 0.05
+    verifier("le délai par défaut vient de JERVIS_QUESTION_FOND_S", await standard.demander("je supprime ?"), False)
+    question = asyncio.ensure_future(standard.demander("je publie ?", delai=10))
+    await asyncio.sleep(0.01)
+    verifier("la question attend Steve", standard.en_attente(("question",)), True)
+    question.cancel()   # sa tâche est annulée pendant qu'elle attend ta réponse
+    await asyncio.sleep(0.01)
+    verifier("tâche annulée : la question n'est plus posée", standard.en_attente(), False)
 
 
 asyncio.run(main())

@@ -40,6 +40,7 @@ class Phrase:
     silence: float = 0.0    # le silence attendu après ta dernière syllabe, avant de dire « fini »
     empreinte: np.ndarray | None = None  # la « signature » de la voix de cette phrase (si assez longue)
     voix: float | None = None            # sa ressemblance avec ta voix (None : pas encore apprise)
+    seuil_voix: float | None = None      # le score qu'il fallait pour être toi (selon sa longueur, le mot-clé)
     coupee: bool = False    # arrêtée par la durée maximale : tu parlais encore
 
 
@@ -133,9 +134,7 @@ def _charger(nom: str, fabrique):
 
 
 class Oreilles:
-    PRE_ROLL = 4           # blocs gardés avant le début de la voix (~0,3 s), pour ne pas couper le premier mot
-    MIN_PAROLE_S = 0.35    # en dessous, c'est un bruit (toux, porte…)
-    MIN_VERIF_VOIX_S = 0.8  # en dessous, trop court pour reconnaître une voix (« oui », « stop » passent)
+    # Les réglages d'écoute (avant-parole, durée minimale, vérification de la voix) sont dans config.py.
 
     def __init__(self) -> None:
         import openwakeword
@@ -298,8 +297,6 @@ class Oreilles:
     def _est_voix(self, bloc: np.ndarray) -> bool:
         return float(self._vad.predict(bloc, frame_size=640)) >= config.SEUIL_VAD
 
-    ENTRE_QUESTIONS_S = 0.25  # pendant ta pause, il se repose la question toutes les 0,25 s
-
     @staticmethod
     def seuil_fin(silence: float) -> float:
         """La certitude qu'il lui faut pour dire « tu as fini », selon la durée de ta pause : très sûr juste
@@ -315,26 +312,44 @@ class Oreilles:
             return silence >= config.SILENCE_END_S, demande_a
         if silence >= config.SILENCE_MAX_S:
             return True, demande_a
-        if silence >= config.SILENCE_COURT_S and (demande_a < 0 or silence - demande_a >= self.ENTRE_QUESTIONS_S):
+        if silence >= config.SILENCE_COURT_S and (demande_a < 0 or silence - demande_a >= config.ENTRE_QUESTIONS_S):
             return self._fin.probabilite(np.concatenate(morceaux)) >= self.seuil_fin(silence), silence
         return False, demande_a
 
     def _voix_inconnue(self, phrase: Phrase) -> bool:
-        if phrase.voix is not None and phrase.voix < config.SEUIL_VOIX:
+        if phrase.voix is not None and phrase.seuil_voix is None:
+            phrase.seuil_voix = config.SEUIL_VOIX
+        inconnue = phrase.voix is not None and phrase.voix < phrase.seuil_voix
+        if config.DIAGNOSTIC_VOIX:
+            self._diagnostic(phrase, inconnue)
+        if inconnue:
             print(f"   \033[2m(une voix qui n'est pas la tienne, ignorée : {phrase.voix:.2f})\033[0m", flush=True)
-            return True
-        return False
+        return inconnue
+
+    def _diagnostic(self, phrase: Phrase, inconnue: bool) -> None:
+        """JERVIS_DIAGNOSTIC_VOIX=oui : une ligne par phrase dans jervis.log, pour régler les seuils de voix."""
+        parole = f"{phrase.duree_parole:.1f} s de parole{' + mot-clé' if phrase.reveil else ''}"
+        if phrase.voix is None:
+            raison = "trop courte pour juger" if phrase.duree_parole < config.MIN_VERIF_VOIX_S else "pas encore d'empreinte"
+            print(f"   🔎 voix : {raison} ({parole}) → acceptée", flush=True)
+            return
+        empreinte = self._empreinte
+        detail = " / ".join(f"{x:.2f}" for x in empreinte.scores(phrase.empreinte))
+        depart = f", départ {float(phrase.empreinte @ empreinte.depart):.2f}" if empreinte.depart is not None else ""
+        print(f"   🔎 voix : {phrase.voix:.2f} pour un seuil de {phrase.seuil_voix:.2f} ({parole} ; "
+              f"empreintes {detail}{depart}) → {'ignorée' if inconnue else 'acceptée'}", flush=True)
 
     def _signer(self, phrase: Phrase) -> None:
         """Calcule une seule fois la signature de la voix : elle sert à vérifier ET à apprendre."""
-        if self._empreinte is None or phrase.duree_parole < self.MIN_VERIF_VOIX_S:
+        if self._empreinte is None or phrase.duree_parole < config.MIN_VERIF_VOIX_S:
             return
         try:
             phrase.empreinte = self._empreinte.vecteur(phrase.audio)
         except Exception:
             return
         if self._empreinte.reference is not None:
-            phrase.voix = float(phrase.empreinte @ self._empreinte.reference)
+            phrase.voix = self._empreinte.score(phrase.empreinte)
+            phrase.seuil_voix = self._empreinte.seuil(phrase.duree_parole, phrase.reveil)
 
     def ecouter_phrase(
         self,
@@ -360,9 +375,10 @@ class Oreilles:
         duree_max = duree_max or config.MAX_UTTERANCE_S
         ecoute_motcle = veille and self._motcle is not None
         fin = None if attente_max is None else time.monotonic() + attente_max
+        avant_parole = max(1, round(config.AVANT_PAROLE_S / duree_bloc))  # en blocs de 80 ms
 
         while True:
-            avant: collections.deque[np.ndarray] = collections.deque(maxlen=self.PRE_ROLL)
+            avant: collections.deque[np.ndarray] = collections.deque(maxlen=avant_parole)
             reveil = False
 
             # 1) on attend le début de la voix
@@ -393,7 +409,7 @@ class Oreilles:
                 if self._est_voix(debruite):
                     parole += duree_bloc
                     silence, demande = 0.0, -1.0  # tu as repris : on redemandera à smart-turn
-                    if quand_tu_parles and not signale and parole >= self.MIN_PAROLE_S:
+                    if quand_tu_parles and not signale and parole >= config.MIN_PAROLE_S:
                         signale = True
                         quand_tu_parles(True)
                 else:
@@ -403,9 +419,11 @@ class Oreilles:
                         coupee = False
                         break
 
-            if parole < self.MIN_PAROLE_S:
+            if parole < config.MIN_PAROLE_S:
                 continue  # simple bruit : on recommence à attendre
             if veille and config.DETECTION == "motcle" and self._motcle is not None and not reveil:
+                if signale and quand_tu_parles:
+                    quand_tu_parles(False)  # pas pour lui : on remet le volume
                 continue  # sans le mot-clé, on ne transcrit même pas
             phrase = Phrase(np.concatenate(morceaux), reveil, parole, silence, coupee=coupee)
             self._signer(phrase)

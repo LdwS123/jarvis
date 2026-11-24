@@ -439,16 +439,23 @@ async def demander_accord(_args: dict[str, Any]) -> dict[str, Any]:
 
 
 # --- Cursor -------------------------------------------------------------------
-# Deux endroits où déposer un prompt dans Cursor, chacun par un « deeplink » (un lien que l'app sait ouvrir) :
-#  - l'extension Claude Code : le lien ouvre un onglet Claude Code et pré-remplit son champ, sans l'envoyer ;
+# Deux endroits où déposer un prompt dans Cursor :
+#  - l'extension Claude Code. Par défaut, le prompt va dans l'onglet Claude Code DÉJÀ OUVERT : Cursor passe
+#    devant, la palette de commandes lance « Claude Code: Focus input » (le champ de la conversation en cours
+#    prend le curseur ; s'il n'y en a aucune, l'extension en ouvre une), puis le prompt est collé (cmd+v).
+#    Un nouvel onglet ou une nouvelle fenêtre seulement s'il le demande : l'onglet par un « deeplink » (un lien
+#    que l'app sait ouvrir, qui ouvre TOUJOURS un nouvel onglet), la fenêtre par la palette.
 #  - l'agent de Cursor lui-même : https://cursor.com/docs/reference/deeplinks (nouvelle conversation, pas lancée).
 LIENS_CURSOR = {
     "claude_code": ("cursor://anthropic.claude-code/open", "prompt"),
     "agent": ("cursor://anysphere.cursor-deeplink/prompt", "text"),
 }
 NOMS_CURSOR = {"claude_code": "Claude Code dans Cursor", "agent": "l'agent de Cursor"}
+# Les commandes de l'extension, tapées dans la palette de Cursor (cmd+shift+p) : leur titre exact.
+COMMANDES_CLAUDE_CODE = {"": "Claude Code: Focus input", "fenetre": "Claude Code: Open in New Window"}
 LONGUEUR_MAX_LIEN = 8000
 ATTENTE_CURSOR_S = 2.5   # le temps que l'onglet s'ouvre et que le champ prenne le curseur
+ATTENTE_FENETRE_S = 4.0  # une nouvelle fenêtre est plus longue à venir
 
 
 def cible_cursor(demandee: Any = None) -> str:
@@ -463,12 +470,29 @@ def cible_cursor(demandee: Any = None) -> str:
     return config.CIBLE_CURSOR if config.CIBLE_CURSOR in LIENS_CURSOR else "claude_code"
 
 
+def nouveau_cursor(demande: Any = None) -> str:
+    """Où va le prompt Claude Code : "" = l'onglet déjà ouvert (par défaut), « onglet » = un nouvel onglet,
+    « fenetre » = une nouvelle fenêtre. Seulement s'il l'a demandé : tout le reste veut dire l'onglet ouvert."""
+    n = _sans_accents(str(demande or "").strip())
+    if any(m in n for m in ("fenetre", "window")):
+        return "fenetre"
+    if any(m in n for m in ("onglet", "tab", "nouve", "new", "autre")) or n in {"true", "1", "oui", "yes"}:
+        return "onglet"
+    return ""
+
+
 def lien_cursor(prompt: str, cible: str = "claude_code") -> str | None:
     """Le lien qui dépose ce prompt, ou None s'il est trop long pour tenir dans un lien."""
     base, parametre = LIENS_CURSOR[cible]
     # quote (et pas quote_plus) : les espaces deviennent %20, et & ? # sont encodés, sinon le texte est coupé.
     lien = f"{base}?{parametre}={quote(prompt, safe='')}"
     return lien if len(lien) <= LONGUEUR_MAX_LIEN else None
+
+
+def palette_cursor(commande: str) -> str:
+    """Les touches qui lancent une commande par la palette de Cursor : cmd+shift+p, son titre, Entrée."""
+    return ('keystroke "p" using {command down, shift down}\ndelay 0.6\n'
+            f'keystroke "{commande}"\ndelay 0.8\nkey code 36')
 
 
 async def _app_devant() -> str:
@@ -482,8 +506,9 @@ async def _app_devant() -> str:
 
 
 async def _touche(script: str) -> str | None:
-    """Fait taper une touche par System Events. Rend None si c'est fait, sinon pourquoi ça ne l'est pas."""
-    code, sortie = await _applescript(f'tell application "System Events" to {script}')
+    """Fait taper des touches par System Events (une ou plusieurs lignes). Rend None si c'est fait, sinon
+    pourquoi ça ne l'est pas."""
+    code, sortie = await _applescript(f'tell application "System Events"\n{script}\nend tell')
     if not code:
         return None
     if _REFUS_MAC.search(sortie):
@@ -492,13 +517,42 @@ async def _touche(script: str) -> str | None:
     return f"la touche n'est pas partie ({sortie[:200]})"
 
 
+async def _coller_dans_claude_code(prompt: str, nouveau: str) -> str | None:
+    """Colle le prompt dans l'onglet Claude Code déjà ouvert (nouveau = "") ou dans une nouvelle fenêtre
+    (nouveau = « fenetre »), ou dans l'onglet qu'un lien vient d'ouvrir (nouveau = « onglet »).
+    Rend None si c'est collé, sinon ce qui a coincé."""
+    code, sortie = await _lancer("pbcopy", entree=prompt)
+    if code:
+        return f"le presse-papiers a refusé le prompt ({sortie[:200]})"
+    if nouveau == "onglet":
+        code, sortie = await _lancer("open", LIENS_CURSOR["claude_code"][0])
+        if code:
+            return f"Cursor n'a pas ouvert d'onglet Claude Code ({sortie[:200]})"
+    else:
+        code, sortie = await _lancer("open", "-a", "Cursor")  # Cursor devant, sur la fenêtre où il était
+        if code:
+            return f"Cursor ne s'ouvre pas ({sortie[:200]})"
+        await asyncio.sleep(ATTENTE_CURSOR_S / 3)
+        if (devant := await _app_devant()) != "Cursor":  # jamais de touches à l'aveugle dans une autre app
+            return f"c'est {devant or 'une autre app'} qui est devant, pas Cursor"
+        if souci := await _touche(palette_cursor(COMMANDES_CLAUDE_CODE[nouveau])):
+            return souci
+    await asyncio.sleep(ATTENTE_FENETRE_S if nouveau == "fenetre" else ATTENTE_CURSOR_S)
+    if (devant := await _app_devant()) != "Cursor":
+        return f"c'est {devant or 'une autre app'} qui est devant, pas Cursor"
+    return await _touche('keystroke "v" using command down')
+
+
 @tool("ecrire_dans_cursor", "Dépose un prompt dans Cursor : dans l'extension Claude Code (`cible` = claude_code) "
       "ou dans le chat de l'agent de Cursor (`cible` = agent). Sans `cible` : son réglage habituel. "
+      "Claude Code : le prompt est collé dans l'onglet Claude Code DÉJÀ OUVERT. `nouveau` = onglet ou fenetre "
+      "SEULEMENT s'il demande lui-même un nouvel onglet, une nouvelle fenêtre, une autre conversation Claude Code. "
       "`prompt` = le prompt complet que TU as rédigé ; `dossier` = optionnel, le projet à ouvrir d'abord "
       "(ex. ~/Jervis) ; `envoyer` = true pour appuyer aussi sur Entrée (sinon le prompt est écrit, pas lancé).",
       {"type": "object",
        "properties": {"prompt": {"type": "string"},
                       "cible": {"type": "string", "enum": ["claude_code", "agent"]},
+                      "nouveau": {"type": "string", "enum": ["onglet", "fenetre"]},
                       "dossier": {"type": "string"},
                       "envoyer": {"type": "boolean"}},
        "required": ["prompt"]})
@@ -507,7 +561,7 @@ async def ecrire_dans_cursor(args: dict[str, Any]) -> dict[str, Any]:
     if not prompt:
         return _erreur("Le prompt est vide.")
     cible = cible_cursor(args.get("cible"))
-    nom = NOMS_CURSOR[cible]
+    nouveau = nouveau_cursor(args.get("nouveau"))
     envoyer = str(args.get("envoyer", "")).strip().lower() in {"true", "1", "oui", "yes"}
     if dossier := str(args.get("dossier") or "").strip():
         chemin = Path(dossier).expanduser()
@@ -518,45 +572,55 @@ async def ecrire_dans_cursor(args: dict[str, Any]) -> dict[str, Any]:
             return _erreur(f"Impossible d'ouvrir Cursor : {sortie}")
         await asyncio.sleep(3)  # le temps que la fenêtre du projet s'ouvre, sinon le prompt part dans une autre
 
-    lien = lien_cursor(prompt, cible)
+    if cible == "agent":
+        return await _vers_agent_cursor(prompt, envoyer)
+
+    lieu = {"": "l'onglet Claude Code déjà ouvert", "onglet": "un nouvel onglet Claude Code",
+            "fenetre": "une nouvelle fenêtre Claude Code"}[nouveau]
+    lien = lien_cursor(prompt, cible) if nouveau == "onglet" else None
+    if lien:  # nouvel onglet demandé : le lien l'ouvre et pré-remplit son champ, sans touche ni presse-papiers
+        code, sortie = await _lancer("open", lien)
+        if code:
+            return _erreur(f"Cursor n'a pas pris le prompt : {sortie}")
+    elif souci := await _coller_dans_claude_code(prompt, nouveau):
+        return _texte(f"Le prompt est dans le presse-papiers, mais pas collé dans {lieu} : {souci}. Avec les "
+                      "outils mac : see Cursor, clique dans le champ de Claude Code, colle (cmd+v)"
+                      + (", puis press return." if envoyer else "."))
+
+    if not envoyer:
+        return _texte(f"Le prompt est écrit dans {lieu}, pas envoyé."
+                      + (" La toute première fois, Cursor peut afficher une petite fenêtre « ouvrir ce lien ? » : "
+                         "see Cursor, puis son bouton." if lien else ""))
+    await asyncio.sleep(ATTENTE_CURSOR_S if lien else 0.3)
+    if (devant := await _app_devant()) != "Cursor":
+        return _texte(f"Le prompt est écrit dans {lieu}, mais c'est {devant or 'une autre app'} qui est devant : "
+                      "je n'ai pas appuyé sur Entrée. Avec les outils mac : see Cursor, clique dans le champ, "
+                      "press return.")
+    if souci := await _touche("key code 36"):
+        return _texte(f"Le prompt est écrit dans {lieu}, pas envoyé : {souci}")
+    return _texte(f"Le prompt est écrit dans {lieu} et j'ai appuyé sur Entrée. Vérifie d'un coup d'œil "
+                  "(see Cursor) : le champ doit être vide et Claude en train de répondre. S'il y a encore le texte, "
+                  "ou s'il est parti ailleurs (un fichier, la palette), corrige à la main puis press return.")
+
+
+async def _vers_agent_cursor(prompt: str, envoyer: bool) -> dict[str, Any]:
+    """L'agent de Cursor : son lien ouvre une nouvelle conversation pré-remplie, avec une fenêtre de confirmation."""
+    lien = lien_cursor(prompt, "agent")
     if lien is None:  # trop long pour un lien : il passe par le presse-papiers
         code, sortie = await _lancer("pbcopy", entree=prompt)
         if code:
             return _erreur(f"Prompt trop long pour un lien, et le presse-papiers a refusé : {sortie}")
-        if cible == "agent":
-            return _texte("Prompt trop long pour un lien : il est dans le presse-papiers. Avec les outils mac : "
-                          "see Cursor, clique dans le champ du chat, colle (cmd+v)"
-                          + (", puis press return." if envoyer else "."))
-        code, sortie = await _lancer("open", LIENS_CURSOR[cible][0])
-        if code:
-            return _erreur(f"Cursor n'a pas ouvert Claude Code : {sortie}")
-        await asyncio.sleep(ATTENTE_CURSOR_S)
-        souci = None if await _app_devant() == "Cursor" else "Cursor n'est pas passé devant"
-        souci = souci or await _touche('keystroke "v" using command down')
-        if souci:
-            return _texte(f"Le prompt est dans le presse-papiers et un onglet Claude Code est ouvert, mais {souci}. "
-                          "Avec les outils mac : see Cursor, clique dans le champ, colle (cmd+v).")
-    else:
-        code, sortie = await _lancer("open", lien)
-        if code:
-            return _erreur(f"Cursor n'a pas pris le prompt : {sortie}")
-
+        return _texte("Prompt trop long pour un lien : il est dans le presse-papiers. Avec les outils mac : "
+                      "see Cursor, clique dans le champ du chat, colle (cmd+v)"
+                      + (", puis press return." if envoyer else "."))
+    code, sortie = await _lancer("open", lien)
+    if code:
+        return _erreur(f"Cursor n'a pas pris le prompt : {sortie}")
     if not envoyer:
-        return _texte(f"Le prompt est écrit dans {nom}, pas envoyé. La toute première fois, Cursor peut afficher "
-                      "une petite fenêtre « ouvrir ce lien ? » : see Cursor, puis son bouton.")
-    if cible == "agent":  # l'agent de Cursor affiche toujours une fenêtre de confirmation avant
-        return _texte("Le prompt est dans Cursor, pas encore envoyé. Pour l'envoyer : see Cursor, puis le bouton de "
-                      "la fenêtre de confirmation, puis press return dans le chat.")
-    await asyncio.sleep(ATTENTE_CURSOR_S)
-    if (devant := await _app_devant()) != "Cursor":
-        return _texte(f"Le prompt est écrit dans {nom}, mais c'est {devant or 'une autre app'} qui est devant : "
-                      "je n'ai pas appuyé sur Entrée. Avec les outils mac : see Cursor, clique dans le champ, "
-                      "press return.")
-    if souci := await _touche("key code 36"):
-        return _texte(f"Le prompt est écrit dans {nom}, pas envoyé : {souci}")
-    return _texte(f"Le prompt est écrit dans {nom} et j'ai appuyé sur Entrée. Vérifie d'un coup d'œil (see Cursor) : "
-                  "le champ doit être vide et Claude en train de répondre. S'il y a encore le texte, ou une "
-                  "fenêtre « ouvrir ce lien ? », clique où il faut puis press return.")
+        return _texte(f"Le prompt est écrit dans {NOMS_CURSOR['agent']}, pas envoyé. La toute première fois, "
+                      "Cursor peut afficher une petite fenêtre « ouvrir ce lien ? » : see Cursor, puis son bouton.")
+    return _texte("Le prompt est dans Cursor, pas encore envoyé. Pour l'envoyer : see Cursor, puis le bouton de "
+                  "la fenêtre de confirmation, puis press return dans le chat.")
 
 
 # --- Tout le Mac : corbeille, mémoire vive, autorisations ----------------------------

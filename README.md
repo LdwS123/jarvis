@@ -113,6 +113,12 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
   - Phrase qui finit en l'air (« Steve, est-ce que tu peux… » puis tu réfléchis) : il attend la suite en silence
     (5 secondes), sans dire « Oui ? », et répond à la phrase entière.
   - Phrase sans point final (ta voix n'est pas retombée) : il attend encore 1,5 seconde avant de la croire finie.
+  - Tu réfléchis à voix haute (« Steve, envoie un mail à Paul, euh… », « … et du coup ») : il attend la suite
+    4 secondes. Une toux ou un « euh » tout seul pendant ce temps ne compte pas comme la suite.
+  - **Les morceaux sont recollés proprement** : la transcription réentend souvent la fin d'un morceau au début
+    du suivant (« ouvre le fichier » + « fichier budget » → « ouvre le fichier budget »), et quand tu te reprends
+    (« envoie un mail à Paul, euh » + « envoie un mail à Pierre pour… »), c'est ta correction qui reste. Dans le
+    doute, il garde les deux morceaux : rien de ce que tu as dit n'est perdu.
   - Tu reprends la parole alors qu'il commençait à réfléchir : il lâche ce qu'il préparait et repart avec ta phrase
     complète, bout à bout (jusqu'à 3 fois de suite, dans les 8 secondes).
   - Sa réponse est prête mais tu parles encore : il la retient jusqu'à ce que tu te taises (6 secondes au plus,
@@ -128,8 +134,17 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
   reste encore plus fiable.
 - Il fait presque tout sans demander : ouvrir, créer, modifier, ranger, cliquer, coder. Il ne pose la question
   que pour ce qui ne se rattrape pas (voir « Ce qu'il te demande encore » plus bas). Réponds « oui » ou « non ».
-- Quand il a fini une tâche de fond ou qu'une annonce programmée arrive, il fait un bip, te le dit, et t'écoute
-  6 secondes pour la suite. Il attend que tu aies fini ta phrase : il ne te coupe jamais.
+- **Il travaille en fond pendant que vous parlez** : jusqu'à 5 agents à la fois (des tâches indépendantes
+  tournent en parallèle). Tu continues de lui parler normalement pendant ce temps, et une nouvelle demande est
+  traitée tout de suite, sans attendre qu'une tâche finisse.
+- **Ce qu'il a à te dire de lui-même** (tâche finie, annonce programmée, question d'un agent) attend un blanc :
+  1,2 seconde sans que personne parle. Si tu parles, ta phrase passe d'abord, et en pleine conversation il te le
+  dit entre deux échanges, sans y mettre fin : tu enchaînes ensuite sans redire son nom. En veille, les gens qui
+  parlent à côté le font aussi patienter ; au bout de 20 secondes de bavardage continu (une télé), il le dit quand
+  même. Des tâches qui finissent en même temps : un seul compte rendu. Juste après une annonce, il sait à quoi tu
+  réponds (« décale de dix minutes »).
+- Un agent qui attend ta réponse est marqué sur le tableau de bord (« attend ta réponse : … »). Une question
+  restée 30 minutes sans réponse vaut non, et une question dont l'agent a été arrêté n'est plus posée.
 
 ## Comment il t'entend
 
@@ -153,9 +168,25 @@ Au démarrage, une ligne indique ce qui est actif (`✓`) ou pas (`·`). Si une 
 
     .venv/bin/python -m jervis --apprendre-ma-voix
 
-et lis les 6 phrases. Il crée `voix.npy` et, ensuite, ignore les autres voix. Pour revenir en arrière, supprime `voix.npy`, `voix_depart.npy` et `voix_debut.npy`.
+et lis les 6 phrases. Il crée `voix.npy` et, ensuite, ignore les autres voix. Pour revenir en arrière, supprime `voix.npy`, `voix_depart.npy`, `voix_debut.npy` et `voix_centres.npy`.
 
 Sans ça, il l'apprend tout seul : après 4 phrases qui se ressemblent où tu dis « Steve » (la télé ne l'appelle pas), il crée l'empreinte. Ces phrases sont gardées dans `voix_debut.npy` : relancer Steve ne remet pas le compteur à zéro, et une autre voix qui dit son nom ne compte pas. Ensuite chaque phrase où il est sûr que c'est toi l'affine un peu, sans jamais trop s'éloigner de l'empreinte de départ (`voix_depart.npy`).
+
+**Ta voix fatiguée aussi.** Ta voix change d'un jour à l'autre (fatigue, rhume, casque, autre pièce) : une seule
+empreinte la reconnaît mal ces jours-là. Quand tu dis « Steve » d'une voix qu'il ne reconnaît que de justesse, il en
+garde une empreinte de plus dans `voix_centres.npy` (4 empreintes en tout, `voix.npy` comprise ; au-delà, les deux plus
+proches fusionnent). Chacune s'affine sur les phrases qui lui ressemblent le plus, et toutes restent proches de ta voix
+de départ : la télé ne peut pas s'en faire une. `voix.npy` et `voix_depart.npy` gardent leur rôle ; supprimer
+`voix_centres.npy` revient à une seule empreinte.
+
+**Le seuil s'adapte à la phrase.** Une phrase courte a une empreinte moins nette : le seuil descend en douceur de
+0,5 (2 secondes de parole et plus) à 0,42 (0,8 seconde). Sous 0,8 seconde, c'est trop court pour juger : la phrase
+passe. Quand le mot de réveil a été entendu par son modèle, le seuil est de 0,42 au plus. Le « oui » d'une
+confirmation sensible reste jugé au seuil plein.
+
+**Pour régler les seuils**, lance Steve avec `JERVIS_DIAGNOSTIC_VOIX=oui` : chaque phrase écrit une ligne dans
+`jervis.log`, par exemple `🔎 voix : 0.61 pour un seuil de 0.50 (2.4 s de parole ; empreintes 0.58 / 0.61, départ 0.55) → acceptée`.
+Regarde les scores de tes phrases et ceux de la télé, puis place `JERVIS_SEUIL_VOIX` entre les deux. Rien ne sort du Mac.
 C'est un filtre contre la télé et les conversations autour, pas un verrou de sécurité : une voix très proche de la tienne peut passer.
 
 **Un « oui » qu'on ne peut pas te voler.** Quand il te demande confirmation (paiement, ordre venu d'une page web…), ta voix apprise doit être reconnue sur la réponse : une autre voix, une vidéo ou la télé qui dit « oui » ne déclenche rien (« Ce n'est pas ta voix, je n'y vais pas »). Un « oui » tout seul est trop bref pour être signé : il te demande de le dire en une phrase (« oui, vas-y »). Sans voix apprise, rien ne change. Coupe-le avec `JERVIS_CONFIRMATION_VOIX=non`.
@@ -213,7 +244,7 @@ Ce qu'il faut savoir :
 | « Dans Notes, crée une liste de courses avec du pain et du lait » | il pilote l'app elle-même : il regarde ses boutons, clique et tape, **en arrière-plan** (ta souris et ton clavier restent à toi). Marche avec Finder, Spotify, Pages, Réglages… |
 | « Trouve mon CV dans le Drive et résume-le » | il cherche dans ton Google Drive et lit le document |
 | « Ajoute une carte "Facture EDF" dans mon Trello » | il passe par Zapier, qui relie des milliers d'apps (Notion, Slack, Trello, Sheets…). Les actions s'activent sur zapier.com |
-| « Mets un prompt dans Claude Code sur Jervis pour ajouter un mode silencieux » | il lit d'abord ton code, **rédige lui-même un vrai prompt** (contexte, fichiers, contraintes, comment vérifier), ouvre un onglet de l'extension Claude Code dans Cursor, y dépose le prompt et appuie sur Entrée. « Écris-le sans l'envoyer » : il le laisse dans le champ. « Dans l'agent de Cursor » (ou « Composer ») : il le met dans le chat de Cursor, qui te montre toujours une fenêtre de confirmation. Si tu dis juste « dans Cursor », c'est `JERVIS_CURSOR_CIBLE` qui décide. La première fois, Cursor peut demander « Ouvrir ce lien ? » : coche « ne plus demander » |
+| « Mets un prompt dans Claude Code sur Jervis pour ajouter un mode silencieux » | il lit d'abord ton code, **rédige lui-même un vrai prompt** (contexte, fichiers, contraintes, comment vérifier), le colle dans **l'onglet Claude Code déjà ouvert** dans Cursor (palette de commandes → « Claude Code: Focus input », puis cmd+v) et appuie sur Entrée. Un nouvel onglet ou une nouvelle fenêtre Claude Code seulement si tu le demandes (« dans un nouvel onglet Claude Code », « dans une nouvelle fenêtre »). Le prompt passe par le presse-papiers. « Écris-le sans l'envoyer » : il le laisse dans le champ. « Dans l'agent de Cursor » (ou « Composer ») : il le met dans le chat de Cursor, qui te montre toujours une fenêtre de confirmation. Si tu dis juste « dans Cursor », c'est `JERVIS_CURSOR_CIBLE` qui décide. Pour un nouvel onglet ou l'agent, la première fois, Cursor peut demander « Ouvrir ce lien ? » : coche « ne plus demander » |
 | « Mets à la corbeille les captures d'écran du Bureau » | il les trouve, puis les met **à la corbeille** (jamais de suppression définitive : tu peux les reprendre). « Vide la corbeille » : là il te demande « Je peux ? » |
 | « Libère de la mémoire », « le Mac rame » | il mesure la mémoire vive (part occupée, pression, débordement sur le disque), te dit quelles apps pèsent le plus et quitte celles dont tu ne te sers pas (jamais Cursor, Chrome ni l'app au premier plan). Si la pression est normale, il te le dit au lieu de fermer des apps pour rien |
 | « Efface ta mémoire », « oublie tout ce que tu sais sur moi », « efface nos conversations » | il met `memoire.md` et/ou l'historique à la corbeille, puis repart de zéro tout de suite, sans redémarrage. « Oublie que j'aime le jazz » n'enlève que ça |
@@ -315,7 +346,8 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   atteinte, il te dit en une phrase à quelle heure ça se libère (« Tu as atteint la limite de ton abonnement, ça
   se libère à 21 h 50. ») et ne peut plus rien faire d'ici là.
 - **Ses agents** (à gauche) : chaque agent de fond qu'il a lancé, avec le temps qu'il y passe, l'outil qu'il utilise en
-  ce moment (« cherche sur le web : … », « Navigateur · ouvre une page ») et son nombre d'étapes ; les derniers finis restent
+  ce moment (« cherche sur le web : … », « Navigateur · ouvre une page », ou en jaune « attend ta réponse : … » quand il
+  t'a posé une question) et son nombre d'étapes ; les derniers finis restent
   quelques minutes, grisés (✓ fini, ✕ échec) avec ce qu'ils ont consommé chez Claude, en jetons. Un **×** à droite d'un
   agent en cours l'arrête. Au-dessus, le bilan depuis son démarrage : « 5 lancés · 1 en cours · 2 finis · 1 échec ·
   1 annulé ». Ni prix ni dollars : ce qui compte, c'est ta part d'abonnement, pas la facture API.
@@ -364,6 +396,11 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_SEUIL_FIN_TARD` | 0.3 | certitude qui lui suffit à la fin de `SILENCE_MAX_S` (il devient moins exigeant au fil de ta pause) |
 | `JERVIS_SUITE_PHRASE_S` | 5 | phrase qui finit en l'air (« tu peux ouvrir… ») : le temps qu'il attend la suite, en silence |
 | `JERVIS_SUITE_SANS_POINT_S` | 1.5 | phrase de 3 mots ou plus sans point final : le temps qu'il attend encore (monte-le à 2.5 s'il te coupe) |
+| `JERVIS_SUITE_HESITATION_S` | 4 | tu réfléchis à voix haute (« euh », « du coup », « en fait »… en fin de phrase) : le temps qu'il attend la suite |
+| `JERVIS_ENCORE_S` | 1.2 | tu parlais encore quand il a repris ta phrase : il écoute au moins ce temps-là pour avoir la fin |
+| `JERVIS_AVANT_PAROLE_S` | 0.32 | le son gardé juste avant que ta voix soit détectée (pour ne pas manger ta première syllabe) |
+| `JERVIS_MIN_PAROLE_S` | 0.35 | en dessous de ce temps de parole, c'est un bruit (clic, toux), pas une phrase |
+| `JERVIS_ENTRE_QUESTIONS_S` | 0.25 | pendant ta pause, tous les combien il se redemande si tu as fini |
 | `JERVIS_FUSION_S` | 8 | tu reprends la parole avant qu'il ait répondu : pendant ce temps-là, il recolle les deux bouts et repart de la phrase entière |
 | `JERVIS_FUSIONS_MAX` | 3 | combien de fois de suite il recolle (après, ce que tu ajoutes passe juste après sa réponse) |
 | `JERVIS_RETENUE_S` | 3.2 | tant que tu parles, il retient sa réponse : ce temps-là après le début de ta voix |
@@ -374,7 +411,15 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_DEUXIEME_AVIS` | oui | `non` = il ne réécoute plus en français les deux ou trois mots sortis en anglais (0,4 s de gagné sur ces phrases-là) |
 | `JERVIS_ANTI_ECHO` | oui | `non` pour le couper (par ex. si ton micro a déjà le sien) |
 | `JERVIS_DEBRUITAGE` | detection | `tout` = débruite aussi ce qui est transcrit ; `non` = coupé |
-| `JERVIS_SEUIL_VOIX` | 0.5 | si ta voix est apprise : baisse-le (0.4) s'il t'ignore, monte-le (0.6) s'il écoute les autres |
+| `JERVIS_SEUIL_VOIX` | 0.5 | si ta voix est apprise : baisse-le (0.4) s'il t'ignore, monte-le (0.6) s'il écoute les autres (phrases de `VOIX_LONGUE_S` et plus, et les « oui » sensibles) |
+| `JERVIS_SEUIL_VOIX_COURTE` | 0.42 | le seuil des phrases les plus courtes (`MIN_VERIF_VOIX_S`) ; entre les deux, il descend en douceur |
+| `JERVIS_VOIX_LONGUE_S` | 2 | à partir de ce temps de parole, le seuil plein (`SEUIL_VOIX`) |
+| `JERVIS_MIN_VERIF_VOIX_S` | 0.8 | en dessous, trop court pour juger la voix : la phrase passe |
+| `JERVIS_SEUIL_VOIX_REVEIL` | 0.42 | seuil au plus quand le mot de réveil a été entendu par son modèle |
+| `JERVIS_VOIX_CENTRES` | 4 | nombre d'empreintes de ta voix (`1` = une seule, comme avant) |
+| `JERVIS_ECART_CENTRE` | 0.5 | une empreinte en plus doit ressembler au moins autant à ta voix de départ |
+| `JERVIS_VOIX_PLANCHER` | 0.3 | une phrase reconnue seulement par une empreinte en plus doit ressembler au moins autant à ta voix de départ |
+| `JERVIS_DIAGNOSTIC_VOIX` | non | `oui` = chaque phrase écrit son score de voix dans `jervis.log` (pour régler les seuils) |
 | `JERVIS_APPRENDRE_VOIX` | oui | il apprend ta voix tout seul (4 phrases où tu dis son nom), puis l'affine à chaque phrase de toi |
 | `JERVIS_SEUIL_APPRENDRE` | 0.65 | il n'affine ta voix qu'avec les phrases où il est au moins aussi sûr que c'est toi |
 | `JERVIS_CONFIRMATION_VOIX` | oui | un « oui » sensible doit être de ta voix (si elle est apprise) ; `non` pour couper |
@@ -389,7 +434,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_PATIENCE_S` | 1.8 | après combien de secondes de silence il dit « Voyons… » |
 | `JERVIS_PHRASES_PATIENCE` | Voyons…\|Alors…\|Une seconde.\|Je regarde. | ses petites phrases d'attente, séparées par `\|` |
 | `JERVIS_VOLUME_SI_TU_PARLES` | 0.35 | volume de sa voix quand tu commences à parler (1 = il ne baisse pas) |
-| `JERVIS_CURSOR_CIBLE` | claude_code | « mets ça dans Cursor » sans préciser : `claude_code` = l'extension Claude Code, `agent` = le chat de l'agent de Cursor |
+| `JERVIS_CURSOR_CIBLE` | claude_code | « mets ça dans Cursor » sans préciser : `claude_code` = l'extension Claude Code (l'onglet déjà ouvert), `agent` = le chat de l'agent de Cursor |
 | `JERVIS_CHROME_PERSO` | oui | `non` = il n'utilise plus ton Chrome, seulement le sien |
 | `JERVIS_MODELE_EXPERT` | opus | modèle de son expert, pour les grosses tâches |
 | `JERVIS_EFFORT_EXPERT` | high | effort de l'expert (`xhigh` ou `max` pour les tâches très dures) |
@@ -400,6 +445,10 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_OUBLI_MIN` | 15 | après cette pause, conversation neuve (il garde sa mémoire et vos 3 derniers échanges) : moins cher et plus rapide |
 | `JERVIS_COUT` | oui | `non` = ne plus afficher « 💰 … » après chaque réponse |
 | `JERVIS_TACHES_MAX` | 5 | nombre d'agents de fond en même temps |
+| `JERVIS_ANNONCE_CALME_S` | 1.2 | le blanc qu'il attend (personne ne parle) pour te dire ce qu'il a à te dire : tâche finie, annonce, question |
+| `JERVIS_ANNONCE_ATTENTE_MAX_S` | 20 | au bout de ce temps de bavardage continu (une télé), il le dit quand même |
+| `JERVIS_QUESTION_FOND_S` | 1800 | une question d'un agent restée sans réponse ce temps-là : c'est non |
+| `JERVIS_CONNECTEURS_FOND_S` | 10 | le temps qu'un agent attend ses connecteurs (Gmail, Agenda…) avant de démarrer sans eux |
 | `JERVIS_MEMOIRE_AUTO` | oui | `non` = il ne retient que ce que tu lui demandes |
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
 | `JERVIS_BRIEFING` | oui | `non` = pas de briefing du matin |
@@ -426,9 +475,10 @@ avec le contexte et ne redemande que s'il est vraiment bloqué (ses consignes, d
   n'est jamais pour lui : il l'ignore, et ta tâche en cours n'est pas perdue.
 Test sans micro : `PYTHONPATH=. .venv/bin/python tests/test_naturel.py`. La ligne directe de la voix, sans
 Internet : `PYTHONPATH=. .venv/bin/python tests/test_ligne.py`. Sa voix locale, sans le modèle :
-`tests/test_voix.py` (et l'apprentissage de ta voix). Les chiffres écrits en mots : `tests/test_oral.py`.
+`tests/test_voix.py` (l'apprentissage de ta voix, ses empreintes et le diagnostic). Les chiffres écrits en mots : `tests/test_oral.py`.
 Cursor, la corbeille, effacer sa mémoire et les autorisations, sans rien ouvrir ni jeter : `tests/test_mac.py`.
 Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests/test_fond.py`.
+Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
 Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations…) sont dans `jervis/outils.py`.

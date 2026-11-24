@@ -136,11 +136,18 @@ class Empreinte:
     dans voix_debut.npy : un redémarrage ne remet pas le compteur à zéro. Ensuite, chaque phrase
     nettement reconnue comme la tienne la rapproche un peu de ta voix du moment (micro, fatigue, rhume…).
     voix_depart.npy garde la toute première empreinte : il ne peut pas s'en éloigner, donc pas de dérive
-    vers une autre voix."""
+    vers une autre voix.
+
+    Ta voix change pourtant d'un jour à l'autre (fatigue, rhume, autre micro) : une seule moyenne la reconnaît
+    mal ces jours-là. Il garde donc d'autres empreintes dans voix_centres.npy (config.VOIX_CENTRES en tout) :
+    quand tu dis son nom d'une voix qu'il reconnaissait de justesse, il en ajoute une, et chacune s'affine sur
+    les phrases qui lui ressemblent le plus. Une phrase est à toi si elle ressemble à l'une d'elles. Elles restent
+    toutes proches de voix_depart.npy (config.ECART_CENTRE), et voix.npy garde le même rôle qu'avant."""
 
     FICHIER = config.DOSSIER / "voix.npy"
     DEPART = config.DOSSIER / "voix_depart.npy"
     DEBUT = config.DOSSIER / "voix_debut.npy"   # les phrases sûres déjà entendues, tant que l'empreinte n'existe pas
+    CENTRES = config.DOSSIER / "voix_centres.npy"  # tes autres empreintes (voix fatiguée, autre micro…)
     PHRASES_POUR_COMMENCER = 4   # phrases avec son nom, et qui se ressemblent, avant de créer l'empreinte
     MEME_VOIX = 0.5              # deux phrases de la même personne se ressemblent au moins autant
     GARDEES = 8                  # phrases sûres gardées en attendant (les plus récentes)
@@ -153,10 +160,36 @@ class Empreinte:
         cfg = sherpa_onnx.SpeakerEmbeddingExtractorConfig(
             model=str(modele("wespeaker_en_voxceleb_CAM++.onnx")), num_threads=2)
         self._extracteur = sherpa_onnx.SpeakerEmbeddingExtractor(cfg)
+        self._charger()
+
+    def _charger(self) -> None:
+        """Relit tes empreintes sur le disque (au démarrage)."""
         self.reference = np.load(self.FICHIER) if self.FICHIER.exists() else None
         self.depart = np.load(self.DEPART) if self.DEPART.exists() else self.reference
         self._debut = self._relire_debut()  # les phrases sûres, avant que l'empreinte existe
+        self.centres = self._relire_centres()
         self.affinages = 0
+
+    def _relire_centres(self) -> list[np.ndarray]:
+        """Tes empreintes en plus de voix.npy (aucune si le fichier manque, est abîmé ou d'une autre taille)."""
+        if self.reference is None or not self.CENTRES.exists():
+            return []
+        try:
+            tous = np.load(self.CENTRES).astype(np.float32)
+        except (OSError, ValueError, EOFError):
+            return []
+        if tous.ndim != 2 or tous.shape[1] != self.reference.shape[0]:
+            return []
+        return [c / (np.linalg.norm(c) + 1e-9) for c in tous][:max(0, config.VOIX_CENTRES - 1)]
+
+    def _ranger_centres(self) -> None:
+        try:
+            if self.centres:
+                _ecrire(self.CENTRES, np.array(self.centres, dtype=np.float32))
+            else:
+                self.CENTRES.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def _relire_debut(self) -> list[np.ndarray]:
         """Les phrases sûres des fois d'avant (rien si l'empreinte existe déjà, ou si le fichier est abîmé)."""
@@ -192,7 +225,31 @@ class Empreinte:
     def ressemblance(self, audio_int16: np.ndarray) -> float:
         """Cosinus entre cette phrase et ta voix : ~0,7-0,9 pour toi, ~0,2-0,5 pour quelqu'un d'autre."""
         assert self.reference is not None
-        return float(self.vecteur(audio_int16) @ self.reference)
+        return self.score(self.vecteur(audio_int16))
+
+    def scores(self, v: np.ndarray) -> list[float]:
+        """La ressemblance de cette phrase avec chacune de tes empreintes (voix.npy d'abord)."""
+        return [float(v @ c) for c in (self.reference, *self.centres)]
+
+    def score(self, v: np.ndarray) -> float:
+        """La ressemblance avec ta voix : celle de l'empreinte la plus proche. Une phrase que seules les autres
+        empreintes reconnaissent doit aussi ressembler un minimum à ta voix de départ (VOIX_PLANCHER)."""
+        assert self.reference is not None
+        principale, *autres = self.scores(v)
+        if autres and (self.depart is None or float(v @ self.depart) >= config.VOIX_PLANCHER):
+            return max(principale, *autres)
+        return principale
+
+    @staticmethod
+    def seuil(duree_parole: float, reveil: bool = False) -> float:
+        """Le score qu'il faut pour que ce soit toi. Une phrase courte a une empreinte moins nette : le seuil
+        descend en douceur de SEUIL_VOIX (VOIX_LONGUE_S de parole et plus) à SEUIL_VOIX_COURTE (MIN_VERIF_VOIX_S).
+        Le mot-clé entendu par son modèle (la télé ne le dit pas) le descend jusqu'à SEUIL_VOIX_REVEIL."""
+        court = config.MIN_VERIF_VOIX_S
+        etendue = max(config.VOIX_LONGUE_S - court, 1e-6)
+        avancee = min(max((duree_parole - court) / etendue, 0.0), 1.0)
+        seuil = min(config.SEUIL_VOIX, config.SEUIL_VOIX_COURTE + (config.SEUIL_VOIX - config.SEUIL_VOIX_COURTE) * avancee)
+        return min(seuil, config.SEUIL_VOIX_REVEIL) if reveil else seuil
 
     def _sauver(self, reference: np.ndarray, depart: bool = False) -> None:
         self.reference = reference.astype(np.float32)
@@ -221,18 +278,48 @@ class Empreinte:
                 return f"{len(proches)} phrase{'s' if len(proches) > 1 else ''} sur {self.PHRASES_POUR_COMMENCER}"
             moyenne = proches.mean(axis=0)
             self._sauver(moyenne / np.linalg.norm(moyenne), depart=True)
-            self._debut = []
+            self._debut, self.centres = [], []
             self._ranger_debut()
+            self._ranger_centres()
             return f"j'ai appris ta voix ({len(proches)} phrases) : maintenant j'ignore les autres voix"
-        if float(v @ self.reference) < config.SEUIL_APPRENDRE:
-            return None  # pas assez sûr que ce soit toi : on n'y touche pas
-        nouvelle = (1 - self.PAS) * self.reference + self.PAS * v
-        nouvelle /= np.linalg.norm(nouvelle)
-        if self.depart is not None and float(nouvelle @ self.depart) < self.ECART_MAX:
-            return None
-        self._sauver(nouvelle)
-        self.affinages += 1
+        scores = self.scores(v)
+        if self.score(v) < config.SEUIL_APPRENDRE:
+            # Pas assez sûr que ce soit toi : on n'affine rien. Mais avec son nom dedans, c'est bien toi, avec
+            # une voix qu'il reconnaît mal (fatigue, autre micro) : il en garde une empreinte de plus.
+            return self._ajouter_centre(v) if sure else None
+        if scores[0] >= config.SEUIL_APPRENDRE:
+            nouvelle = (1 - self.PAS) * self.reference + self.PAS * v
+            nouvelle /= np.linalg.norm(nouvelle)
+            if self.depart is None or float(nouvelle @ self.depart) >= self.ECART_MAX:
+                self._sauver(nouvelle)
+                self.affinages += 1
+        plus_proche = int(np.argmax(scores))
+        if plus_proche > 0 and scores[plus_proche] >= config.SEUIL_APPRENDRE:
+            # Une de tes autres voix : c'est elle qui s'affine (sans jamais s'éloigner de ta voix de départ).
+            centre = (1 - self.PAS) * self.centres[plus_proche - 1] + self.PAS * v
+            centre /= np.linalg.norm(centre)
+            if self.depart is None or float(centre @ self.depart) >= config.ECART_CENTRE:
+                self.centres[plus_proche - 1] = centre.astype(np.float32)
+                self._ranger_centres()
+                self.affinages += 1
         return None
+
+    def _ajouter_centre(self, v: np.ndarray) -> str | None:
+        """Une empreinte de plus pour ta voix, si elle reste assez proche de ta voix de départ. Toutes les
+        places prises : les deux empreintes les plus semblables (la nouvelle comprise) n'en font plus qu'une."""
+        places = config.VOIX_CENTRES - 1
+        if places <= 0 or (self.depart is not None and float(v @ self.depart) < config.ECART_CENTRE):
+            return None
+        tous = [*self.centres, v.astype(np.float32)]
+        if len(tous) > places:
+            matrice = np.array(tous) @ np.array(tous).T
+            np.fill_diagonal(matrice, -2.0)
+            i, j = sorted(np.unravel_index(int(np.argmax(matrice)), matrice.shape))
+            fusion = tous[i] + tous[j]
+            tous = [c for k, c in enumerate(tous) if k not in (i, j)] + [(fusion / np.linalg.norm(fusion)).astype(np.float32)]
+        self.centres = tous
+        self._ranger_centres()
+        return f"une empreinte de plus pour ta voix ({1 + len(self.centres)} en tout)"
 
     def enregistrer(self, phrases: list[np.ndarray]) -> list[float]:
         """Enregistre l'empreinte (la moyenne de tes phrases) et renvoie, pour chaque phrase, sa ressemblance
@@ -244,8 +331,9 @@ class Empreinte:
             scores.append(float(vecteurs[i] @ (autres / np.linalg.norm(autres))))
         moyenne = vecteurs.mean(axis=0)
         self._sauver(moyenne / np.linalg.norm(moyenne), depart=True)
-        self._debut = []
+        self._debut, self.centres = [], []   # une voix toute neuve : les anciennes empreintes ne valent plus
         self._ranger_debut()
+        self._ranger_centres()
         return scores
 
 

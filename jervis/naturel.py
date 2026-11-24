@@ -170,3 +170,62 @@ def hors_alphabet(texte: str) -> bool:
         return False
     etrangeres = sum(not ("LATIN" in unicodedata.name(c, "")) for c in lettres)
     return etrangeres / len(lettres) > 0.5
+
+
+# --- Ta phrase dite en plusieurs morceaux -------------------------------------------------------------------------
+# « Envoie un mail à Paul, euh… » : tu réfléchis à voix haute, la suite arrive (il attend plus longtemps).
+# Les « euh » ne trompent pas ; « du coup », « en fait », « genre »… seulement sans point final
+# (« Je suis crevé, en fait. » est une phrase finie).
+_EUH = r"euh+|heu+|hum+|hmm+|bah|ben"
+_FIN_EUH = re.compile(rf"(?:(?<![\w'’-])(?:{_EUH})\W*)+$", _I)
+_HESITATION = re.compile(
+    rf"(?:(?<![\w'’-])(?:{_EUH}|alors|enfin|genre|du coup|en fait|tu vois|comment dire|voyons|disons"
+    r"|attends voir|c'est-à-dire)\W*)+$", _I)
+
+
+def hesite(texte: str) -> bool:
+    """Ta phrase finit sur une hésitation (« … du coup », « … euh ») : tu cherches tes mots, pas fini."""
+    texte = texte.strip()
+    if re.search(r"[?!][\s\"'»)]*$", texte):
+        return False  # une question, une exclamation : c'est fini
+    if re.search(r"(?<![.…])\.[\s\"'»)]*$", texte):  # un vrai point (pas des points de suspension)
+        return bool(_FIN_EUH.search(texte))
+    return bool(_HESITATION.search(texte))
+
+
+_MOT = re.compile(r"[\w'’-]+")
+
+
+def _simple(mot: str) -> str:
+    sans_accents = "".join(c for c in unicodedata.normalize("NFD", mot) if unicodedata.category(c) != "Mn")
+    return re.sub(r"^(?:[cdjlmnst]|qu)['’]", "", sans_accents.casefold()).strip("'’-")  # « d'appeler » = « appeler »
+
+
+def recoller(debut: str, suite: str) -> str:
+    """Recolle deux morceaux de ta phrase. La reconnaissance réentend souvent la fin du premier au début du
+    second (« ouvre le fichier » + « fichier budget ») : le doublon saute. Et si tu as repris ta phrase en la
+    corrigeant (« envoie un mail à Paul » + « envoie un mail à Pierre pour lui dire… »), seule la reprise reste."""
+    debut, suite = debut.strip(), suite.strip()
+    if not suite:
+        return debut
+    debut = _FIN_EUH.sub("", debut).rstrip(" ,")  # « … à Paul, euh » : le « euh » n'apporte rien
+    if not debut:
+        return suite
+    mots_debut = list(_MOT.finditer(debut))
+    a = [_simple(m.group()) for m in mots_debut]
+    mots_suite = list(_MOT.finditer(suite))
+    b = [_simple(m.group()) for m in mots_suite]
+    for k in range(min(len(a), len(b)), 0, -1):  # la plus longue fin du début que la suite redit
+        queue, tete = a[-k:], b[:k]
+        ecarts = sum(x != y for x, y in zip(queue, tete))
+        # Le premier mot doit être le même ; un mot corrigé (« Paul » → « Pierre ») si au moins quatre sont redits.
+        if queue[0] != tete[0] or ecarts > (1 if k >= 4 else 0):
+            continue
+        if k == 1 and len(queue[0]) < 3:  # « tu » + « tu… » : trop court pour être sûr que c'est un doublon
+            continue
+        if not ecarts:  # un simple doublon : la suite sans ce qu'elle redit
+            apres = suite[mots_suite[k - 1].end():].lstrip(" ,") if k < len(b) else ""
+            return f"{debut.rstrip(' ?.!,…')} {apres}" if apres else debut
+        reste = debut[:mots_debut[-k].start()].rstrip(" ,")  # une reprise corrigée : la nouvelle version
+        return f"{reste} {suite}" if reste else suite
+    return f"{debut.rstrip(' ?.!,…')} {suite}"

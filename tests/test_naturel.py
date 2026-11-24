@@ -12,14 +12,14 @@ import threading
 import time
 import types
 
-threading.Timer(40, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).start()
+threading.Timer(80, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).start()
 
 from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock  # noqa: E402
 
 from jervis import audio, brain, config, fond, outils, stt, tts  # noqa: E402
 from jervis import __main__ as m  # noqa: E402
 from jervis.naturel import (avis_limite, corriger_transcription, decoder_epellation, epellation_en_cours,  # noqa: E402
-                            hors_alphabet, nettoyer)
+                            hesite, hors_alphabet, nettoyer, recoller)
 
 echecs: list[str] = []
 total = 0
@@ -363,25 +363,46 @@ tts.brancher = lambda hp: None
 tts.taire = lambda: setattr(tts, "_tais_toi", True)
 fond.Programmateur.tourner = rien
 m.Cerveau = FauxCerveau
+STANDARDS: list = []
+
+
+class StandardSuivi(fond.Standard):
+    def __init__(self):
+        super().__init__()
+        STANDARDS.append(self)
+
+
+m.Standard = StandardSuivi
 config.SUITE_PHRASE_S = 2.0        # une phrase en l'air : il attend la suite (sans rien dire)
 config.SUITE_SANS_POINT_S = 0.2    # une phrase sans point final : il attend un peu
 config.FOLLOW_UP_S = config.FOLLOW_UP_QUESTION_S = 1.5
 
 
-def jouer(script, duree):
-    """Joue une conversation : ce que tu dis (le script), puis ce qu'il a reçu et ce qu'il a dit."""
+def jouer(script, duree, evenements=()):
+    """Joue une conversation : ce que tu dis (le script), puis ce qu'il a reçu et ce qu'il a dit.
+    `evenements` : (quand, genre, texte) que ses tâches de fond lui postent pendant ce temps."""
     global T0
     PARTIE[0] += 1
     SCRIPT[:] = script
     dit_par_steve.clear(); dit_quand.clear(); recu.clear()
     tts._tais_toi = False
     T0 = time.monotonic()
+    avant = len(STANDARDS)
+
+    async def poster():
+        while len(STANDARDS) == avant:
+            await asyncio.sleep(0.01)
+        for quand, genre, texte in evenements:
+            await asyncio.sleep(max(0.0, quand - t()))
+            STANDARDS[-1].poster(fond.Evenement(genre, texte))
 
     async def scenario():
+        envoi = asyncio.ensure_future(poster())
         try:
             await asyncio.wait_for(m.mode_vocal(), timeout=duree)
         except asyncio.TimeoutError:
             pass
+        envoi.cancel()
 
     asyncio.new_event_loop().run_until_complete(scenario())
     print("   cerveau a reçu :", recu)
@@ -422,6 +443,51 @@ jouer([
 ], 6)
 verifier("retenue : il a quand même répondu", dit_par_steve[1:2], ["C'est fait."])
 verifier("retenue : il a attendu que tu aies fini de parler", dit_quand[1:2] and dit_quand[1] >= 2.3, True)
+
+config.ANNONCE_CALME_S = 0.4       # un blanc de 0,4 s : le moment de dire ce qu'il a à dire
+config.ANNONCE_ATTENTE_MAX_S = 3.0
+config.SUITE_HESITATION_S = 2.5
+
+print("\n🧵 Deux tâches de fond finissent pendant que vous parlez : un seul compte rendu, et la conversation continue")
+jouer([
+    (0.3, "Steve, quelle heure il est ?"),
+    (2.4, "et mets du jazz"),                        # sans son nom : la conversation continue après le compte rendu
+    (3.8, "merci"),
+], 5.5, evenements=[(0.8, "fini", "Tâche « mails » finie : 3 mails importants."),
+                    (0.8, "fini", "Tâche « budget » finie : tableau prêt.")])
+rapports = [r for r in recu if "tâches de fond viennent de finir" in r]
+verifier("tâches finies : un seul compte rendu pour les deux", len(rapports), 1)
+verifier("tâches finies : avec les deux résultats", rapports and ("mails" in rapports[0] and "budget" in rapports[0]), True)
+verifier("tâches finies : d'abord ta question, puis le compte rendu, puis ta suite",
+         [r[:20] for r in recu], ["quelle heure il est", "(2 tâches de fond vi", "et mets du jazz"])
+verifier("tâches finies : la conversation continue sans redire son nom", dit_par_steve[-1:], ["À plus tard."])
+
+print("\n📣 Une annonce arrive pendant qu'on parle à côté : elle attend un blanc, ta question passe d'abord")
+jouer([
+    (0.6, "tu as vu le match hier", 0.4),            # des gens qui parlent à côté (pas à lui)
+    (0.9, "Steve, quelle heure il est ?", 0.7),      # … puis toi
+    (2.6, "décale de dix minutes"),                  # ta réponse à l'annonce
+    (4.0, "merci"),
+], 5.5, evenements=[(0.3, "annonce", "Ta réunion commence dans dix minutes.")])
+quand = {d: q for d, q in zip(dit_par_steve, dit_quand)}
+annonces = [d for d in dit_par_steve if "réunion" in d]
+verifier("annonce : dite une fois", len(annonces), 1)
+verifier("annonce : pas pendant qu'on parlait, après ta réponse",
+         bool(annonces) and dit_par_steve.index(annonces[0]) > dit_par_steve.index("C'est fait.")
+         and quand[annonces[0]] >= 0.9, True)
+verifier("annonce : ta question est passée d'abord", recu[:1], ["quelle heure il est"])
+verifier("annonce : il sait à quoi tu réponds",
+         recu[1:2], ["(Tu viens de lui annoncer : « Ta réunion commence dans dix minutes. ».) décale de dix minutes"])
+
+print("\n🤔 Tu hésites (« euh ») puis tu te reprends : il attend, et garde la phrase corrigée")
+jouer([
+    (0.3, "Steve, envoie un mail à Paul, euh"),      # tu réfléchis : il ne coupe pas
+    (2.0, "envoie un mail à Pierre pour lui dire que j'arrive"),
+    (3.5, "merci"),
+], 5)
+verifier("hésitation : il a attendu la suite, et pris ta correction",
+         recu[:1], ["envoie un mail à Pierre pour lui dire que j'arrive"])
+verifier("hésitation : une seule réponse", dit_par_steve[1:], ["C'est fait.", "À plus tard."])
 FIN.set()
 
 print("\n🔊 La voix : longues phrases dites par bouts, le premier fabriqué seul")
@@ -513,6 +579,33 @@ for texte, attendu in [("Steve, est-ce que tu peux ouvrir", 2.0),     # en l'air
     verifier(f"attente de la suite : {texte}", m.attente_suite(texte), attendu)
 verifier("attente : le point lu sur la phrase d'origine", m.attente_suite("regarde mes mails", ponctuee=True), 0.0)
 verifier("attente : sans point sur la phrase d'origine", m.attente_suite("regarde mes mails", ponctuee=False), 0.2)
+for texte in ["envoie un mail à Paul, euh", "ouvre le fichier euh…", "il faut que, comment dire", "et alors..."]:
+    verifier(f"attente : tu hésites ({texte})", m.attente_suite(texte), config.SUITE_HESITATION_S)
+
+# Tu hésites : « euh », « en fait », « tu vois »… en fin de phrase, sauf si la phrase est vraiment finie.
+for texte, attendu in [("envoie un mail euh", True), ("envoie un mail à Paul, euh", True), ("bah", True),
+                       ("ouvre le fichier, hmm.", True),            # un point après « hmm » : il hésitait quand même
+                       ("et alors...", True), ("il faut que, comment dire", True), ("mets la musique, du coup", True),
+                       ("Je suis crevé, en fait.", False),         # « en fait. » avec un vrai point : c'est fini
+                       ("c'est quoi ton genre ?", False), ("mets du jazz", False), ("euh, mets du jazz", False),
+                       ("Steve, merci !", False), ("", False)]:
+    verifier(f"hésite : {texte!r}", hesite(texte), attendu)
+
+# Une phrase dite en plusieurs morceaux : les mots réentendus et les reprises ne sont pas doublés.
+for debut, suite, attendu in [
+    ("envoie un mail à Paul, euh", "envoie un mail à Pierre pour lui dire que j'arrive",
+     "envoie un mail à Pierre pour lui dire que j'arrive"),                     # tu te reprends : la correction gagne
+    ("ouvre le fichier", "fichier budget", "ouvre le fichier budget"),          # un mot réentendu
+    ("rappelle-moi d'appeler Léa", "appeler Léa demain à 9 h", "rappelle-moi d'appeler Léa demain à 9 h"),
+    ("Steve, est-ce que tu peux", "tu peux ouvrir Cursor.", "Steve, est-ce que tu peux ouvrir Cursor."),
+    ("euh", "ouvre Cursor", "ouvre Cursor"),
+    ("regarde les logs.", "et dis-moi pourquoi", "regarde les logs et dis-moi pourquoi"),
+    ("il faut que tu", "tu regardes", "il faut que tu tu regardes"),           # un mot de deux lettres : pas sûr
+    ("mets la musique dans le salon", "mets la musique aussi dans la cuisine",
+     "mets la musique dans le salon mets la musique aussi dans la cuisine"),   # trop différent : rien de perdu
+    ("ouvre Cursor", "", "ouvre Cursor"),
+]:
+    verifier(f"recoller : « {debut} » + « {suite} »", recoller(debut, suite), attendu)
 
 for bout, en_l_air in [("et le", True), ("et aussi à", True), ("ouvre Cursor et", True), ("envoie-le", False),
                        ("merci", False), ("stop", False), ("au revoir", False),

@@ -206,6 +206,7 @@ dossier_voix = Path(tempfile.mkdtemp())
 ecoute.Empreinte.FICHIER = dossier_voix / "voix.npy"
 ecoute.Empreinte.DEPART = dossier_voix / "voix_depart.npy"
 ecoute.Empreinte.DEBUT = dossier_voix / "voix_debut.npy"
+ecoute.Empreinte.CENTRES = dossier_voix / "voix_centres.npy"
 hasard = np.random.default_rng(7)
 
 
@@ -223,10 +224,7 @@ def phrase_de(personne: np.ndarray) -> np.ndarray:
 def oreille_neuve():
     """Ce que fait Empreinte au démarrage, sans charger le modèle qui écoute."""
     e = ecoute.Empreinte.__new__(ecoute.Empreinte)
-    e.reference = np.load(e.FICHIER) if e.FICHIER.exists() else None
-    e.depart = np.load(e.DEPART) if e.DEPART.exists() else e.reference
-    e._debut = e._relire_debut()
-    e.affinages = 0
+    e._charger()
     return e
 
 
@@ -257,6 +255,113 @@ e.DEPART.unlink()
 for abime in (b"", b"pas un tableau", b"\x93NUMPY\x01\x00"):
     e.DEBUT.write_bytes(abime)
     verifier(f"ta voix : brouillon abîmé ({len(abime)} octets) → il repart de zéro sans planter", oreille_neuve().en_attente, 0)
+
+# --- Plusieurs empreintes : ta voix fatiguée reconnue, sans ouvrir la porte à la télé ----------------------------
+def voisine(de: np.ndarray, ressemblance: float) -> np.ndarray:
+    """Une voix qui ressemble à `de` exactement à ce point (ta voix fatiguée, un autre micro…)."""
+    autre = direction()
+    autre -= (autre @ de) * de
+    autre /= np.linalg.norm(autre)
+    return ressemblance * de + np.sqrt(1 - ressemblance ** 2) * autre
+
+
+for chemin in (e.FICHIER, e.DEPART, e.DEBUT, e.CENTRES):
+    chemin.unlink(missing_ok=True)
+e = oreille_neuve()
+for _ in range(4):
+    e.apprendre(phrase_de(toi), sure=True)
+verifier("empreintes : au départ, une seule", (e.reference is not None, e.centres), (True, []))
+fatiguee = voisine(toi, 0.6)
+avant = [e.score(phrase_de(fatiguee)) for _ in range(5)]
+verifier("empreintes : ta voix fatiguée est reconnue de justesse (sous SEUIL_APPRENDRE)",
+         all(0.45 < s < config.SEUIL_APPRENDRE for s in avant), True)
+verifier("empreintes : sans son nom, une voix mal reconnue n'ajoute rien",
+         (e.apprendre(phrase_de(fatiguee), sure=False), e.centres), (None, []))
+verifier("empreintes : avec son nom, il en garde une de plus",
+         e.apprendre(phrase_de(fatiguee), sure=True), "une empreinte de plus pour ta voix (2 en tout)")
+apres = [e.score(phrase_de(fatiguee)) for _ in range(5)]
+verifier("empreintes : ta voix fatiguée est maintenant nettement reconnue", all(s > 0.8 for s in apres), True)
+verifier("empreintes : ta voix habituelle aussi", e.score(phrase_de(toi)) > 0.9, True)
+verifier("empreintes : la télé, toujours pas", e.score(phrase_de(tele)) < 0.3, True)
+verifier("empreintes : la télé qui dit son nom n'ajoute pas d'empreinte (trop loin de ta voix de départ)",
+         (e.apprendre(phrase_de(tele), sure=True), len(e.centres)), (None, 1))
+centre = e.centres[0]
+intrus = centre - (centre @ e.depart) * e.depart
+intrus /= np.linalg.norm(intrus)
+verifier("empreintes : une voix proche d'une empreinte en plus mais pas de ta voix de départ (VOIX_PLANCHER) est refusée",
+         (float(intrus @ centre) > 0.7, e.score(intrus) < 0.3), (True, True))
+verifier("empreintes : chaque score est détaillé (voix.npy d'abord)", len(e.scores(phrase_de(toi))), 2)
+e.affinages = 0
+e.apprendre(phrase_de(fatiguee), sure=False)
+verifier("empreintes : une phrase de ta voix fatiguée affine son empreinte, pas voix.npy",
+         (e.affinages, float(e.centres[0] @ e.depart) >= config.ECART_CENTRE), (1, True))
+verifier("empreintes : relues au redémarrage", len(oreille_neuve().centres), 1)
+
+for _ in range(4):   # d'autres voix de toi (rhume, casque, autre pièce…) : 3 places en plus de voix.npy
+    message = e.apprendre(phrase_de(voisine(toi, 0.6)), sure=True)
+verifier("empreintes : toutes les places prises, les deux plus proches fusionnent",
+         (message, len(e.centres)), ("une empreinte de plus pour ta voix (4 en tout)", config.VOIX_CENTRES - 1))
+verifier("empreintes : toutes restent proches de ta voix de départ",
+         all(float(c @ e.depart) >= config.ECART_CENTRE for c in e.centres), True)
+
+config.VOIX_CENTRES = 1
+verifier("empreintes : JERVIS_VOIX_CENTRES=1, une seule empreinte comme avant",
+         (e._ajouter_centre(phrase_de(voisine(toi, 0.6))), oreille_neuve().centres), (None, []))
+config.VOIX_CENTRES = 4
+for abime in (np.zeros((2, 10), dtype=np.float32), np.zeros(192, dtype=np.float32)):
+    np.save(e.CENTRES, abime)
+    verifier(f"empreintes : fichier d'une autre forme {abime.shape} → ignoré", oreille_neuve().centres, [])
+e.CENTRES.write_bytes(b"abime")
+verifier("empreintes : fichier abîmé → ignoré", oreille_neuve().centres, [])
+
+e.centres = [phrase_de(fatiguee)]
+e._ranger_centres()
+e.vecteur = lambda audio: audio   # sans le modèle : la « phrase » est déjà sa signature
+e.enregistrer([phrase_de(toi) for _ in range(3)])
+verifier("empreintes : une voix réenregistrée efface les anciennes", (e.centres, e.CENTRES.exists()), ([], False))
+
+# --- Le seuil selon la longueur de la phrase et le mot-clé ----------------------------------------------------------
+verifier("seuil : réglages par défaut", (config.SEUIL_VOIX, config.SEUIL_VOIX_COURTE, config.SEUIL_VOIX_REVEIL,
+                                         config.MIN_VERIF_VOIX_S, config.VOIX_LONGUE_S), (0.5, 0.42, 0.42, 0.8, 2.0))
+verifier("seuil : il descend en douceur pour les phrases courtes",
+         [round(ecoute.Empreinte.seuil(d), 3) for d in (0.5, 0.8, 1.4, 2.0, 6.0)], [0.42, 0.42, 0.46, 0.5, 0.5])
+verifier("seuil : le mot-clé entendu l'abaisse", round(ecoute.Empreinte.seuil(6.0, reveil=True), 3), 0.42)
+
+# --- Le diagnostic (JERVIS_DIAGNOSTIC_VOIX=oui) ---------------------------------------------------------------------
+import contextlib  # noqa: E402
+import io  # noqa: E402
+import types  # noqa: E402
+
+from jervis import audio  # noqa: E402
+
+
+def juger(phrase, diagnostic: bool) -> tuple[bool, str]:
+    config.DIAGNOSTIC_VOIX = diagnostic
+    sortie = io.StringIO()
+    with contextlib.redirect_stdout(sortie):
+        inconnue = audio.Oreilles._voix_inconnue(faux, phrase)
+    config.DIAGNOSTIC_VOIX = False
+    return inconnue, sortie.getvalue()
+
+
+faux = types.SimpleNamespace(_empreinte=e)
+faux._diagnostic = lambda phrase, inconnue: audio.Oreilles._diagnostic(faux, phrase, inconnue)
+v = phrase_de(toi)
+a_toi = audio.Phrase(np.zeros(1, np.int16), duree_parole=3.0, empreinte=v, voix=e.score(v), seuil_voix=0.5)
+inconnue, sortie = juger(a_toi, True)
+verifier("diagnostic : ta phrase est acceptée et son score écrit",
+         (inconnue, "🔎 voix : 0.9" in sortie, "pour un seuil de 0.50" in sortie, "3.0 s de parole" in sortie,
+          "départ" in sortie, sortie.rstrip().endswith("→ acceptée")), (False, True, True, True, True, True))
+v = phrase_de(tele)
+la_tele = audio.Phrase(np.zeros(1, np.int16), duree_parole=1.0, reveil=True, empreinte=v, voix=e.score(v), seuil_voix=0.42)
+inconnue, sortie = juger(la_tele, True)
+verifier("diagnostic : la télé est ignorée, avec le détail", (inconnue, "+ mot-clé" in sortie, "→ ignorée" in sortie),
+         (True, True, True))
+verifier("diagnostic : coupé par défaut (seul le refus est écrit)", "🔎" in juger(la_tele, False)[1], False)
+inconnue, sortie = juger(audio.Phrase(np.zeros(1, np.int16), duree_parole=0.4), True)
+verifier("diagnostic : phrase trop courte", (inconnue, "trop courte pour juger" in sortie), (False, True))
+ancienne = audio.Phrase(np.zeros(1, np.int16), duree_parole=3.0, voix=0.45)
+verifier("sans seuil donné, c'est SEUIL_VOIX", (juger(ancienne, False)[0], ancienne.seuil_voix), (True, 0.5))
 
 print(f"\n{'✅' if not echecs else '❌'} voix : {total - len(echecs)}/{total} vérifications OK", flush=True)
 os._exit(0 if not echecs else 1)

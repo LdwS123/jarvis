@@ -85,6 +85,7 @@ async def fausse_touche(script):
 
 
 outils._lancer, outils._app_devant, outils._touche, outils.ATTENTE_CURSOR_S = faux_lancer, faux_devant, fausse_touche, 0
+outils.ATTENTE_FENETRE_S = 0
 
 
 def ecrire(**args) -> str:
@@ -93,28 +94,55 @@ def ecrire(**args) -> str:
     return texte(appeler(outils.ecrire_dans_cursor, **args))
 
 
+PALETTE = outils.palette_cursor("Claude Code: Focus input")
+COLLER, ENTREE = 'keystroke "v" using command down', "key code 36"
+
 dit = ecrire(prompt="Ajoute un test.")
-verifier("Cursor : sans `envoyer`, le lien part et aucune touche", (len(lances), lances[0][0], touches), (1, "open", []))
-verifier("Cursor : par défaut c'est Claude Code", lances[0][1].startswith("cursor://anthropic.claude-code/open?prompt="), True)
-verifier("Cursor : il sait que ce n'est pas envoyé", "pas envoyé" in dit, True)
+verifier("Cursor : par défaut, collé dans l'onglet Claude Code déjà ouvert (aucun lien, aucun nouvel onglet)",
+         ([c[0] for c in lances], lances[0][-1], lances[1], touches),
+         (["pbcopy", "open"], "Ajoute un test.", ("open", "-a", "Cursor"), [PALETTE, COLLER]))
+verifier("Cursor : aucun lien cursor:// (il ouvrirait un nouvel onglet)",
+         any("cursor://" in " ".join(map(str, c)) for c in lances), False)
+verifier("Cursor : il sait que ce n'est pas envoyé, et où c'est", ("pas envoyé" in dit, "déjà ouvert" in dit), (True, True))
+verifier("palette : cmd+shift+p, le titre exact de la commande, Entrée",
+         ('using {command down, shift down}' in PALETTE, '"Claude Code: Focus input"' in PALETTE,
+          PALETTE.endswith("key code 36")), (True, True, True))
 
 dit = ecrire(prompt="Ajoute un test.", envoyer=True)
-verifier("Claude Code + envoyer : Entrée", touches, ["key code 36"])
+verifier("Claude Code + envoyer : palette, coller, Entrée", touches, [PALETTE, COLLER, ENTREE])
 verifier("Claude Code + envoyer : il doit vérifier d'un coup d'œil", "see Cursor" in dit, True)
 
 dit = ecrire(prompt="Ajoute un test.", envoyer="true")   # le modèle envoie parfois le booléen en texte
-verifier("envoyer en texte : compris", touches, ["key code 36"])
+verifier("envoyer en texte : compris", touches, [PALETTE, COLLER, ENTREE])
 
 devant = "Google Chrome"
 dit = ecrire(prompt="Ajoute un test.", envoyer=True)
-verifier("une autre app est devant : pas d'Entrée à l'aveugle", touches, [])
-verifier("une autre app est devant : il le dit", "Google Chrome" in dit and "pas appuyé" in dit, True)
+verifier("une autre app est devant : aucune touche à l'aveugle", touches, [])
+verifier("une autre app est devant : il le dit, le prompt reste dans le presse-papiers",
+         ("Google Chrome" in dit, "presse-papiers" in dit, "pas collé" in dit), (True, True, True))
 devant = "Cursor"
 
 refus_touche = "macOS ne te laisse pas appuyer sur les touches"
 dit = ecrire(prompt="Ajoute un test.", envoyer=True)
-verifier("Accessibilité refusée : il le dit, sans prétendre avoir envoyé", "pas envoyé" in dit and "macOS" in dit, True)
+verifier("Accessibilité refusée : il le dit, sans prétendre avoir collé", ("pas collé" in dit, "macOS" in dit), (True, True))
 refus_touche = None
+
+# --- Un nouvel onglet, une nouvelle fenêtre : seulement s'il le demande ---
+for demande, attendu in [(None, ""), ("", ""), ("onglet", "onglet"), ("nouvel onglet", "onglet"), ("new tab", "onglet"),
+                         ("fenetre", "fenetre"), ("nouvelle fenêtre", "fenetre"), ("window", "fenetre"),
+                         ("false", ""), ("non", "")]:
+    verifier(f"nouveau « {demande} »", outils.nouveau_cursor(demande), attendu)
+
+dit = ecrire(prompt="Ajoute un test.", nouveau="onglet", envoyer=True)
+verifier("nouvel onglet demandé : le lien pré-remplit un nouvel onglet, puis Entrée",
+         ([c[0] for c in lances], lances[0][1].startswith("cursor://anthropic.claude-code/open?prompt="), touches),
+         (["open"], True, [ENTREE]))
+verifier("nouvel onglet : il le dit", "nouvel onglet" in dit, True)
+
+dit = ecrire(prompt="Ajoute un test.", nouveau="fenetre")
+verifier("nouvelle fenêtre demandée : la commande « Open in New Window », puis coller",
+         touches, [outils.palette_cursor("Claude Code: Open in New Window"), COLLER])
+verifier("nouvelle fenêtre : il le dit", "nouvelle fenêtre" in dit, True)
 
 dit = ecrire(prompt="Ajoute un test.", cible="agent", envoyer=True)
 verifier("agent de Cursor : l'autre lien", lances[0][1].startswith("cursor://anysphere.cursor-deeplink/prompt?text="), True)
@@ -122,10 +150,13 @@ verifier("agent de Cursor : pas d'Entrée (fenêtre de confirmation d'abord)", t
 
 long_prompt = "ligne de consigne\n" * 900
 dit = ecrire(prompt=long_prompt, envoyer=True)
-verifier("prompt trop long : presse-papiers, onglet Claude Code, coller, Entrée",
-         ([c[0] for c in lances], lances[0][-1] == long_prompt.strip(), lances[1][1], touches),
-         (["pbcopy", "open"], True, "cursor://anthropic.claude-code/open",
-          ['keystroke "v" using command down', "key code 36"]))
+verifier("prompt très long : aucun souci, collé dans l'onglet ouvert comme les autres",
+         ([c[0] for c in lances], lances[0][-1] == long_prompt.strip(), touches),
+         (["pbcopy", "open"], True, [PALETTE, COLLER, ENTREE]))
+dit = ecrire(prompt=long_prompt, nouveau="onglet", envoyer=True)
+verifier("prompt trop long pour un lien + nouvel onglet : presse-papiers, onglet vide, coller, Entrée",
+         ([c[0] for c in lances], lances[1][1], touches),
+         (["pbcopy", "open"], "cursor://anthropic.claude-code/open", [COLLER, ENTREE]))
 verifier("prompt vide : refusé", appeler(outils.ecrire_dans_cursor, prompt="  ").get("is_error"), True)
 verifier("dossier introuvable : refusé", appeler(outils.ecrire_dans_cursor, prompt="x", dossier="/nexiste/pas").get("is_error"), True)
 

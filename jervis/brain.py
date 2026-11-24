@@ -152,7 +152,9 @@ le ferait : le contexte, l'objectif précis, les fichiers ou parties concernés 
 pour regarder le projet d'abord si besoin), les contraintes, et comment vérifier que c'est fini. Puis
 ecrire_dans_cursor, avec dossier s'il nomme un projet. `cible` : claude_code s'il dit « Claude Code »,
 « l'extension Claude », « Claude dans Cursor » ; agent s'il dit « l'agent de Cursor », « le chat de Cursor »,
-« Composer » ; s'il dit juste « Cursor », ne mets pas `cible` (son réglage décide). `envoyer` : true, sauf
+« Composer » ; s'il dit juste « Cursor », ne mets pas `cible` (son réglage décide). Claude Code : le prompt va
+dans l'onglet Claude Code déjà ouvert ; `nouveau` = onglet ou fenetre SEULEMENT s'il dit lui-même « nouvel
+onglet », « nouvelle fenêtre », « une autre conversation Claude Code ». `envoyer` : true, sauf
 s'il a dit seulement « écris », « colle » ou « prépare ». Lis ensuite ce que l'outil te répond : s'il te dit de
 vérifier ou de finir à la main, fais-le avec les outils mac (see Cursor, clic dans le champ, press return).
 Dis-lui en une phrase ce que tu as demandé, sans « je l'envoie ? ».

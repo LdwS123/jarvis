@@ -164,6 +164,8 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
 .agents li.fini .pastille-agent { color: var(--brume); }
 .agents li.echec .pastille-agent, .agents li.echec .detail { color: var(--alerte); }
 .agents li.en-cours .pastille-agent { animation: souffle 2.4s ease-in-out infinite; }
+/* Un agent qui attend ta réponse (un oui ou un non) : il ne travaille plus, il t'attend. */
+.agents li.attend .pastille-agent, .agents li.attend .detail { color: var(--vigilance); animation: none; }
 .agents .bilan { margin: -4px 0 9px; font-size: 12px; color: var(--brume); }
 .agents .bilan b { color: var(--glace); font: 15px/1 var(--chiffres); font-weight: 400; margin-right: 2px; }
 .agents .bilan .echec b { color: var(--alerte); }
@@ -755,7 +757,7 @@ function peindreAgents(agents) {
   const finis = agents.filter(a => a.statut !== "en cours").slice(0, 3);
   liste.replaceChildren(...[...vivants, ...finis].map(a => {
     const [classe, signe] = STATUTS_AGENT[a.statut] || STATUTS_AGENT["en cours"];
-    const li = el("li", classe);
+    const li = el("li", classe + (a.attend ? " attend" : ""));
     const pastille = el("span", "pastille-agent", signe);
     pastille.setAttribute("aria-hidden", "true");
     li.append(pastille, el("span", "quoi-agent", a.titre), el("span", "duree", tempsEcoule(a.secondes)));

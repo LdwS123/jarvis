@@ -67,14 +67,22 @@ class Standard:
     async def attendre(self) -> None:
         await self._nouveau.wait()
 
-    async def demander(self, question: str, delai: float = 1800) -> bool:
-        """Pour une tâche de fond : pose la question dès que tu es disponible. Sans réponse en 30 min, c'est non."""
+    async def demander(self, question: str, delai: float | None = None) -> bool:
+        """Pour une tâche de fond : pose la question dès que tu es disponible. Sans réponse en
+        QUESTION_FOND_S (30 min), c'est non."""
         futur = asyncio.get_running_loop().create_future()
-        self.poster(Evenement("question", question, futur))
+        ev = Evenement("question", question, futur)
+        self.poster(ev)
         try:
-            return await asyncio.wait_for(futur, delai)
+            return await asyncio.wait_for(futur, config.QUESTION_FOND_S if delai is None else delai)
         except asyncio.TimeoutError:
             return False
+        finally:  # trop tard, ou tâche annulée : la question n'a plus à être posée
+            if ev in self._file:
+                self._file.remove(ev)
+                if not self._file:
+                    self.sonnerie.clear()
+                    self._nouveau.clear()
 
 
 # --- Tâches de fond ------------------------------------------------------------------------
@@ -90,6 +98,11 @@ class Tache:
     statut: str = "en cours"         # en cours | finie | échec | annulée
     fin: datetime | None = None
     jetons: int = 0                  # ce que l'agent a lu et écrit chez Claude (entrée + sortie), connu à la fin
+    attend: str = ""                 # la question qu'il t'a posée, tant que tu n'as pas répondu
+
+    @property
+    def en_ce_moment(self) -> str:
+        return f"attend ta réponse : {self.attend}" if self.attend else self.action
 
 
 _OUTILS_COURANTS = {"Bash": "lance une commande", "Read": "lit un fichier", "Glob": "cherche des fichiers",
@@ -138,7 +151,7 @@ class Taches:
             return "Aucune tâche en cours."
         maintenant = datetime.now()
         lignes = [f"{t.numero}. « {t.titre} », depuis {int((maintenant - t.debut).total_seconds() // 60)} min, "
-                  f"{t.etapes} étapes, en ce moment : {t.action}" for t in self._taches.values()]
+                  f"{t.etapes} étapes, en ce moment : {t.en_ce_moment}" for t in self._taches.values()]
         if not lignes:
             lignes = ["Aucune tâche en cours."]
         if self._histoire:
@@ -150,7 +163,8 @@ class Taches:
         """Pour le tableau de bord : les agents en cours, puis les derniers finis (du plus récent au plus ancien)."""
         maintenant = datetime.now()
         vus = [*self._taches.values(), *self._histoire]
-        return [{"numero": t.numero, "titre": t.titre, "statut": t.statut, "action": t.action if t.fin is None else "",
+        return [{"numero": t.numero, "titre": t.titre, "statut": t.statut, "attend": bool(t.attend and t.fin is None),
+                 "action": t.en_ce_moment if t.fin is None else "",
                  "etapes": t.etapes, "jetons": t.jetons, "secondes": int(((t.fin or maintenant) - t.debut).total_seconds()),
                  "fini_il_y_a": int((maintenant - t.fin).total_seconds()) if t.fin else None} for t in vus]
 
@@ -187,7 +201,7 @@ class Taches:
         for n in list(self._taches):
             self.annuler(n)
 
-    def _options(self, titre: str) -> ClaudeAgentOptions:
+    def _options(self, tache: Tache) -> ClaudeAgentOptions:
         serveurs: dict[str, Any] = {outils.NOM_SERVEUR: outils.serveur_jervis()}
         if navigateur := outils.serveur_navigateur(isole=True):
             serveurs[outils.NOM_NAVIGATEUR] = navigateur
@@ -197,7 +211,11 @@ class Taches:
             serveurs[outils.NOM_ECRAN] = ecran
 
         async def confirmer(question: str) -> bool:
-            return await self._standard.demander(f"Pour la tâche « {titre} » : {question}")
+            tache.attend = question  # le tableau de bord montre qu'il attend ta réponse
+            try:
+                return await self._standard.demander(f"Pour la tâche « {tache.titre} » : {question}")
+            finally:
+                tache.attend = ""
 
         consignes = (f"{EXPERT.replace('{prenom}', config.PRENOM)}\nNous sommes le {_maintenant()}.\n"
                      f"Tu travailles en arrière-plan : l'utilisateur fait autre chose pendant ce temps.\n"
@@ -217,12 +235,12 @@ class Taches:
         )
 
     async def _travailler(self, tache: Tache, brief: str) -> None:
-        client = ClaudeSDKClient(options=self._options(tache.titre))
+        client = ClaudeSDKClient(options=self._options(tache))
         textes: list[str] = []
         resultat = None
         try:
             await client.connect()
-            await preparer_connecteurs(client, 10, lambda _m: None)
+            await preparer_connecteurs(client, config.CONNECTEURS_FOND_S, lambda _m: None)
             await client.query(brief)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):

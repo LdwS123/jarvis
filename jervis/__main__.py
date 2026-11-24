@@ -16,7 +16,7 @@ import unicodedata
 
 from . import compteur, config, oral, tts, voix_locale
 from .brain import Cerveau
-from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hors_alphabet
+from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
 from .fond import Evenement, Programmateur, Standard, Taches, outils_fond
 
 NOM = re.compile(config.NOM, re.IGNORECASE)
@@ -115,7 +115,6 @@ def phrase_coupee(texte: str) -> bool:
 
 # La transcription met un point, un « ? » ou un « ! » quand ta voix retombe : la phrase est finie.
 FIN_NETTE = re.compile(r"[.?!…][\s\"'»)]*$")
-ENCORE_S = 1.2  # tu parlais encore quand il a repris ta phrase : il écoute au moins ce temps-là
 
 
 def attente_suite(texte: str, ponctuee: bool | None = None) -> float:
@@ -124,6 +123,8 @@ def attente_suite(texte: str, ponctuee: bool | None = None) -> float:
     texte = texte.strip()
     if ponctuee is None:
         ponctuee = bool(FIN_NETTE.search(texte))
+    if hesite(texte):  # « envoie un mail à Paul, euh… », « du coup » : tu réfléchis à voix haute
+        return config.SUITE_HESITATION_S
     if phrase_coupee(texte) or epellation_en_cours(texte):  # « est-ce que tu peux ouvrir », « T A » : il manque la suite
         return min(config.SUITE_PHRASE_S, 2.5) if ponctuee else config.SUITE_PHRASE_S
     if not ponctuee and len(re.findall(r"[\w'’-]+", NOM.sub(" ", texte))) >= 3 and not fin_de_conversation(texte):
@@ -399,20 +400,22 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         « ouvrir quoi ? ». Pareil pour une phrase sans point final (ta voix n'était pas retombée). Il colle
         la suite au début ; rien ne vient : Claude fera au mieux avec ce qu'il a.
         `ponctuee` : voir attente_suite. `encore` : tu parlais encore, il écoute quoi qu'il arrive."""
-        for tour in range(3):
+        for tour in range(4):
             attente = attente_suite(texte, ponctuee if tour == 0 else None)
             if encore and tour == 0:
-                attente = max(attente, ENCORE_S)
+                attente = max(attente, config.ENCORE_S)
             if not attente:
                 break
             if attente > config.SUITE_SANS_POINT_S:
                 print("   \033[2m(tu n'as pas fini ta phrase : je t'écoute…)\033[0m", flush=True)
             etat("ecoute")
             suite, _ = await entendre(attente, garder=True)
-            if not suite or (en_anglais(suite) and not NOM.search(suite)):
+            if suite == "":
+                continue  # un « euh », une toux : tu cherches tes mots, il attend encore un peu
+            if not suite or (en_anglais(suite) and not NOM.search(suite)) or charabia(suite):
                 break
             print(f"🧑 Toi (suite) : {suite}")
-            texte = decoder_epellation(f"{texte.rstrip(' ?.!,…')} {suite}")  # « T A » + « double L » → « TALL »
+            texte = decoder_epellation(recoller(texte, suite))  # « T A » + « double L » → « TALL »
         return texte
 
     async def guetter(guet: dict, arret: threading.Event) -> None:
@@ -438,7 +441,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             if not getattr(oreilles, "voix_connue", False):
                 return None
             voix = getattr(phrase, "voix", None)
-            return voix is not None and voix >= config.SEUIL_VOIX
+            seuil = getattr(phrase, "seuil_voix", None) or config.SEUIL_VOIX
+            return voix is not None and voix >= seuil
 
         def suite_de_ta_phrase(entendu: str, debut: float, par_dessus: bool, toi: bool | None) -> bool:
             """Tu as repris la parole alors qu'il n'avait encore rien répondu : c'est la suite de ta demande,
@@ -662,9 +666,81 @@ async def mode_vocal(etat: Etat | None = None) -> None:
 
     discussion = {"active": False}
 
-    async def ecouter_suite() -> str | None:
+    def avec_annonce(demande: str, annonce: str | None) -> str:
+        """Pour qu'il sache de quoi tu parles (« décale de dix minutes ») juste après une annonce."""
+        return f"(Tu viens de lui annoncer : « {annonce} ».) {demande}" if annonce and demande else demande
+
+    async def attendre_un_blanc(en_conversation: bool) -> tuple[str | None, bool]:
+        """Il a quelque chose à te dire de lui-même (tâche finie, annonce, question d'une tâche) : il attend un
+        blanc (ANNONCE_CALME_S sans que personne parle) pour ne jamais te couper. Si tu lui parles entre-temps,
+        ta phrase passe d'abord : renvoie (ta phrase, mot-clé), ou (None, False) quand c'est le moment de parler.
+        En veille, seule une phrase avec son nom compte (le reste, ce sont des gens qui parlent à côté).
+        Au bout d'ANNONCE_ATTENTE_MAX_S de bavardage continu (une télé), il le dit quand même."""
+        fin = time.monotonic() + config.ANNONCE_ATTENTE_MAX_S
+        prevenu = False
+        if not en_conversation:
+            etat("veille")
+        while (reste := fin - time.monotonic()) > 0:
+            texte, reveil = await entendre(min(config.ANNONCE_CALME_S, reste), veille=not en_conversation, garder=True)
+            if texte is None:
+                return None, False  # un blanc : c'est le moment
+            if not texte and not reveil:
+                continue  # un bruit
+            if en_conversation:
+                if texte and not (en_anglais(texte) and not NOM.search(texte)) and not charabia(texte):
+                    return texte, reveil
+            elif reveil or NOM.search(texte):
+                return texte, reveil
+            if not prevenu:
+                print("   \033[2m(on parle à côté : j'attends un blanc pour te le dire)\033[0m", flush=True)
+                prevenu = True
+        return None, False
+
+    async def dire_evenements() -> tuple[str | None, str | None]:
+        """Dit ce qu'il a à te dire de lui-même : questions de tes tâches de fond, annonces, tâches finies (celles
+        qui ont fini en même temps : un seul compte rendu), actions programmées.
+        Renvoie (ce que tu as répondu par-dessus, la dernière annonce dite). Ta réponse vaut None si tu n'as rien
+        dit, « » si tu as dit stop ; ce qui reste à dire attend le prochain blanc."""
+        annonce = None
+        while ev := standard.prendre():
+            if ev.genre == "question":
+                if ev.futur is not None and ev.futur.done():
+                    continue  # la tâche n'attend plus la réponse (annulée, ou trop tard)
+                tts.bip()
+                ok = await confirmer(ev.texte)
+                if ev.futur and not ev.futur.done():
+                    ev.futur.set_result(ok)
+                if ajout := prendre_ajout():  # tu as parlé d'autre chose à la place d'un oui ou d'un non
+                    return comme_ajout(ajout), None
+                continue
+            coupure["texte"] = None
+            if ev.genre == "annonce":
+                tts.bip()
+                await parler(ev.texte)
+                annonce = ev.texte
+            else:  # tâche finie, action programmée : c'est Steve (Claude) qui s'en charge et te le dit
+                texte = ev.texte
+                if ev.genre == "fini" and standard.en_attente(("fini",)):
+                    textes = [texte]
+                    while autre := standard.prendre(("fini",)):
+                        textes.append(autre.texte)
+                    texte = (f"({len(textes)} tâches de fond viennent de finir : fais-lui un seul compte rendu, "
+                             "une ou deux phrases par tâche.)\n\n" + "\n\n".join(textes))
+                etat("reflechit")
+                annonce = None
+                await demander(texte, fusion=False)
+            ajout = prendre_ajout()
+            reprise = apres_coupure(ajout)
+            if reprise is not None:
+                return avec_annonce(reprise, annonce), None
+            if ajout:
+                return avec_annonce(comme_ajout(ajout), annonce), None
+        return None, annonce
+
+    async def ecouter_suite(annonce: str | None = None) -> str | None:
         """La suite de la conversation, sans son nom. Toux, bruit ou phrase vide : il continue d'écouter.
-        Rien pendant le délai (ou une annonce qui arrive) : petit son doux, il repasse en veille."""
+        Une tâche qui finit pendant ce temps : il te le dit au premier blanc, puis la conversation continue.
+        Rien pendant le délai : petit son doux, il repasse en veille. `annonce` : ce qu'il vient de t'annoncer."""
         tts.bip()
         etat("ecoute")
         if discussion["active"]:
@@ -674,23 +750,36 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         else:
             delai = config.FOLLOW_UP_S
         fin = time.monotonic() + delai
-        raison = f"rien entendu en {delai:.0f} s"
         while (reste := fin - time.monotonic()) > 0:
             suite, _ = await entendre(reste, arret=standard.sonnerie)
             if suite is None:
-                if standard.sonnerie.is_set() and not standard.en_attente():
+                if not standard.sonnerie.is_set():
+                    break
+                if not standard.en_attente() or oreilles.en_pause:
                     standard.sonnerie.clear()  # sonnerie restée levée sans rien à dire : on continue d'écouter
                     continue
-                if standard.sonnerie.is_set():
-                    raison = "il a quelque chose à te dire"
-                break
+                # Il a quelque chose à te dire : au premier blanc, sans finir la conversation.
+                texte, _ = await attendre_un_blanc(en_conversation=True)
+                if texte:
+                    print(f"🧑 Toi : {texte}")  # tu parlais : ta phrase d'abord, l'annonce attendra
+                    return avec_annonce(await completer(texte), annonce)
+                reponse, annonce = await dire_evenements()
+                if reponse:
+                    return reponse
+                tts.bip()
+                etat("ecoute")
+                fin = time.monotonic() + delai  # et il t'écoute à nouveau, comme après une réponse
+                continue
             if suite and en_anglais(suite) and not NOM.search(suite):
                 print(f"   \033[2m(en anglais, sûrement une vidéo : ignoré : {suite})\033[0m", flush=True)
                 continue
+            if suite and charabia(suite) and not NOM.search(suite):
+                print(f"   \033[2m(du bruit pris pour une phrase : ignoré : {suite})\033[0m", flush=True)
+                continue
             if suite:
                 print(f"🧑 Toi : {suite}")
-                return await completer(suite)
-        print(f"   \033[2m(fin de la conversation : {raison})\033[0m", flush=True)
+                return avec_annonce(await completer(suite), annonce)
+        print(f"   \033[2m(fin de la conversation : rien entendu en {delai:.0f} s)\033[0m", flush=True)
         discussion["active"] = False
         tts.bip_fin()
         return None
@@ -707,9 +796,12 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         qu'il écoute encore si tu n'avais pas fini."""
         suite, coupure["suite"] = coupure["suite"], None
         coupure["fusions"] += 1
-        morceaux = [commande.removeprefix(MARQUE_SUITE).strip(), *guet["ajout"], suite]
+        entiere = commande.removeprefix(MARQUE_SUITE).strip()
+        for morceau in [*guet["ajout"], suite]:
+            if morceau:  # (la reconnaissance réentend souvent la fin d'un morceau au début du suivant)
+                entiere = recoller(entiere, morceau)
         guet["ajout"] = []
-        entiere = await completer(" ".join(m for m in morceaux if m), encore=coupure["encore"])
+        entiere = await completer(decoder_epellation(entiere), encore=coupure["encore"])
         return f"{MARQUE_SUITE} {entiere}"
 
     async def converser(commande: str | None) -> None:
@@ -743,28 +835,12 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             commande = comme_ajout(ajout) or await ecouter_suite()
 
     async def traiter_evenements() -> None:
-        """Ce qu'il a à te dire de lui-même : tâche finie, question d'une tâche, annonce, action programmée."""
-        while ev := standard.prendre():
-            if ev.genre == "question":
-                tts.bip()
-                ok = await confirmer(ev.texte)
-                if ev.futur and not ev.futur.done():
-                    ev.futur.set_result(ok)
-                continue
-            coupure["texte"] = None
-            if ev.genre == "annonce":
-                tts.bip()
-                await parler(ev.texte)
-            else:  # tâche finie, action programmée : c'est Steve (Claude) qui s'en charge et te le dit
-                etat("reflechit")
-                await demander(ev.texte, fusion=False)
-            ajout = prendre_ajout()
-            reprise = apres_coupure(ajout)
-            suite = reprise if reprise is not None else (comme_ajout(ajout) or await ecouter_suite())
-            if suite and ev.genre == "annonce":  # pour qu'il sache de quoi tu parles (« décale de dix minutes »)
-                suite = f"(Tu viens de lui annoncer : « {ev.texte} ».) {suite}"
-            await converser(suite)
-            cerveau.fin_de_conversation()
+        """Ce qu'il a à te dire de lui-même (tâche finie, question d'une tâche, annonce, action programmée),
+        puis la conversation que tu enchaînes. Ce qui arrive pendant ce temps est dit aux blancs suivants."""
+        reponse, annonce = await dire_evenements()
+        await converser(reponse if reponse is not None else await ecouter_suite(annonce))
+        discussion["active"] = False
+        cerveau.fin_de_conversation()
 
     standard, taches, programmateur, outils_en_plus = _equipe()
     etat.taches = taches
@@ -795,13 +871,17 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 if oreilles.en_pause:  # micro en pause = ne pas déranger : ça attendra que tu le rallumes
                     await asyncio.sleep(1)
                     continue
-                await traiter_evenements()
-                print("💤 En veille.")
-                continue
-            # Veille : on réagit si le modèle a entendu le mot-clé, ou si son nom est dans la phrase transcrite.
-            # Une annonce ou une tâche finie la réveille aussi (entre deux phrases, jamais au milieu).
-            etat("veille")
-            texte, reveil = await entendre(None, veille=True, arret=standard.sonnerie)
+                # Il a quelque chose à te dire : il attend un blanc. Si tu l'appelles entre-temps, toi d'abord.
+                texte, reveil = await attendre_un_blanc(en_conversation=False)
+                if texte is None:
+                    await traiter_evenements()
+                    print("💤 En veille.")
+                    continue
+            else:
+                # Veille : on réagit si le modèle a entendu le mot-clé, ou si son nom est dans la phrase transcrite.
+                # Une annonce ou une tâche finie la réveille aussi (entre deux phrases, jamais au milieu).
+                etat("veille")
+                texte, reveil = await entendre(None, veille=True, arret=standard.sonnerie)
             if texte is None or (not texte and not reveil):
                 continue
             commande = extraire_commande(texte)
