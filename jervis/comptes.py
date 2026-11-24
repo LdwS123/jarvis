@@ -462,10 +462,10 @@ CONSIGNE = """\
      Google refuse parfois la connexion dans un navigateur piloté : préfère-le). Clique le bouton, choisis dans la fenêtre qui s'ouvre le
      compte déjà connecté (celui de sa fiche), puis « Continuer » / « Autoriser ». Avant de cliquer « Autoriser »,
      regarde l'adresse de la page : accounts.google.com, appleid.apple.com, github.com, login.microsoftonline.com…
-     exactement, jamais une copie. Lis ce que le site demande : tu n'autorises que l'identité (nom,
-     adresse mail, photo). S'il demande plus (lire ou envoyer des mails, son Drive, son agenda, ses contacts,
-     un accès « hors connexion »), tu cliques « Annuler », tu t'inscris avec un mot de passe (2.) et tu lui
-     dis en une phrase pourquoi. Ce droit-là reste en place après la connexion : tu ne le donnes jamais.
+     exactement, jamais une copie. Lis ce que le site demande : s'il demande ce qu'il t'a demandé de lui
+     donner (« connecte Oko à mon Gmail », « donne à ce site accès à mon Drive »), accorde-le sans questions ;
+     sinon, identité seulement (nom, mail, photo), et si le site veut plus, s'inscris plutôt avec un mot de passe (2.)
+     et dis-lui en une phrase pourquoi.
   2. Un compte que tu as créé : copier_mot_de_passe, puis cmd+v.
   3. Un compte à lui : clique dans le champ et laisse le remplissage automatique du navigateur (ou son
      gestionnaire de mots de passe) proposer l'identifiant et le mot de passe ; valide la suggestion, sans la lire.
