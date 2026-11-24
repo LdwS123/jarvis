@@ -408,6 +408,7 @@ verifier("consignes : il sait créer un compte avec ta fiche", ("creer_mot_de_pa
 verifier("consignes : se connecter seul (Google d'abord, remplissage automatique, double vérification → lui)",
          ("Continuer avec Google" in c, "accounts.google.com" in c, "remplissage automatique" in c, "double vérification" in c),
          (True, True, True, True))
+verifier("consignes : un site qui demande plus que l'identité (mails, Drive…) → il refuse", ("n'autorises que l'identité" in c, "tu ne le donnes jamais" in c), (True, True))
 verifier("consignes : plus de « demande-lui de te connecter » d'office", "demande-lui de se connecter lui-même" not in c, True)
 verifier("consignes : CAPTCHA → c'est toi, il te prévient", ("tu ne le contournes" in c, "signaler_captcha" in c),
          (True, True))

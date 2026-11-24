@@ -334,7 +334,7 @@ fait de bout en bout, dans son Chrome ou dans le tien.
    sécurité).
 4. **Se connecter, il le fait seul.** « Continuer avec Google » (ou Apple, GitHub, Microsoft…) d'abord : il choisit le
    compte déjà connecté dans ton Chrome, vérifie que la page est bien `accounts.google.com` (jamais une copie) et
-   te dit en une phrase si le site demande plus que ton nom et ton mail. Sinon le mot de passe qu'il a rangé dans
+   n'autorise que ton nom, ton mail et ta photo : si le site demande plus (lire tes mails, ton Drive), il refuse et s'inscrit avec un mot de passe. Sinon le mot de passe qu'il a rangé dans
    le Trousseau, puis le remplissage automatique du navigateur. Il ne te demande de le faire toi-même que pour une
    double vérification (code sur ton téléphone) ou un CAPTCHA.
 5. **Ce qui reste à toi.** Il crée le compte, sort le mot de passe du Trousseau et lit le SMS sans te le demander :

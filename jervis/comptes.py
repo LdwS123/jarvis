@@ -460,8 +460,10 @@ CONSIGNE = """\
      Google refuse parfois la connexion dans un navigateur piloté : préfère-le). Clique le bouton, choisis dans la fenêtre qui s'ouvre le
      compte déjà connecté (celui de sa fiche), puis « Continuer » / « Autoriser ». Avant de cliquer « Autoriser »,
      regarde l'adresse de la page : accounts.google.com, appleid.apple.com, github.com, login.microsoftonline.com…
-     exactement, jamais une copie. Le site demande ce qu'il peut lire (nom, mail) : si ça va plus loin
-     (envoyer des mails, tout son Drive), dis-lui en une phrase ce que tu autorises et pourquoi.
+     exactement, jamais une copie. Lis ce que le site demande : tu n'autorises que l'identité (nom,
+     adresse mail, photo). S'il demande plus (lire ou envoyer des mails, son Drive, son agenda, ses contacts,
+     un accès « hors connexion »), tu cliques « Annuler », tu t'inscris avec un mot de passe (2.) et tu lui
+     dis en une phrase pourquoi. Ce droit-là reste en place après la connexion : tu ne le donnes jamais.
   2. Un compte que tu as créé : copier_mot_de_passe, puis cmd+v.
   3. Un compte à lui : clique dans le champ et laisse le remplissage automatique du navigateur (ou son
      gestionnaire de mots de passe) proposer l'identifiant et le mot de passe ; valide la suggestion, sans la lire.
