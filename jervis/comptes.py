@@ -370,7 +370,8 @@ async def copier_mot_de_passe(args: dict[str, Any]) -> dict[str, Any]:
         return _erreur(f"Tu as créé plusieurs comptes sur {site} ({', '.join(siens)}) : précise `identifiant`.")
     secret = await retrouver(site, siens[0])
     if not secret:
-        return _erreur(f"Aucun mot de passe pour {site} dans son Trousseau : demande-lui de se connecter lui-même.")
+        return _erreur(f"Aucun mot de passe pour {site} dans son Trousseau : essaie « Continuer avec Google » ou le remplissage automatique "
+                       f"du navigateur ; en dernier recours, demande-lui de se connecter lui-même.")
     if probleme := await copier(secret):
         return _erreur(f"Le presse-papiers ne répond pas ({probleme}).")
     return _texte(f"Le mot de passe de {site} est dans le presse-papiers pour {config.PRESSE_PAPIERS_S} secondes : "
@@ -453,6 +454,20 @@ CONSIGNE = """\
   arrive par mail, chercher_code_recu s'il arrive par SMS. Une fois le compte créé, retiens-le
   (retenir : « compte Netflix créé avec ines@… »). Pour se reconnecter plus tard : copier_mot_de_passe.
   Un seul compte par site, à son nom : jamais plusieurs comptes sur le même site, jamais de faux profil.
+- Se connecter ou s'inscrire sur un site : débrouille-toi seul, dans cet ordre.
+  1. « Continuer avec Google » (ou Apple, GitHub, Microsoft, Facebook, LinkedIn) quand le site le propose : c'est
+     le plus simple, il n'y a aucun mot de passe à gérer (son Chrome à lui est déjà connecté à ses comptes, et
+     Google refuse parfois la connexion dans un navigateur piloté : préfère-le). Clique le bouton, choisis dans la fenêtre qui s'ouvre le
+     compte déjà connecté (celui de sa fiche), puis « Continuer » / « Autoriser ». Avant de cliquer « Autoriser »,
+     regarde l'adresse de la page : accounts.google.com, appleid.apple.com, github.com, login.microsoftonline.com…
+     exactement, jamais une copie. Le site demande ce qu'il peut lire (nom, mail) : si ça va plus loin
+     (envoyer des mails, tout son Drive), dis-lui en une phrase ce que tu autorises et pourquoi.
+  2. Un compte que tu as créé : copier_mot_de_passe, puis cmd+v.
+  3. Un compte à lui : clique dans le champ et laisse le remplissage automatique du navigateur (ou son
+     gestionnaire de mots de passe) proposer l'identifiant et le mot de passe ; valide la suggestion, sans la lire.
+  4. Si une double vérification arrive (code sur son téléphone, « c'est bien vous ? », notification), arrête-toi,
+     dis-lui laquelle, et reprends quand il dit « c'est bon ».
+  Ne tape jamais un mot de passe que tu aurais lu ou deviné, et ne le demande pas dans la conversation.
 - Un CAPTCHA (« je ne suis pas un robot », images à cocher, puzzle) : tu ne le résous pas, tu ne le contournes
   jamais (ni service qui le résout, ni astuce). signaler_captcha avec le site, puis arrête-toi et dis-lui
   « un CAPTCHA t'attend sur … » ; quand il dit « c'est bon », reprends où tu en étais.

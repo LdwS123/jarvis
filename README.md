@@ -332,7 +332,12 @@ fait de bout en bout, dans son Chrome ou dans le tien.
    Messages, sur le Mac, et ne rend que le code. Pour ça : sur l'iPhone, Réglages → Apps → Messages → **Transfert
    de SMS** → ton Mac, et sur le Mac, **Accès complet au disque** pour Jervis (Réglages → Confidentialité et
    sécurité).
-4. **Ce qui reste à toi.** Il crée le compte, sort le mot de passe du Trousseau et lit le SMS sans te le demander :
+4. **Se connecter, il le fait seul.** « Continuer avec Google » (ou Apple, GitHub, Microsoft…) d'abord : il choisit le
+   compte déjà connecté dans ton Chrome, vérifie que la page est bien `accounts.google.com` (jamais une copie) et
+   te dit en une phrase si le site demande plus que ton nom et ton mail. Sinon le mot de passe qu'il a rangé dans
+   le Trousseau, puis le remplissage automatique du navigateur. Il ne te demande de le faire toi-même que pour une
+   double vérification (code sur ton téléphone) ou un CAPTCHA.
+5. **Ce qui reste à toi.** Il crée le compte, sort le mot de passe du Trousseau et lit le SMS sans te le demander :
    il t'annonce le site exact (« canva.com »). Si tu préfères le voir demander (une page piégée pourrait essayer
    de lui faire réinitialiser un de tes comptes), `JERVIS_CONFIRMATIONS=confiance`. Un **CAPTCHA** (« je
    ne suis pas un robot », images à cocher, puzzle), c'est toi : il ne le résout pas et ne le contourne jamais (ni

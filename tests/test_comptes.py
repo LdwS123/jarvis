@@ -405,6 +405,10 @@ verifier("lecture : chercher un code et lister, oui ; créer, non",
 c = brain._consignes(ecran=False)
 verifier("consignes : il sait créer un compte avec ta fiche", ("creer_mot_de_passe" in c, str(config.FICHE) in c),
          (True, True))
+verifier("consignes : se connecter seul (Google d'abord, remplissage automatique, double vérification → lui)",
+         ("Continuer avec Google" in c, "accounts.google.com" in c, "remplissage automatique" in c, "double vérification" in c),
+         (True, True, True, True))
+verifier("consignes : plus de « demande-lui de te connecter » d'office", "demande-lui de se connecter lui-même" not in c, True)
 verifier("consignes : CAPTCHA → c'est toi, il te prévient", ("tu ne le contournes" in c, "signaler_captcha" in c),
          (True, True))
 verifier("consignes : par défaut il ne paie jamais", ("Payer : JAMAIS" in c, "Avant le bouton qui paie" in c), (True, False))
