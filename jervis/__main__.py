@@ -1071,6 +1071,8 @@ def mode_barre() -> None:
         rumps.MenuItem("Ce qu'il surveille pour moi (sa ronde)", callback=lambda _: (fond.lire_initiative(),
                                                                                     ouvrir(config.FICHIER_INITIATIVE))),
         rumps.MenuItem("Ce qu'il a appris (son carnet)", callback=lambda _: ouvrir(lecons.preparer())),
+        rumps.MenuItem("Mes documents (CV, papiers…)", callback=lambda _: (
+            config.DOCUMENTS.mkdir(parents=True, exist_ok=True), subprocess.Popen(["open", str(config.DOCUMENTS)]))),
         rumps.MenuItem("Voir le journal technique", callback=lambda _: ouvrir(config.DOSSIER / "jervis.log")),
         rumps.MenuItem("Autorisations…", callback=lambda _: subprocess.Popen(
             ["open", str(config.DOSSIER / "outils" / "autorisations.command")])),  # le guide, dans le Terminal

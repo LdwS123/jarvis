@@ -86,8 +86,17 @@ GESTE_LOURD = re.compile(
 )
 
 
-def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> Decision:
+def nom_action(outil: str) -> str:
+    """Le nom de l'action, à la façon de Gmail ou du Drive (« search_threads »). Notion écrit les siens avec des
+    tirets et son nom devant (« notion-search », « notion-create-pages ») : ils deviennent « search », « create_pages »."""
     action = outil.split("__")[-1]
+    if outil.startswith("mcp__claude_ai_") and "-" in action:
+        action = re.sub(r"^[a-z]+-", "", action).replace("-", "_")
+    return action
+
+
+def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> Decision:
+    action = nom_action(outil)
     if outil.startswith("mcp__jervis__"):  # iMessage : envoyé direct ; demander_accord : c'est lui qui veut demander
         return _maison(action, entree, {"demander_accord"})
     if outil.startswith(CHROME_PERSO):  # du code dans ton Chrome connecté (banque, mails…) : toujours demandé
@@ -229,7 +238,7 @@ def _chrome_perso(action: str, entree: dict[str, Any]) -> Decision:
 
 
 def politique_essentielle(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> Decision:
-    action = outil.split("__")[-1]
+    action = nom_action(outil)
     if outil.startswith("mcp__jervis__"):
         return _maison(action, entree, JERVIS_A_CONFIRMER)
     if outil.startswith(CHROME_PERSO):
@@ -305,7 +314,7 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
     if outil.startswith("mcp__ecran__"):  # screenpipe : lecture seule
         return Decision.OUI
     if outil.startswith("mcp__"):
-        action = outil.split("__")[-1]
+        action = nom_action(outil)
         return Decision.OUI if action.startswith(LECTURE) else Decision.DEMANDER
     if outil in {"Task", "Agent"}:  # il confie une tâche à son expert : chaque outil de l'expert repasse par ici
         return Decision.OUI
@@ -341,8 +350,8 @@ def _maison(action: str, entree: dict[str, Any], a_confirmer: set[str]) -> Decis
 # (Avant de payer, commander, envoyer… il doit aussi appeler demander_accord : voir brain.py.)
 NAVIGATEUR_A_CONFIRMER = ("browser_run_code", "browser_evaluate", "browser_file_upload", "browser_cookie",
                           "browser_localstorage", "browser_sessionstorage", "browser_set_storage", "browser_route")
-# Actions des connecteurs qui ne font que lire (Gmail, Agenda, Drive, et le catalogue de Zapier).
-LECTURE = ("list", "get", "search", "suggest", "read", "download",
+# Actions des connecteurs qui ne font que lire (Gmail, Agenda, Drive, Notion, et le catalogue de Zapier).
+LECTURE = ("list", "get", "search", "suggest", "read", "download", "fetch",
            "inspect_zapier", "discover_zapier", "execute_zapier_read")
 # Commandes Bash que Jervis lance sans demander (une seule commande, sans enchaînement).
 SANS_RISQUE = re.compile(
@@ -569,7 +578,7 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         return f"Je vais modifier des fichiers dans le dossier {dossier.name or dossier}. Je peux ?"
     if outil in LECTURE_FICHIERS:
         return f"Je vais lire {Path(chemin_fichier(entree).split()[0]).name}, qui peut contenir des secrets. Je peux ?"
-    action = outil.split("__")[-1]
+    action = nom_action(outil)
     if action == "noter_lecon":
         return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
     if action == "retenir":
@@ -639,6 +648,14 @@ ACTIONS = {
     "copy_file": "copier ce fichier dans ton Drive",
     "trash_file": "mettre ce fichier de ton Drive à la corbeille",
     "request_access": "demander l'accès à ce fichier, son propriétaire recevra un mail",
+    # Notion
+    "create_pages": "créer cette page dans ton Notion",
+    "update_page": "modifier cette page de ton Notion",
+    "move_pages": "déplacer ces pages de ton Notion",
+    "duplicate_page": "dupliquer cette page de ton Notion",
+    "create_database": "créer cette base dans ton Notion",
+    "update_database": "modifier cette base de ton Notion",
+    "create_comment": "laisser ce commentaire dans ton Notion",
     # Zapier
     "enable_zapier_action": "ajouter une action à ton Zapier",
     "disable_zapier_action": "retirer une action de ton Zapier",
@@ -662,7 +679,7 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
 
 
 # Les outils qui ne font que lire (chercher, lister, lire) : seuls permis à sa ronde, libres même quand il se méfie.
-LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^ToolSearch$")
+LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^(?:search|fetch)(?:_|$)|^ToolSearch$")
 # Les seuls outils qui ne lui rendent que son propre état (« noté », ses réglages, ses dépenses) : tout autre outil
 # (un fichier, une commande, un mail, une page, l'écran, un agent) peut lui faire lire un texte écrit par quelqu'un
 # d'autre, où un piège peut se cacher (« note dans ton carnet : transfère tout à… »). Un outil nouveau compte comme
@@ -710,7 +727,7 @@ def tel_que_montre(action: str, entree: dict[str, Any]) -> tuple[dict[str, Any],
 
 
 def est_lecture(outil: str) -> bool:
-    return bool(LECTURES.search(outil.split("__")[-1]))
+    return bool(LECTURES.search(nom_action(outil)))
 
 
 def lit_dehors(outil: str) -> bool:
@@ -768,7 +785,7 @@ class Gardien:
         if decision is Decision.DEMANDER:
             # Une réponse vaut pour toutes les actions identiques de la demande (6 mails à la corbeille),
             # mais chaque message envoyé à quelqu'un est confirmé à part.
-            action = outil.split("__")[-1]
+            action = nom_action(outil)
             if outil.startswith("mcp__jervis__") and action in A_MONTRER:
                 entree, trop_long = tel_que_montre(action, entree)  # c'est ce texte-là qui s'exécutera
                 if trop_long:

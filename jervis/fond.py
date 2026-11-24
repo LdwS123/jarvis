@@ -26,7 +26,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
 from . import compteur, config, outils
-from .brain import EXPERT, _maintenant, carnet, preparer_connecteurs
+from .brain import EXPERT, _maintenant, carnet, documents, preparer_connecteurs
 from .permissions import Gardien, est_lecture
 
 
@@ -230,7 +230,7 @@ class Taches:
             finally:
                 tache.attend = ""
 
-        memoire = f"Ce que {config.PRENOM} sait de lui :\n{outils.lire_memoire() or '(rien)'}\n{carnet()}"
+        memoire = f"Ce que {config.PRENOM} sait de lui :\n{outils.lire_memoire() or '(rien)'}\n{documents()}{carnet()}"
         if tache.lecture_seule:  # sa ronde : un modèle plus léger, et rien que des lectures
             return ClaudeAgentOptions(
                 system_prompt=f"{RONDE.replace('{prenom}', config.PRENOM)}\nNous sommes le {_maintenant()}.\n{memoire}",

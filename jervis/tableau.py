@@ -445,7 +445,8 @@ class Tableau:
         « needs-auth », « failed »…). Un connecteur dont il n'a pas encore parlé : « inconnu »."""
         from . import brain   # ici et pas en haut : le tableau ne charge Claude que quand la page le demande
         noms = {"claude-in-chrome": "Chrome"}
-        for brut in config.CONNECTEURS:
+        facultatifs = [c for c in config.CONNECTEURS_FACULTATIFS if c in brain.STATUT_SERVEURS]  # s'il en a vu un
+        for brut in [*config.CONNECTEURS, *facultatifs]:
             court = brut.removeprefix("claude.ai ").strip()
             noms[brut] = _SERVEURS.get(court.replace(" ", "_"), court)
         return [{"nom": nom, "statut": brain.STATUT_SERVEURS.get(brut, ("inconnu", 0))[0]} for brut, nom in noms.items()]

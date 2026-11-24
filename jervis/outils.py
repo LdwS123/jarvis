@@ -127,6 +127,18 @@ def _rubrique(categorie: str | None) -> str:
     return "Autre"
 
 
+def lister_documents() -> list[str]:
+    """Ses documents (config.DOCUMENTS), les plus récents d'abord : « - CV.pdf (12/10/2026) ». Crée le dossier."""
+    try:
+        config.DOCUMENTS.mkdir(parents=True, exist_ok=True)
+        fichiers = [f for f in config.DOCUMENTS.rglob("*") if f.is_file() and not f.name.startswith(".")]
+    except OSError:
+        return []
+    fichiers.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    return [f"- {f.relative_to(config.DOCUMENTS)} ({datetime.fromtimestamp(f.stat().st_mtime):%d/%m/%Y})"
+            for f in fichiers[:config.DOCUMENTS_VUS]]
+
+
 def lire_memoire() -> str:
     """Ce qui est vrai aujourd'hui, plus les derniers changements (pour le contexte)."""
     rubriques = _lire_rubriques()
@@ -675,6 +687,7 @@ def refus_corbeille(chemin: Any, maison: Path | None = None, jervis: Path | None
     maison = _plie((maison or Path.home()).resolve())
     jervis = _plie((jervis or config.DOSSIER).resolve())
     espace = jervis / config.ESPACE.name.casefold()
+    documents = _plie(config.DOCUMENTS.resolve())
     p = _plie(_canonique(brut))
     if len(p.parts) <= 2:
         return "c'est le disque lui-même ou un de ses grands dossiers"
@@ -682,6 +695,8 @@ def refus_corbeille(chemin: Any, maison: Path | None = None, jervis: Path | None
         return "c'est ton dossier personnel tout entier"
     if p == jervis or p in jervis.parents:
         return "c'est moi, ou un dossier qui me contient"
+    if _dans(p, documents):  # tes documents (un vieux CV) : oui ; le dossier lui-même reste
+        return None
     if _dans(p, jervis):
         if _dans(p, espace) and p != espace / JOURNAL.name.casefold():
             return None

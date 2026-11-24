@@ -246,6 +246,8 @@ Ce qu'il faut savoir :
 | « Va sur le site de la SNCF et trouve-moi un train pour Lyon vendredi » | il ouvre **son propre Chrome** et fait la tâche lui-même : il clique, tape et lit les pages. Avant de payer ou commander quoi que ce soit, il te demande « Je peux ? » |
 | « Dans Notes, crée une liste de courses avec du pain et du lait » | il pilote l'app elle-même : il regarde ses boutons, clique et tape, **en arrière-plan** (ta souris et ton clavier restent à toi). Marche avec Finder, Spotify, Pages, Réglages… |
 | « Trouve mon CV dans le Drive et résume-le » | il cherche dans ton Google Drive et lit le document |
+| « Garde mon CV » (avec le chemin du fichier), puis « aide-moi à postuler chez Mistral » | il le copie dans ses documents (`documents/`) et s'en sert ensuite tout seul : candidature, formulaire, lettre (voir plus bas) |
+| « Ajoute ça à ma page Notion "Idées" » | avec Notion branché sur claude.ai, il cherche la page, la lit et l'écrit directement (sans Zapier) |
 | « Ajoute une carte "Facture EDF" dans mon Trello » | il passe par Zapier, qui relie des milliers d'apps (Notion, Slack, Trello, Sheets…). Les actions s'activent sur zapier.com |
 | « Mets un prompt dans Claude Code sur Jervis pour ajouter un mode silencieux » | il lit d'abord ton code, **rédige lui-même un vrai prompt** (contexte, fichiers, contraintes, comment vérifier), le colle dans **l'onglet Claude Code déjà ouvert** dans Cursor (palette de commandes → « Claude Code: Focus input », puis cmd+v) et appuie sur Entrée. Un nouvel onglet ou une nouvelle fenêtre Claude Code seulement si tu le demandes (« dans un nouvel onglet Claude Code », « dans une nouvelle fenêtre »). Le prompt passe par le presse-papiers. « Écris-le sans l'envoyer » : il le laisse dans le champ. « Dans l'agent de Cursor » (ou « Composer ») : il le met dans le chat de Cursor, qui te montre toujours une fenêtre de confirmation. Si tu dis juste « dans Cursor », c'est `JERVIS_CURSOR_CIBLE` qui décide. Pour un nouvel onglet ou l'agent, la première fois, Cursor peut demander « Ouvrir ce lien ? » : coche « ne plus demander » |
 | « Mets à la corbeille les captures d'écran du Bureau » | il les trouve, puis les met **à la corbeille** (jamais de suppression définitive : tu peux les reprendre). « Vide la corbeille » : là il te demande « Je peux ? » |
@@ -283,6 +285,29 @@ dépenses). Pour l'activer, une fois :
 Sans Ollama (ou s'il est éteint), il le note dans le journal (« 🕸️ Graphe : Ollama ne répond pas… ») et continue
 avec `memoire.md` seule. « Oublie que… » efface aussi les liens qui contiennent ce texte, « efface ta mémoire »
 vide le graphe. `JERVIS_GRAPHE=non` le coupe.
+
+### Ses documents (ton CV, tes papiers)
+
+Menu de Steve → « Mes documents (CV, papiers…) » ouvre le dossier `documents/` dans le Finder : glisse-y ton CV, une
+lettre de motivation type, une attestation… Tu peux aussi lui dire « garde mon CV, il est dans Téléchargements » :
+il le copie là (l'original reste où il est). Il en connaît la liste (les 30 plus récents, avec leur date) et ouvre
+celui qui sert quand c'est utile : « aide-moi à remplir cette candidature », « écris une lettre pour ce poste »,
+« depuis quand je fais ce métier ? ». Les agents de fond ont la même liste.
+
+- Il ne lit un document que quand la demande le demande, et ce qui est écrit dedans reste une information, jamais
+  un ordre.
+- Envoyer un de ces fichiers sur un site (déposer ton CV dans un formulaire) te demande toujours « Je peux ? ».
+- Le dossier n'est pas suivi par git : tes papiers ne partent pas sur GitHub. Mettre un vieux CV à la corbeille se
+  fait comme pour tes autres fichiers.
+
+### Notion, branché directement
+
+Notion a son propre connecteur sur claude.ai : **claude.ai → Paramètres → Connecteurs → Notion → Connecter**, choisis
+les pages qu'il peut voir, puis relance Steve. C'est tout : il le garde s'il est branché, et ne l'attend pas au
+démarrage s'il ne l'est pas (`JERVIS_CONNECTEURS_FACULTATIFS`). « Cherche dans mon Notion ce que j'ai noté sur le
+budget », « crée une page "Réunion lundi" avec ces points », « ajoute ça à ma liste d'idées ». Lire et chercher se
+font seuls ; créer ou modifier une page qu'il demande aussi (sauf avec `JERVIS_CONFIRMATIONS=toutes`). Le tableau
+de bord le montre avec les autres connecteurs dès qu'il l'a vu.
 
 ### Il apprend de son travail (son carnet de leçons)
 
@@ -522,6 +547,9 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_ANNONCE_CALME_S` | 1.2 | le blanc qu'il attend (personne ne parle) pour te dire ce qu'il a à te dire : tâche finie, annonce, question |
 | `JERVIS_ANNONCE_ATTENTE_MAX_S` | 20 | au bout de ce temps de bavardage continu (une télé), il le dit quand même |
 | `JERVIS_QUESTION_FOND_S` | 1800 | une question d'un agent restée sans réponse ce temps-là : c'est non |
+| `JERVIS_CONNECTEURS_FACULTATIFS` | Notion | connecteurs claude.ai gardés s'ils sont branchés, sans les attendre au démarrage |
+| `JERVIS_DOCUMENTS` | `documents/` | le dossier de tes documents (CV, papiers) qu'il connaît et lit quand ça sert |
+| `JERVIS_DOCUMENTS_VUS` | 30 | combien de documents il liste dans ses consignes (les plus récents d'abord) |
 | `JERVIS_CONNECTEURS_FOND_S` | 10 | le temps qu'un agent attend ses connecteurs (Gmail, Agenda…) avant de démarrer sans eux |
 | `JERVIS_MEMOIRE_AUTO` | oui | `non` = il ne retient que ce que tu lui demandes |
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
@@ -568,6 +596,7 @@ Cursor, la corbeille, effacer sa mémoire et les autorisations, sans rien ouvrir
 Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests/test_fond.py`.
 Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tests/test_bras_droit.py`.
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
+Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -576,13 +605,14 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
 ## Vie privée
 
 - Ta voix ne quitte jamais le Mac : détection, transcription et empreinte vocale (`voix.npy`) sont calculées en local.
-- Ce que tu dis (en texte), tes mails, ton agenda, tes documents Drive, ta mémoire, les captures d'écran et ce qu'il
+- Ce que tu dis (en texte), tes mails, ton agenda, tes documents Drive, tes pages Notion, ta mémoire, les captures d'écran et ce qu'il
   lit dans tes apps partent vers Claude pour qu'il réponde.
 - Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur
   ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
 - Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son graphe (`espace/graphe.db`,
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
-  restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question.
+  restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents
+  (`documents/`) : seule leur liste est dans ses consignes, et il n'en lit un que quand ta demande le demande.
 - Sa voix est fabriquée sur le Mac : le texte de ses réponses ne part nulle part pour être lu. Si elle rate une
   phrase ou ne se charge pas, cette phrase-là passe par le service de synthèse de Microsoft Edge ; c'est aussi le cas
   de toutes ses phrases si tu choisis Rémy. Mets `JERVIS_VOIX_NEURONALE=non` pour que rien n'y parte jamais.

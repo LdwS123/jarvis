@@ -120,6 +120,11 @@ GRAPHE_PARALLELE = int(_env("GRAPHE_PARALLELE", "3"))   # lectures en même temp
 # Ce qu'il dit est dans briefing.md (modifie-le comme tu veux). JERVIS_BRIEFING=non pour le couper.
 BRIEFING = _env("BRIEFING", "oui").lower() not in {"non", "off", "0"}
 BRIEFING_HEURE = _env("BRIEFING_HEURE", "07:30")
+# Ses documents à toi (ton CV, tes papiers) : il en connaît la liste et les lit quand ça sert (une candidature,
+# un formulaire). Ils restent sur le Mac ; seul le passage qu'il lit part chez Claude, comme un fichier ouvert.
+DOCUMENTS = Path(_env("DOCUMENTS", str(DOSSIER / "documents"))).expanduser()
+DOCUMENTS_VUS = int(_env("DOCUMENTS_VUS", "30"))   # combien il en liste dans ses consignes, les plus récents d'abord
+
 FICHIER_BRIEFING = DOSSIER / "briefing.md"
 PRESENT_S = float(_env("PRESENT_S", "120"))   # tu es « devant le Mac » si tu as touché clavier ou souris depuis ça
 
@@ -209,6 +214,10 @@ DEBIT = _env("DEBIT", "195")    # mots par minute, pour la voix macOS
 # Chacun doit être connecté sur claude.ai → Paramètres → Connecteurs. Zapier ouvre 9 000 apps (Notion, Slack…).
 _CONNECTEURS = "claude.ai Gmail,claude.ai Google Calendar,claude.ai Google Drive,claude.ai Zapier"
 CONNECTEURS = [c.strip() for c in _env("CONNECTEURS", _CONNECTEURS).split(",") if c.strip()]
+# Ceux qu'il garde s'ils sont branchés sur claude.ai, sans les attendre au démarrage : brancher Notion sur
+# claude.ai → Paramètres → Connecteurs, relancer Steve, et c'est tout.
+_FACULTATIFS = "claude.ai Notion"
+CONNECTEURS_FACULTATIFS = [c.strip() for c in _env("CONNECTEURS_FACULTATIFS", _FACULTATIFS).split(",") if c.strip()]
 # Dossier de travail de la session Claude (isolé, pour ne pas toucher aux réglages de tes autres projets).
 ESPACE = DOSSIER / "espace"
 
