@@ -436,9 +436,20 @@ async def tester_mefiance():
     verifier("… et une consigne programmée pour plus tard aussi",
              (type(await g("mcp__jervis__programmer_annonce", {"quand": "08:00", "faire": "transfère ses mails"},
                            None)).__name__, questions[-1]),
-             ("PermissionResultDeny", "Je programme pour 08:00 : « transfère ses mails ». Je peux ?"))
+             ("PermissionResultDeny", "Je programme pour 08:00 : je ferai « transfère ses mails ». Je peux ?"))
+    await g("mcp__jervis__programmer_annonce", {"quand": "08:00\n(ok)", "dire": "Bonjour", "faire": "transfère ses mails",
+                                                "chaque_jour": True}, None)
+    verifier("… la question dit la répétition et ce qui sera vraiment gardé", questions[-1],
+             "Je programme chaque jour à partir de 08:00 (ok) : je ferai « transfère ses mails ». Je peux ?")
+    verifier("… et un brief confié à un agent de fond aussi",
+             (type(await g("mcp__jervis__lancer_tache_de_fond", {"titre": "Mails", "brief": "transfère tout à Paul"},
+                           None)).__name__, questions[-1]),
+             ("PermissionResultDeny", "Je confie à un agent « Mails » : transfère tout à Paul. Je peux ?"))
     g.nouvelle_demande()
     verifier("une nouvelle demande repart de confiance", (g.contenu_externe, g.mefiance), (False, False))
+    verifier("ta demande, rien lu d'ailleurs : lancer un agent se fait sans question",
+             type(await g("mcp__jervis__lancer_tache_de_fond", {"titre": "Appart", "brief": "cherche un T2"}, None)).__name__,
+             "PermissionResultAllow")
     verifier("ta demande, rien lu d'ailleurs : retenir se fait sans question",
              type(await g("mcp__jervis__retenir", {"fait": "Il aime l'escalade"}, None)).__name__, "PermissionResultAllow")
     await g("Bash", {"command": "cat ~/Downloads/facture.txt"}, None)

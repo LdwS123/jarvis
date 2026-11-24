@@ -577,8 +577,14 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     if action == "oublier":
         return f"J'efface de ma mémoire ce qui parle de « {str(entree.get('texte', '')).strip()[:100]} ». Je peux ?"
     if action == "programmer_annonce":
-        quoi = str(entree.get("faire") or entree.get("dire") or "").strip()[:200]
-        return f"Je programme pour {entree.get('quand', 'plus tard')} : « {quoi} ». Je peux ?"
+        # Ce qui sera vraiment gardé (la consigne `faire` l'emporte sur la phrase `dire`), et quand, répétition comprise.
+        faire = " ".join(str(entree.get("faire") or "").split())[:200]
+        quoi = f"je ferai « {faire} »" if faire else f"je dirai « {' '.join(str(entree.get('dire') or '').split())[:200]} »"
+        quand = " ".join(str(entree.get("quand") or "plus tard").split())[:20]
+        return f"Je programme {'chaque jour à partir de' if entree.get('chaque_jour') else 'pour'} {quand} : {quoi}. Je peux ?"
+    if action == "lancer_tache_de_fond":
+        return (f"Je confie à un agent « {' '.join(str(entree.get('titre') or '').split())[:60]} » : "
+                f"{' '.join(str(entree.get('brief') or '').split())[:300]}. Je peux ?")
     if action == "demander_accord":
         return f"{entree.get('action', 'Je continue').strip().rstrip('.')}. Je peux ?"
     if outil.startswith("mcp__mac__"):
@@ -669,9 +675,10 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
-# Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) : après un texte venu
-# d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui.
-ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce"}
+# Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre
+# agent (le brief d'une tâche de fond, qui pourrait faire passer l'ordre d'un mail piégé) : après un texte venu
+# d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui, en voyant le texte exact.
+ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce", "lancer_tache_de_fond"}
 
 
 def est_lecture(outil: str) -> bool:

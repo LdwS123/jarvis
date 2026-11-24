@@ -281,7 +281,8 @@ seuls) ne peuvent pas y écrire, et une leçon qui contient un lien, une adresse
 Quand il vient de lire un texte écrit par quelqu'un d'autre (un mail, une page, un document, un fichier, une commande,
 l'écran : tout outil qui n'est pas sur sa courte liste d'outils « internes »), il te demande avant d'écrire quoi que
 ce soit pour plus tard : une leçon (« Je note dans mon carnet : … Je peux ? »), un fait sur toi (« Je retiens sur
-toi : … »), un oubli, ou une consigne programmée (« Je programme pour 08:00 : … »). La relecture de fin de
+toi : … »), un oubli, une consigne programmée (« Je programme chaque jour à partir de 08:00 : je ferai « … » ») ou le brief
+d'un agent de fond (« Je confie à un agent « … » : … »). La relecture de fin de
 conversation, le fil qu'il reprend après une pause et ses recherches dans vos conversations passées ne lui remontent
 pas ce texte-là, seulement ce que tu as dit et quels outils ont marché (le journal, lui, garde tout pour toi). Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
 
