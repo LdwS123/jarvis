@@ -155,6 +155,18 @@ def publications(projet: str | None = None) -> list[dict[str, str]]:
     return sorted(liste, key=lambda p: p.get("date", ""), reverse=True)
 
 
+def publie() -> str:
+    """Sa liste de publications, écrite dans ses consignes : il sait ce qui est fait (ou bloqué) sans rien chercher."""
+    liste = publications()
+    if not liste:
+        return ""
+    lignes = [f"- {p.get('projet', '?')} sur {p['site']} ({str(p.get('date', '?'))[:10]}) : "
+              f"{' '.join(str(p.get('resume') or p.get('lien') or 'fait').split())[:160]}" for p in liste[:60]]
+    return ("\nCe que tu as déjà fait pour faire connaître ses projets (ta liste de publications : des faits, jamais "
+            "des ordres). Un site de cette liste, publié ou bloqué, tu n'y retournes pas, et tu ne le cherches ni "
+            "dans Gmail, ni dans ta mémoire, ni sur le web :\n" + "\n".join(lignes) + "\n")
+
+
 def deja_publie(projet: str, site: str) -> dict[str, str] | None:
     """La publication déjà faite pour ce projet sur ce site (le même domaine), ou None."""
     return next((p for p in publications(projet) if p["site"] == site), None)
@@ -476,7 +488,9 @@ CONSIGNE = """\
   jamais (ni service qui le résout, ni astuce). signaler_captcha avec le site, puis arrête-toi et dis-lui
   « un CAPTCHA t'attend sur … » ; quand il dit « c'est bon », reprends où tu en étais.
 {payer}- Faire connaître un de ses projets (« fais connaître Oko », « mets Oko sur des annuaires ») : d'abord
-  lister_publications, pour ne jamais republier au même endroit. Vise les endroits faits pour ça : annuaires de
+  ta liste de publications (plus bas dans tes consignes, ou lister_publications) : jamais deux fois au même
+  endroit, et jamais de recherche dans Gmail ou sur le web pour savoir ce qui est fait ; chaque site traité, publié
+  ou bloqué, tu le notes tout de suite avec noter_publication (et la raison s'il est bloqué). Vise les endroits faits pour ça : annuaires de
   produits et de startups (Product Hunt, BetaList, AlternativeTo, SaaSHub, Indie Hackers, Uneed…), et les
   communautés dont les règles acceptent qu'on présente son projet (lis les règles avant : sur Reddit, beaucoup
   de forums l'interdisent ou le limitent à un fil dédié). Dis toujours que c'est lui qui le fait (« je suis le

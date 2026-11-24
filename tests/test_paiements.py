@@ -163,6 +163,18 @@ verifier("publications : lister est une lecture ; noter, seul et interne",
          (est_lecture(J + "lister_publications"), politique(J + "noter_publication", {}), lit_dehors(J + "noter_publication"),
           lit_dehors(J + "lister_publications")), (True, Decision.OUI, False, True))
 
+# --- Il sait ce qui est déjà fait, sans chercher -------------------------------------------------------------
+from jervis import brain  # noqa: E402
+bloc = comptes.publie()
+verifier("déjà fait : la liste est dans ses consignes (publié ou bloqué)",
+         ("producthunt.com" in bloc, "betalist.com" in bloc, "n'y retournes pas" in bloc, "ni sur le web" in bloc),
+         (True, True, True, True))
+verifier("déjà fait : elle arrive aussi par son carnet (conversation et agents de fond)", "producthunt.com" in brain.carnet(), True)
+saved = comptes.PUBLICATIONS
+comptes.PUBLICATIONS = TMP / "vide.jsonl"
+verifier("déjà fait : rien à dire si rien n'est publié", comptes.publie(), "")
+comptes.PUBLICATIONS = saved
+
 # --- Ses consignes ---------------------------------------------------------------------------------------------
 c = comptes.consigne()
 verifier("consigne : un seul compte par site, à son nom", ("Un seul compte par site" in c, "faux profil" in c),

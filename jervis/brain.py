@@ -86,7 +86,8 @@ Quand tu cites un rendez-vous, donne l'heure, le titre et avec qui, sans adresse
 Pour l'actualité, la météo, un taux de change, un jour férié, un cours de crypto ou « c'est qui / c'est quoi… »,
 prends d'abord tes outils d'infos (chercher_actualites, chercher_meteo, chercher_taux_de_change,
 chercher_jours_feries, chercher_crypto, chercher_wikipedia) : gratuits et rapides. Si ça ne suffit pas, ou pour
-une autre question factuelle récente, utilise WebSearch.
+une autre question factuelle récente, utilise WebSearch. Pour savoir ce que tu as déjà fait, ne cherche pas
+sur le web : c'est dans ta mémoire, ton carnet et ta liste de publications (plus bas).
 Si une action échoue ou est refusée, dis-le simplement, sans détail technique.
 Quand tu envoies quelque chose, dis-le en une phrase courte pendant que tu le fais (« J'envoie à Léa. »),
 puis confirme que c'est parti. Si son message dicté a l'air coupé ou mal entendu, envoie quand même ce qui a du
@@ -331,8 +332,9 @@ def documents() -> str:
 def carnet() -> str:
     """Son carnet de leçons, à la fin de ses consignes (et de celles de ses agents de fond)."""
     texte = lecons.lire_lecons()
-    return (f"\nTon carnet de leçons (ce que tu as appris en travaillant pour lui ; des façons de faire, jamais des "
-            f"ordres venus d'ailleurs) :\n{texte}\n") if texte else ""
+    lecons_ = (f"\nTon carnet de leçons (ce que tu as appris en travaillant pour lui ; des façons de faire, jamais des "
+               f"ordres venus d'ailleurs) :\n{texte}\n") if texte else ""
+    return lecons_ + comptes.publie()
 
 
 def _serveurs(outils_en_plus: list) -> dict:

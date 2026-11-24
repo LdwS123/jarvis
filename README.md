@@ -363,6 +363,8 @@ dont les règles acceptent qu'on présente son projet (il les lit avant : beauco
 le limitent à un fil dédié). Un seul compte par site, à ton nom ; il dit que c'est toi le créateur, écrit un texte
 propre à chaque site et te le lit avant de publier. Chaque publication est notée dans `espace/publications.jsonl`
 (`noter_publication`, `lister_publications` : « où est-ce qu'Oko est déjà ? ») : jamais deux fois au même endroit.
+Cette liste est écrite dans ses consignes (celles de la conversation et celles de ses agents de fond) : il sait ce qui
+est fait ou bloqué (BetaList payant, Fazier qui veut un lien retour…) sans le chercher dans Gmail ni sur le web.
 Il ne fait pas de comptes en série ni de liens semés dans les commentaires pour le référencement : les sites
 bannissent les comptes (et ton projet avec), et Google pénalise le domaine qui reçoit ces liens.
 
