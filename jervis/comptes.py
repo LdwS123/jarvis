@@ -453,9 +453,13 @@ async def noter_publication(args: dict[str, Any]) -> dict[str, Any]:
         return _texte(f"Déjà noté : {projet} est sur {site} depuis le {deja.get('date', '?')}. Rien de plus.")
     resume = " ".join(str(args.get("resume") or "").split())[:200]
     gardee = "" if _SUSPECT.search(resume) else resume
-    _noter_publication(projet, site, " ".join(str(args.get("lien") or "").split())[:300], gardee)
+    lien = str(args.get("lien") or "").strip()
+    hote = domaine(lien) if lien.lower().startswith(("http://", "https://")) else None
+    lien_sur = lien[:300] if hote and (hote == site or hote.endswith("." + site)) else ""   # une seule adresse, celle du site
+    _noter_publication(projet, site, lien_sur, gardee)
     return _texte(f"Noté : {projet} sur {site}." + ("" if gardee == resume else
-                  " (Le résumé n'est pas gardé : ni lien, ni adresse mail, ni numéro dedans ; le lien va dans `lien`.)"))
+                  " (Le résumé n'est pas gardé : ni lien, ni adresse mail, ni numéro dedans ; le lien va dans `lien`.)")
+                  + ("" if lien_sur == lien else " (Le lien n'est pas gardé : il doit être une seule adresse http(s) du site.)"))
 
 
 @tool("lister_publications", "Où tu as déjà publié pour faire connaître ses projets (projet, site, lien, date). "

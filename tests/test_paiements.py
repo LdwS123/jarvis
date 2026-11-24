@@ -184,6 +184,14 @@ verifier("piégé : projet à retour à la ligne, faux site → ignorés", ("Ign
 verifier("piégé : un résumé avec un lien n'est pas affiché, le site reste", ("evil.xyz" in bloc, "lien.fr" in bloc, "note non affichée" in bloc),
          (False, True, True))
 verifier("piégé : jamais le lien dans ses consignes", "https://" in bloc, False)
+for nom, lien, attendu in [("un lien d'un autre site", "https://evil.xyz/a", ""),
+                           ("deux adresses collées", "https://liens.fr/a https://evil.xyz/b", ""),
+                           ("sans http", "javascript:alert(1)", ""),
+                           ("le bon site", "https://www.liens.fr/p/oko", "https://www.liens.fr/p/oko")]:
+    asyncio.run(comptes.noter_publication.handler({"projet": "Lien", "site": "liens.fr", "lien": lien}))
+    verifier(f"lien : {nom}", comptes.deja_publie("Lien", "liens.fr")["lien"], attendu)
+    comptes.PUBLICATIONS.write_text("".join(l + "\n" for l in comptes.PUBLICATIONS.read_text().splitlines()
+                                            if '"Lien"' not in l))
 from jervis.permissions import ECRIT_POUR_PLUS_TARD  # noqa: E402
 verifier("noter_publication : confirmé après un texte venu d'ailleurs (modes prudents)", "noter_publication" in ECRIT_POUR_PLUS_TARD, True)
 saved = comptes.PUBLICATIONS

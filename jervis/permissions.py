@@ -606,7 +606,7 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
     if action == "noter_publication":
         return (f"Je note que {str(entree.get('projet', '')).strip()} est sur {str(entree.get('site', '')).strip()} : "
-                f"« {str(entree.get('resume', '')).strip()} ». Je peux ?")
+                f"« {str(entree.get('resume', '')).strip()} » (lien : {str(entree.get('lien', '')).strip() or 'aucun'}). Je peux ?")
     if action == "retenir":
         return f"Je retiens sur toi : « {str(entree.get('fait', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
     if action == "oublier":
