@@ -81,12 +81,15 @@ OUBLI_MIN = float(_env("OUBLI_MIN", "15"))
 AFFICHER_COUT = _env("COUT", "oui").lower() not in {"non", "off", "0"}
 
 # --- Confirmations ------------------------------------------------------------
+#   autonome     : (par défaut) il fait tout seul et en prend la responsabilité : messages, comptes, publications,
+#                  mots de passe, fichiers, corbeille, Chrome. Il ne te demande que pour l'argent (et les paiements
+#                  sont coupés tant que JERVIS_PAIEMENTS n'est pas « oui »). sudo, rm, kill restent refusés.
 #   confiance    : si tu le lui demandes, c'est oui : il envoie le message, le mail, l'invitation sans redemander.
 #                  Il ne confirme que l'argent, ce qui détruit pour de bon (rm, kill, supprimer), les mots de passe,
 #                  le Terminal, et ce qu'une page ou un mail lui suggère sans que tu l'aies demandé.
 #   essentielles : en plus, il confirme tout ce qui part chez quelqu'un d'autre (message, mail, partage).
 #   toutes       : l'ancien réglage, prudent : il demande avant chaque création, modification ou commande inconnue.
-CONFIRMATIONS = _env("CONFIRMATIONS", "confiance").lower()
+CONFIRMATIONS = _env("CONFIRMATIONS", "autonome").lower()
 
 # --- Cursor ----------------------------------------------------------------------
 # Quand tu dis « écris ça dans Cursor » sans préciser, où va le prompt ?

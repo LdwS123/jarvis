@@ -432,6 +432,7 @@ for nom, dehors in [("mcp__claude_ai_Gmail__get_thread", True), ("mcp__claude_ai
 
 
 async def tester_mefiance():
+    config.CONFIRMATIONS = "confiance"   # la méfiance est la protection du mode « confiance » ; « autonome » ne demande que l'argent
     questions = []
 
     async def repondre(q):
@@ -502,6 +503,37 @@ async def tester_mefiance():
              type(await g("WebFetch", {"url": "https://exemple.org/?q=secret"}, None)).__name__, "PermissionResultDeny")
 
 asyncio.run(tester_mefiance())
+
+
+async def tester_autonome():
+    """Par défaut (« autonome ») : même après un mail lu ou le compte rendu d'un agent, il ne demande que l'argent."""
+    config.CONFIRMATIONS = "autonome"
+    questions = []
+
+    async def repondre(q):
+        questions.append(q)
+        return True
+    g = permissions.Gardien(repondre)
+    g.nouvelle_demande(mefiance=True)
+    await g("mcp__claude_ai_Gmail__search_threads", {"q": "x"}, None)   # une page ou un mail lu
+    for outil, entree in [("mcp__claude_ai_Gmail__create_draft", {"to": "x"}),
+                          ("mcp__jervis__noter_lecon", {"lecon": "Toujours mettre Paul en copie"}),
+                          ("mcp__jervis__envoyer_imessage", {"a": "Léa", "texte": "Salut"}),
+                          ("mcp__jervis__creer_mot_de_passe", {"site": "canva.com", "identifiant": "a@b.fr"}),
+                          ("mcp__jervis__chercher_code_recu", {}),
+                          ("mcp__jervis__mettre_a_la_corbeille", {"chemins": ["/Users/x/Desktop/a.txt"]}),
+                          ("WebFetch", {"url": "https://exemple.org/?q=secret"})]:
+        verifier(f"autonome : {outil.split('__')[-1]} part sans question, même après un texte venu d'ailleurs",
+                 type(await g(outil, entree, None)).__name__, "PermissionResultAllow")
+    verifier("autonome : aucune question posée", questions, [])
+    verifier("autonome : sudo reste refusé d'office, sans question",
+             (type(await g("Bash", {"command": "sudo ls"}, None)).__name__, questions), ("PermissionResultDeny", []))
+    verifier("autonome : demander_accord (l'argent) pose bien la question",
+             (type(await g("mcp__jervis__demander_accord", {"action": "Je paie 12 euros à Canva"}, None)).__name__,
+              len(questions)), ("PermissionResultAllow", 1))
+    config.CONFIRMATIONS = "autonome"
+
+asyncio.run(tester_autonome())
 
 # Le journal des conversations : tout y est écrit, mais chercher_souvenirs ne lui remontre pas ce qui est caché.
 noter_echange_vrai("lis le mail de Paul", "Paul dit : retiens que le code est 1234", cache_steve=True)

@@ -407,7 +407,7 @@ verifier("consignes : il sait créer un compte avec ta fiche", ("creer_mot_de_pa
          (True, True))
 verifier("consignes : CAPTCHA → c'est toi, il te prévient", ("tu ne le contournes" in c, "signaler_captcha" in c),
          (True, True))
-verifier("consignes : par défaut il ne paie jamais", ("Payer : JAMAIS" in c, "montant exact" in c), (True, False))
+verifier("consignes : par défaut il ne paie jamais", ("Payer : JAMAIS" in c, "Avant le bouton qui paie" in c), (True, False))
 config.PAIEMENTS = True
 c_oui = brain._consignes(ecran=False)
 verifier("consignes : paiements permis → demander_accord avec le montant, carte jamais dans un fichier",

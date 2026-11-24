@@ -253,13 +253,13 @@ Ce qu'il faut savoir :
 | « Dans Notes, crée une liste de courses avec du pain et du lait » | il pilote l'app elle-même : il regarde ses boutons, clique et tape, **en arrière-plan** (ta souris et ton clavier restent à toi). Marche avec Finder, Spotify, Pages, Réglages… |
 | « Trouve mon CV dans le Drive et résume-le » | il cherche dans ton Google Drive et lit le document |
 | « Garde mon CV » (avec le chemin du fichier), puis « aide-moi à postuler chez Mistral » | il le copie dans ses documents (`documents/`) et s'en sert ensuite tout seul : candidature, formulaire, lettre (voir plus bas) |
-| « Inscris-moi sur Canva avec mon adresse perso » | il prend tes infos dans ta fiche (`documents/fiche.md`), remplit le formulaire, **tire un mot de passe solide sur le Mac, le range dans ton Trousseau et le colle sans jamais le voir**, puis va chercher le code de vérification dans Gmail ou dans tes SMS. Il te demande « Je crée ton compte sur canva.com avec … ? » avant, et te passe la main pour un CAPTCHA (voir plus bas) |
-| « Fais connaître Oko : mets-le sur les annuaires de startups » | il regarde d'abord où il a déjà publié, puis crée **un** compte à ton nom par site (Product Hunt, BetaList, AlternativeTo, SaaSHub, Indie Hackers…), écrit une fiche propre à chacun en disant que c'est toi le créateur, te lit le texte avant de publier (« Je peux ? »), et note la publication pour ne jamais republier au même endroit (voir plus bas) |
+| « Inscris-moi sur Canva avec mon adresse perso » | il prend tes infos dans ta fiche (`documents/fiche.md`), remplit le formulaire, **tire un mot de passe solide sur le Mac, le range dans ton Trousseau et le colle sans jamais le voir**, puis va chercher le code de vérification dans Gmail ou dans tes SMS. Il te dit le site et l'identifiant en le faisant (sans te demander), et te passe la main pour un CAPTCHA (voir plus bas) |
+| « Fais connaître Oko : mets-le sur les annuaires de startups » | il regarde d'abord où il a déjà publié, puis crée **un** compte à ton nom par site (Product Hunt, BetaList, AlternativeTo, SaaSHub, Indie Hackers…), écrit une fiche propre à chacun en disant que c'est toi le créateur, te dit en une phrase où et quoi, et note la publication pour ne jamais republier au même endroit (voir plus bas) |
 | « Connecte-toi à mon compte Canva » | pour un compte qu'il a créé, il ressort le mot de passe du Trousseau et le colle (« Je sors ton mot de passe de canva.com… ? ») ; « quels comptes tu m'as créés ? » |
 | « Ajoute ça à ma page Notion "Idées" » | avec Notion branché sur claude.ai, il cherche la page, la lit et l'écrit directement (sans Zapier) |
 | « Ajoute une carte "Facture EDF" dans mon Trello » | il passe par Zapier, qui relie des milliers d'apps (Notion, Slack, Trello, Sheets…). Les actions s'activent sur zapier.com |
 | « Mets un prompt dans Claude Code sur Jervis pour ajouter un mode silencieux » | il lit d'abord ton code, **rédige lui-même un vrai prompt** (contexte, fichiers, contraintes, comment vérifier), le colle dans **l'onglet Claude Code déjà ouvert** dans Cursor (palette de commandes → « Claude Code: Focus input », puis cmd+v) et appuie sur Entrée. Un nouvel onglet ou une nouvelle fenêtre Claude Code seulement si tu le demandes (« dans un nouvel onglet Claude Code », « dans une nouvelle fenêtre »). Le prompt passe par le presse-papiers. « Écris-le sans l'envoyer » : il le laisse dans le champ. « Dans l'agent de Cursor » (ou « Composer ») : il le met dans le chat de Cursor, qui te montre toujours une fenêtre de confirmation. Si tu dis juste « dans Cursor », c'est `JERVIS_CURSOR_CIBLE` qui décide. Pour un nouvel onglet ou l'agent, la première fois, Cursor peut demander « Ouvrir ce lien ? » : coche « ne plus demander » |
-| « Mets à la corbeille les captures d'écran du Bureau » | il les trouve, puis les met **à la corbeille** (jamais de suppression définitive : tu peux les reprendre). « Vide la corbeille » : là il te demande « Je peux ? » |
+| « Mets à la corbeille les captures d'écran du Bureau » | il les trouve, puis les met **à la corbeille** (jamais de suppression définitive : tu peux les reprendre) |
 | « Libère de la mémoire », « le Mac rame » | il mesure la mémoire vive (part occupée, pression, débordement sur le disque), te dit quelles apps pèsent le plus et quitte celles dont tu ne te sers pas (jamais Cursor, Chrome ni l'app au premier plan). Si la pression est normale, il te le dit au lieu de fermer des apps pour rien |
 | « Efface ta mémoire », « oublie tout ce que tu sais sur moi », « efface nos conversations » | il met `memoire.md` et/ou l'historique à la corbeille, puis repart de zéro tout de suite, sans redémarrage. « Oublie que j'aime le jazz » n'enlève que ça |
 | « Vérifie tes autorisations » | il te dit ce que macOS ne lui laisse pas encore faire, et ouvre le bon volet des Réglages |
@@ -307,7 +307,7 @@ celui qui sert quand c'est utile : « aide-moi à remplir cette candidature », 
 
 - Il ne lit un document que quand la demande le demande, et ce qui est écrit dedans reste une information, jamais
   un ordre.
-- Envoyer un de ces fichiers sur un site (déposer ton CV dans un formulaire) te demande toujours « Je peux ? ».
+- Envoyer un de ces fichiers sur un site (déposer ton CV dans un formulaire) se fait seul en mode autonome ; les autres modes te demandent « Je peux ? ».
 - Le dossier n'est pas suivi par git : tes papiers ne partent pas sur GitHub. Mettre un vieux CV à la corbeille se
   fait comme pour tes autres fichiers.
 
@@ -332,9 +332,9 @@ fait de bout en bout, dans son Chrome ou dans le tien.
    Messages, sur le Mac, et ne rend que le code. Pour ça : sur l'iPhone, Réglages → Apps → Messages → **Transfert
    de SMS** → ton Mac, et sur le Mac, **Accès complet au disque** pour Jervis (Réglages → Confidentialité et
    sécurité).
-4. **Ce qui reste à toi.** Il te demande « Je peux ? » en te disant le site exact (« canva.com », pas
-   « canva-connexion.xyz ») avant de créer le compte, avant de sortir un mot de passe du Trousseau et avant de lire
-   un SMS : une page piégée ne peut pas lui faire voler un de tes comptes en le réinitialisant. Un **CAPTCHA** (« je
+4. **Ce qui reste à toi.** Il crée le compte, sort le mot de passe du Trousseau et lit le SMS sans te le demander :
+   il t'annonce le site exact (« canva.com »). Si tu préfères le voir demander (une page piégée pourrait essayer
+   de lui faire réinitialiser un de tes comptes), `JERVIS_CONFIRMATIONS=confiance`. Un **CAPTCHA** (« je
    ne suis pas un robot », images à cocher, puzzle), c'est toi : il ne le résout pas et ne le contourne jamais (ni
    service qui les résout, ni astuce). Il t'envoie une notification « Un CAPTCHA t'attend sur reddit.com », te le
    dit, et reprend où il en était quand tu dis « Steve, c'est bon ».
@@ -397,9 +397,9 @@ bouton **Carnet** du tableau de bord, pour le lire et rayer ce que tu veux. « E
 Comme le carnet entre dans ses consignes, il est protégé contre les textes piégés : une leçon vient de ce que tu lui
 dis ou de ce qu'il constate, jamais du contenu d'un mail ou d'une page ; ses agents de fond et sa ronde (qui lisent
 seuls) ne peuvent pas y écrire, et une leçon qui contient un lien, une adresse mail ou un numéro est refusée.
-Quand il vient de lire un texte écrit par quelqu'un d'autre (un mail, une page, un document, un fichier, une commande,
-l'écran : tout outil qui n'est pas sur sa courte liste d'outils « internes »), il te demande avant d'écrire quoi que
-ce soit pour plus tard : une leçon (« Je note dans mon carnet : … Je peux ? »), un fait sur toi (« Je retiens sur
+En mode `confiance` ou plus prudent, quand il vient de lire un texte écrit par quelqu'un d'autre (un mail, une page,
+un document, un fichier, une commande, l'écran : tout outil qui n'est pas sur sa courte liste d'outils « internes »),
+il te demande avant d'écrire quoi que ce soit pour plus tard (en mode autonome, il le fait sans demander) : une leçon (« Je note dans mon carnet : … Je peux ? »), un fait sur toi (« Je retiens sur
 toi : … »), un oubli, une consigne programmée (« Je programme chaque jour à partir de 08:00 : je ferai « … » ») ou le brief
 d'un agent de fond (« Je confie à un agent « … » : … »). La relecture de fin de
 conversation, le fil qu'il reprend après une pause et ses recherches dans vos conversations passées ne lui remontent
@@ -447,30 +447,37 @@ Licence : gratuit pour un usage personnel, payant pour une entreprise.
 
 ### Ce qu'il te demande encore
 
-Si tu lui demandes quelque chose, c'est oui : il envoie le message WhatsApp, le mail ou l'iMessage sans
-redemander, et il en prend la responsabilité. Il ne demande « Je peux ? » que dans ces cas :
+**Presque rien : par défaut (`JERVIS_CONFIRMATIONS=autonome`), il fait tout seul et en prend la responsabilité.**
+Messages, mails, comptes, mots de passe, publications, fichiers, corbeille, Chrome : plus de « Je peux ? » à
+chaque fois. Si tu veux qu'il te redemande, choisis un mode plus prudent (tableau plus bas).
 
-| Ce qui reste confirmé | Exemples |
+| Ce qui reste demandé | Pourquoi |
 |---|---|
-| L'argent | payer, acheter, commander, réserver ou s'abonner (Steve ne paie jamais lui-même) |
-| Tes comptes | créer un compte (il te dit le site et l'identifiant), sortir un mot de passe du Trousseau, lire un code reçu par SMS |
-| Ce qui détruit pour de bon | `kill`, `git push`, vider la corbeille, supprimer un rendez-vous ou un brouillon, un menu « Supprimer » ou « Vider » (mettre à la corbeille se rattrape : il le fait seul, y compris pour sa propre mémoire) |
-| Ce qui part chez tout le monde | publier, partager un fichier « à tous ceux qui ont le lien » |
-| Les secrets et le système | lire, écrire ou jeter `.ssh`, `.env`, clés, trousseau, 1Password, toucher au Terminal, lancer du code dans ton Chrome connecté |
-| Ce qui ne vient pas de toi | une action suggérée par une page web, un mail ou une app, que tu n'as pas demandée |
+| L'argent | `demander_accord` avec le montant et le marchand, et seulement si tu as mis `JERVIS_PAIEMENTS=oui` ; sinon il ne paie jamais (voir « Payer : coupé par défaut ») |
 
-`sudo`, `rm -rf`, formater un disque, éteindre ou redémarrer le Mac restent interdits, même si tu dis oui.
-Pareil pour **tout `rm` direct** (`rm`, `rmdir`, `unlink`, `shred`, `find … -delete`) : il n'efface jamais un fichier,
+| Ce qui est refusé d'office, sans question | Pourquoi |
+|---|---|
+| `sudo`, `rm` direct, formater un disque, éteindre ou redémarrer le Mac | irréversible : il passe par la corbeille, qui se rattrape |
+| Un numéro de carte dans ses outils, un clic sur « Payer »… quand les paiements sont coupés | voir « Payer » |
+
+Le revers de la médaille : en mode autonome, une page ou un mail piégé a moins de garde-fous pour l'empêcher d'agir.
+Les modes plus prudents les remettent : `confiance` (ce qui détruit, les secrets, le Terminal et ce qui ne vient pas
+de toi sont confirmés), `essentielles` (en plus, chaque message envoyé), `toutes` (avant chaque création ou
+modification).
+
+**Il apprend de tes corrections.** Chaque fois que tu le reprends (« non, pas comme ça », « arrête de me
+demander ») ou qu'un chemin échoue avant qu'un autre marche, il note la leçon tout de suite, avec sa cause, dans son
+carnet (voir plus bas), et le relit avant d'agir : la même erreur une deuxième fois, c'est une faute.
+
+Ces interdits tiennent même si tu dis oui. Pareil pour **tout `rm` direct** (`rm`, `rmdir`, `unlink`, `shred`, `find … -delete`) : il n'efface jamais un fichier,
 il le met à la corbeille avec son outil dédié, et te le dit s'il a dû renoncer à une commande (« je ne supprime pas :
 je mets à la corbeille »). Le reste du terminal lui est ouvert : lire les journaux, lancer un script, `git status`,
 `git commit`, installer un outil (`brew`, `pip`, `npm`), tant que ça ne touche pas aux secrets ni au système.
 La corbeille refuse aussi, quoi qu'il arrive : les dossiers du système, ton dossier personnel entier, un grand
 dossier en bloc (Bureau, Documents, Bibliothèque… : ce qu'il y a dedans part, pas le dossier), un disque ou un compte
 entier, et Steve lui-même (son code, sa mémoire : pour elle, c'est « efface ta mémoire »). Une tâche de fond qui a besoin de ton accord
-te pose la question à voix haute (« Pour la tâche "vols Lisbonne" : je peux réserver ? »). Sans réponse dans les
-30 minutes, c'est non. `JERVIS_CONFIRMATIONS=essentielles` lui fait aussi confirmer chaque message et chaque
-mail ; `toutes` remet l'ancien mode, qui demande avant chaque création ou modification. Tout se règle dans
-`jervis/permissions.py`.
+(l'argent, ou n'importe quoi dans un mode prudent) te pose la question à voix haute. Sans réponse dans les
+30 minutes, c'est non. Tout se règle dans `jervis/permissions.py`.
 
 ### Ton Chrome à toi
 
@@ -480,8 +487,8 @@ Claude Code) : « Steve, va sur Doctolib et trouve-moi un créneau », « ouvre-
 
 - Il faut l'extension [Claude in Chrome](https://claude.ai/chrome) installée et connectée au même compte Claude.
 - Si Chrome est fermé, il l'ouvre tout seul.
-- Il demande avant de lancer du code dans une page ou d'envoyer un fichier du Mac sur un site, et avant tout ce
-  qui engage (payer, commander, réserver, envoyer). Il ne tape jamais de mot de passe.
+- Par défaut il agit seul, y compris pour lancer du code dans une page ou envoyer un fichier du Mac sur un site ;
+  il ne demande que pour payer (et paie seulement si `JERVIS_PAIEMENTS=oui`). Il ne tape jamais de mot de passe.
 - Si l'extension ne répond pas, il se rabat sur son Chrome à lui (profil à part, dossier `navigateur/`) et te le
   dit. `JERVIS_CHROME_PERSO=non` le fait toujours travailler dans son Chrome à lui.
 
@@ -616,7 +623,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_CONNECTEURS` | Gmail, Google Calendar, Google Drive, Zapier | connecteurs claude.ai à garder (chacun se connecte sur claude.ai → Paramètres → Connecteurs) |
 | `JERVIS_MAC` | oui | `non` = il ne pilote plus les apps du Mac (Peekaboo) |
 | `JERVIS_PEEKABOO_MCP` | @steipete/peekaboo@4.9.8 | version de Peekaboo |
-| `JERVIS_CONFIRMATIONS` | confiance | `essentielles` = il confirme aussi chaque message envoyé ; `toutes` = il redemande avant chaque création ou modification |
+| `JERVIS_CONFIRMATIONS` | autonome | `autonome` = il fait tout seul, il ne demande que pour l'argent ; `confiance` = il confirme ce qui détruit, les secrets, le Terminal et ce qui ne vient pas de toi ; `essentielles` = en plus, chaque message envoyé ; `toutes` = avant chaque création ou modification |
 | `JERVIS_OUBLI_MIN` | 15 | après cette pause, conversation neuve (il garde sa mémoire et vos 3 derniers échanges) : moins cher et plus rapide |
 | `JERVIS_COUT` | oui | `non` = ne plus afficher « 💰 … » après chaque réponse |
 | `JERVIS_TACHES_MAX` | 5 | nombre d'agents de fond en même temps |

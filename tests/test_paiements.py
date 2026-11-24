@@ -66,6 +66,9 @@ verifier("carte : une date en millisecondes, un SIRET, un téléphone → non",
          (numero_de_carte("1732464000000"), numero_de_carte("SIRET " + carte("4123", 14)),
           numero_de_carte("06 12 34 56 78")), (False, False, False))
 verifier("carte : un numéro qui ne commence pas comme une carte → non", numero_de_carte(carte("9", 16)), False)
+groupes = [visa[i:i + 4] for i in range(0, 16, 4)]
+verifier("carte : espaces insécables, points, barres", [numero_de_carte(sep.join(groupes)) for sep in
+                                                       ("\u00a0", "\u202f", ".", "/", " - ")], [True] * 5)
 
 # --- Le Gardien ------------------------------------------------------------------------------------------------
 class FauxContexte:
@@ -86,6 +89,14 @@ verifier("défaut : les paiements sont coupés", config.PAIEMENTS, False)
 for nom, outil, entree, attendu in [
         ("taper sa carte dans la page", PW + "browser_type", {"ref": "e4", "text": visa}, "PermissionResultDeny"),
         ("l'écrire dans un fichier", "Write", {"file_path": "/tmp/x", "content": f"carte {amex}"}, "PermissionResultDeny"),
+        ("une carte en espaces insécables, au fond d'un formulaire", PW + "browser_fill_form",
+         {"fields": [{"name": "Nom", "value": "Inès"}, {"name": "x", "value": "\u00a0".join(groupes)}]},
+         "PermissionResultDeny"),
+        ("taper dans le champ « Numéro de carte », même 4 chiffres", PW + "browser_type",
+         {"element": "Numéro de carte", "ref": "e7", "text": "4970"}, "PermissionResultDeny"),
+        ("taper dans le champ CVC", "mcp__mac__type", {"query": "CVC", "text": "123"}, "PermissionResultDeny"),
+        ("taper son nom dans le champ « Nom »", PW + "browser_type", {"element": "Nom sur la carte ?", "ref": "e8",
+                                                                      "text": "Inès"}, "PermissionResultAllow"),
         ("cliquer « Payer 9,99 € »", PW + "browser_click", {"element": "Bouton Payer 9,99 €", "ref": "e9"},
          "PermissionResultDeny"),
         ("cliquer « Place order »", PW + "browser_click", {"element": "Place order button", "ref": "e2"},
@@ -157,7 +168,7 @@ c = comptes.consigne()
 verifier("consigne : un seul compte par site, à son nom", ("Un seul compte par site" in c, "faux profil" in c),
          (True, True))
 verifier("consigne : faire connaître → règles du site, il dit qu'il est le créateur, accord avant de publier",
-         ("lister_publications" in c, "règles" in c, "créateur" in c, "demander_accord avec le site" in c),
+         ("lister_publications" in c, "règles" in c, "créateur" in c, "Publie sans demander" in c),
          (True, True, True, True))
 verifier("consigne : pas de liens semés pour le référencement", "liens semés" in c, True)
 verifier("consigne : aucun repère oublié", ("{payer}" in c, "{fiche}" in c), (False, False))

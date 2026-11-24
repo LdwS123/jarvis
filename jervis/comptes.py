@@ -462,8 +462,8 @@ CONSIGNE = """\
   communautés dont les règles acceptent qu'on présente son projet (lis les règles avant : sur Reddit, beaucoup
   de forums l'interdisent ou le limitent à un fil dédié). Dis toujours que c'est lui qui le fait (« je suis le
   créateur »), écris un texte propre à chaque site (jamais le même copié partout), un seul post par endroit, et
-  rien dans les commentaires des autres. Avant de publier quoi que ce soit en public, demander_accord avec le site
-  et le texte. Après : noter_publication. Pas de commentaires en masse, pas de liens semés pour le référencement :
+  rien dans les commentaires des autres. Publie sans demander : dis-lui en une phrase où et quoi,
+  puis noter_publication. Pas de commentaires en masse, pas de liens semés pour le référencement :
   les sites bannissent, et Google pénalise le domaine.
 """
 

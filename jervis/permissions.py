@@ -24,9 +24,11 @@ class Decision(Enum):
 
 def politique(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = (),
               mode: str | None = None) -> Decision:
-    """Décide pour un appel d'outil, selon config.CONFIRMATIONS (« confiance » par défaut, « essentielles »
-    ou « toutes »)."""
+    """Décide pour un appel d'outil, selon config.CONFIRMATIONS (« autonome » par défaut, puis « confiance »,
+    « essentielles » et « toutes », du moins au plus prudent)."""
     mode = mode or config.CONFIRMATIONS
+    if mode == "autonome":
+        return politique_autonome(outil, entree, apps_vues)
     if mode == "toutes":
         return politique_prudente(outil, entree, apps_vues)
     if mode == "essentielles":
@@ -130,6 +132,22 @@ def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[
                 or FICHIERS_SECRETS.search(commande) or PERSISTANCE.search(commande)):
             return Decision.DEMANDER
         return Decision.OUI
+    return Decision.OUI
+
+
+def politique_autonome(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> Decision:
+    """Par défaut : il fait tout seul, et il en prend la responsabilité (mails, messages, comptes, publications,
+    mots de passe, fichiers, corbeille, Chrome). Il ne te demande que pour l'argent : demander_accord, et un outil
+    qui paie (quand JERVIS_PAIEMENTS=oui : sinon motif_paiement les refuse avant d'arriver ici). Ce qui est interdit
+    d'office (sudo, rm, kill…) reste refusé : il passe par la corbeille. Pour le voir te demander davantage :
+    JERVIS_CONFIRMATIONS=confiance (ou essentielles, toutes)."""
+    action = nom_action(outil)
+    decision = politique_confiance(outil, entree, apps_vues)
+    if decision is not Decision.DEMANDER:
+        return decision
+    if action == "demander_accord" or (config.PAIEMENTS and (ACTION_QUI_PAIE.search(action)
+                                                             or ACTION_QUI_PAIE.search(str(entree.get("action", ""))))):
+        return Decision.DEMANDER
     return Decision.OUI
 
 
@@ -721,7 +739,16 @@ def colle(outil: str, entree: dict[str, Any]) -> bool:
 # refusé partout, qu'il le tape, l'écrive dans un fichier ou le passe à une commande. Seuls les formats de vraies
 # cartes comptent (Visa, Mastercard, CB, Amex, Discover) et le chiffre de contrôle (Luhn) doit tomber juste : un
 # SIRET (14 chiffres), une date en millisecondes (13) ou un numéro de colis ne sont pas pris pour une carte.
-_SUITE_DE_CHIFFRES = re.compile(r"(?<![\d])\d+(?:[ -]\d+)*(?![\d])")
+# Entre les groupes : n'importe quel séparateur (espace, espace insécable, point, tiret, barre), pas seulement « ».
+_SEPARATEUR = r"[\s.\-/_·•]{1,3}"
+_SUITE_DE_CHIFFRES = re.compile(rf"(?<!\d)\d+(?:{_SEPARATEUR}\d+)*(?!\d)")
+# Un champ de carte (numéro, cryptogramme, date d'expiration) : il n'y tape rien, même chiffre par chiffre.
+CHAMP_CARTE = re.compile(
+    r"card ?number|num[ée]ro (?:de (?:la )?)?carte|\bcc-?(?:number|num|csc|exp)|cardnumber|\bcvc\b|\bcvv\b|\bcsc\b"
+    r"|cryptogramme|code de s[ée]curit[ée]|security code|date d'expiration|expiration date|expiry",
+    re.IGNORECASE,
+)
+FRAPPES = {"browser_type", "browser_fill_form", "fill_form", "form_input", "type", "set_value"}
 _FORMATS_CARTE = {15: re.compile(r"3[47]"), 16: re.compile(r"4|5[1-5]|2[2-7]|6[05]"), 19: re.compile(r"4|6[05]")}
 
 
@@ -736,7 +763,7 @@ def luhn(chiffres: str) -> bool:
 def numero_de_carte(texte: str) -> bool:
     """Vrai si le texte contient un numéro de carte bancaire (« 4970 1012 3456 7890 », « 4970-… », collé)."""
     for suite in _SUITE_DE_CHIFFRES.finditer(texte):
-        groupes = re.split(r"[ -]", suite.group())
+        groupes = re.split(_SEPARATEUR, suite.group())
         for debut in range(len(groupes)):   # la carte peut être entourée d'autres nombres (« 4970 … 7890 12/28 »)
             chiffres = ""
             for g in groupes[debut:]:
@@ -764,14 +791,26 @@ ACTION_QUI_PAIE = re.compile(
 CLICS_NOMMES = {"browser_click", "click", "dialog", "menu", "action"}
 
 
+def _textes(valeur: Any):
+    """Chaque texte d'une entrée, tel quel (pas sa forme repr, où une espace insécable devient « \\xa0 »)."""
+    if isinstance(valeur, dict):
+        for v in valeur.values():
+            yield from _textes(v)
+    elif isinstance(valeur, (list, tuple)):
+        for v in valeur:
+            yield from _textes(v)
+    elif valeur is not None:
+        yield str(valeur)
+
+
 def motif_paiement(outil: str, entree: dict[str, Any]) -> str | None:
     """Pourquoi ce geste lui est refusé (un numéro de carte, ou un paiement quand ils sont coupés), ou None."""
-    if numero_de_carte(str(entree)):
+    action = nom_action(outil)
+    if any(numero_de_carte(t) for t in _textes(entree)) or (action in FRAPPES and CHAMP_CARTE.search(str(entree))):
         return ("Un numéro de carte bancaire ne passe jamais par tes outils. Laisse le remplissage automatique de "
                 "son Chrome proposer sa carte, ou demande-lui de la saisir lui-même.")
     if config.PAIEMENTS:
         return None
-    action = nom_action(outil)
     if (action in CLICS_NOMMES and BOUTON_QUI_PAIE.search(str(entree))) or \
             (outil.startswith("mcp__") and not est_lecture(outil) and ACTION_QUI_PAIE.search(action)):
         return ("Les paiements sont coupés : tu ne paies jamais, même s'il te l'a demandé. Arrête-toi ici et dis-lui "
@@ -888,9 +927,10 @@ class Gardien:
         decision = politique(outil, entree, self._apps_vues)
         if lit_dehors(outil):
             self.contenu_externe = True
-        if decision is Decision.OUI and self.mefiance and not est_lecture(outil):
+        prudent = config.CONFIRMATIONS != "autonome"   # en mode autonome : plus de questions que pour l'argent
+        if prudent and decision is Decision.OUI and self.mefiance and not est_lecture(outil):
             decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même
-        if (decision is Decision.OUI and (self.mefiance or self.contenu_externe)
+        if (prudent and decision is Decision.OUI and (self.mefiance or self.contenu_externe)
                 and outil.startswith("mcp__jervis__") and outil.split("__")[-1] in ECRIT_POUR_PLUS_TARD):
             decision = Decision.DEMANDER  # ce qui viendrait d'un mail ou d'une page ne s'inscrit pas sans toi
         if decision is Decision.NON and (motif := motif_interdit(outil, entree)):
