@@ -187,7 +187,12 @@ verifier("piégé : jamais le lien dans ses consignes", "https://" in bloc, Fals
 for nom, lien, attendu in [("un lien d'un autre site", "https://evil.xyz/a", ""),
                            ("deux adresses collées", "https://liens.fr/a https://evil.xyz/b", ""),
                            ("sans http", "javascript:alert(1)", ""),
-                           ("le bon site", "https://www.liens.fr/p/oko", "https://www.liens.fr/p/oko")]:
+                           ("une barre inverse (lue autrement par un navigateur)", "https://evil.xyz\\@liens.fr/p", ""),
+                           ("un @ (identifiant)", "https://liens.fr@evil.xyz/p", ""),
+                           ("un retour à la ligne", "https://liens.fr/p\nhttps://evil.xyz", ""),
+                           ("le site comme sous-domaine d'un autre", "https://liens.fr.evil.xyz/p", ""),
+                           ("le bon site", "https://www.liens.fr/p/oko", "https://www.liens.fr/p/oko"),
+                           ("le bon site, refait à neuf", "HTTPS://Liens.FR/p o?a=1", "")]:
     asyncio.run(comptes.noter_publication.handler({"projet": "Lien", "site": "liens.fr", "lien": lien}))
     verifier(f"lien : {nom}", comptes.deja_publie("Lien", "liens.fr")["lien"], attendu)
     comptes.PUBLICATIONS.write_text("".join(l + "\n" for l in comptes.PUBLICATIONS.read_text().splitlines()

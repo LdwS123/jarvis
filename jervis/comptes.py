@@ -30,7 +30,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from claude_agent_sdk import tool
 
@@ -438,6 +438,24 @@ async def signaler_captcha(args: dict[str, Any]) -> dict[str, Any]:
                   "étais quand il dit « c'est bon ». Ne touche plus à la page d'ici là.")
 
 
+def _lien_du_site(lien: str, site: str) -> str:
+    """Le lien refait à neuf à partir de ses morceaux, ou "" s'il n'est pas une seule adresse http(s) du site : ni
+    espace, ni retour, ni \\ ni @ (qu'un navigateur et Python lisent différemment), ni % dans le nom du site."""
+    if not lien.lower().startswith(("http://", "https://")) or any(c in "\\@" or ord(c) < 33 or ord(c) == 127 for c in lien):
+        return ""
+    try:
+        morceaux = urlsplit(lien)
+        hote = (morceaux.hostname or "").removeprefix("www.")
+        morceaux.port  # un port illisible lève ValueError
+    except ValueError:
+        return ""
+    if not _DOMAINE.fullmatch(hote) or not (hote == site or hote.endswith("." + site)):
+        return ""
+    chemin = quote(morceaux.path, safe="/%:+,;=~-._")
+    requete = f"?{quote(morceaux.query, safe='=&/%:+,;~-._')}" if morceaux.query else ""
+    return f"{morceaux.scheme.lower()}://{morceaux.hostname}{chemin}{requete}"[:300]
+
+
 @tool("noter_publication", "Après avoir publié pour faire connaître un de ses projets (une fiche d'annuaire, un "
       "post, une présentation) : note où, pour ne jamais republier au même endroit. `projet` = son nom (Oko), "
       "`site` = le domaine (producthunt.com), `lien` = l'adresse de la publication, `resume` = une phrase.",
@@ -454,8 +472,7 @@ async def noter_publication(args: dict[str, Any]) -> dict[str, Any]:
     resume = " ".join(str(args.get("resume") or "").split())[:200]
     gardee = "" if _SUSPECT.search(resume) else resume
     lien = str(args.get("lien") or "").strip()
-    hote = domaine(lien) if lien.lower().startswith(("http://", "https://")) else None
-    lien_sur = lien[:300] if hote and (hote == site or hote.endswith("." + site)) else ""   # une seule adresse, celle du site
+    lien_sur = _lien_du_site(lien, site)
     _noter_publication(projet, site, lien_sur, gardee)
     return _texte(f"Noté : {projet} sur {site}." + ("" if gardee == resume else
                   " (Le résumé n'est pas gardé : ni lien, ni adresse mail, ni numéro dedans ; le lien va dans `lien`.)")
