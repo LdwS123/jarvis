@@ -161,6 +161,7 @@ async def retrouver(site: str, identifiant: str) -> str | None:
 _minuteur: asyncio.TimerHandle | None = None
 _copie_jusqua = 0.0   # tant qu'un mot de passe peut être dans le presse-papiers, rien ne le lit (permissions.py)
 _secret: str | None = None
+_tour = 0             # chaque copie a son numéro : un minuteur d'une copie précédente ne touche plus à rien
 COLLAGE_S = 15.0      # une fois collé, il part vite : le temps de coller aussi dans le champ de confirmation
 REESSAI_S = 5.0       # macOS n'a pas répondu : on réessaie de le retirer
 
@@ -174,18 +175,23 @@ def _vider_dans(delai: float) -> None:
     if _minuteur:
         _minuteur.cancel()
     _copie_jusqua = time.monotonic() + delai + 5
-    secret = _secret
-    _minuteur = asyncio.get_running_loop().call_later(delai, lambda: asyncio.ensure_future(_vider_si(secret)))
+    tour = _tour
+    _minuteur = asyncio.get_running_loop().call_later(delai, lambda: asyncio.ensure_future(_vider_si(tour)))
 
 
 async def copier(secret: str) -> str | None:
     """Met le secret dans le presse-papiers, et l'en retire après PRESSE_PAPIERS_S secondes s'il y est encore."""
-    global _secret, _copie_jusqua
-    _copie_jusqua = time.monotonic() + config.PRESSE_PAPIERS_S + 5   # fermé avant même d'y être
+    global _secret, _tour, _copie_jusqua, _minuteur
+    # Tout est fermé et à son nom AVANT d'attendre macOS : un ancien minuteur qui se réveille entre-temps
+    # voit que ce n'est plus son tour et ne rouvre rien.
+    _tour += 1
+    _secret, _copie_jusqua = secret, time.monotonic() + config.PRESSE_PAPIERS_S + 5
+    if _minuteur:
+        _minuteur.cancel()
+        _minuteur = None
     code, sortie = await _lancer("pbcopy", entree=secret)
-    if code:
+    if code:   # on ne sait pas s'il y est : ça reste fermé jusqu'au délai
         return sortie or "le presse-papiers ne répond pas"
-    _secret = secret
     _vider_dans(config.PRESSE_PAPIERS_S)
     return None
 
@@ -196,18 +202,26 @@ def apres_collage() -> None:
         _vider_dans(COLLAGE_S)
 
 
-async def _vider_si(secret: str | None) -> None:
+async def _vider_si(tour: int) -> None:
     """Retire le secret s'il y est encore. Le presse-papiers ne se rouvre qu'une fois sûr qu'il n'y est plus :
-    si macOS ne répond pas, il reste fermé et on réessaie dans quelques secondes."""
+    si macOS ne répond pas, il reste fermé et on réessaie dans quelques secondes. Après chaque attente, on revérifie
+    que c'est toujours le tour de cette copie : sinon la suivante décide, et celle-ci ne touche à rien."""
     global _secret, _copie_jusqua
-    if secret is not _secret:   # un autre mot de passe l'a remplacé : c'est son minuteur qui décide
+    secret = _secret
+    if tour != _tour or secret is None:
         return
     code, actuel = await _lancer("pbpaste")
-    if not code and secret is not None and actuel == secret:
+    if tour != _tour:
+        return
+    if not code and actuel == secret:
         code, _ = await _lancer("pbcopy", entree="")
+        if tour != _tour:
+            return
         if not code:
             code, actuel = await _lancer("pbpaste")
-    if code or (secret is not None and actuel == secret):
+            if tour != _tour:
+                return
+    if code or actuel == secret:
         _vider_dans(REESSAI_S)
         return
     _secret, _copie_jusqua = None, 0.0

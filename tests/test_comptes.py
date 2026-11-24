@@ -257,6 +257,36 @@ async def macos_muet():
     return reste_ferme, comptes.secret_au_presse_papiers(), presse_papiers[-1]
 
 
+
+
+async def deux_copies_qui_se_croisent():
+    """Le minuteur de la première copie se réveille pendant que la seconde attend macOS : il ne doit rien rouvrir."""
+    config.PRESSE_PAPIERS_S = 30
+    await comptes.copier("Premier-1")
+    tour_ancien = comptes._tour
+    lent = asyncio.Event()
+    vrai = comptes._lancer
+
+    async def pbcopy_lent(*cmd, entree=None, delai=15):
+        if cmd == ("pbcopy",) and entree == "Second-2":
+            lent.set()
+            await asyncio.sleep(0.1)
+        return await vrai(*cmd, entree=entree, delai=delai)
+
+    comptes._lancer = pbcopy_lent
+    seconde = asyncio.ensure_future(comptes.copier("Second-2"))
+    await lent.wait()
+    await comptes._vider_si(tour_ancien)            # l'ancien minuteur, en plein milieu
+    pendant = comptes.secret_au_presse_papiers()
+    await seconde
+    comptes._lancer = vrai
+    return pendant, comptes.secret_au_presse_papiers(), presse_papiers[-1]
+
+
+verifier("presse-papiers : un ancien minuteur ne rouvre pas pendant la copie suivante",
+         asyncio.run(deux_copies_qui_se_croisent()), (True, True, "Second-2"))
+comptes._copie_jusqua, comptes._secret = 0.0, None
+
 comptes.REESSAI_S = 30
 verifier("presse-papiers : macOS ne répond pas → il reste fermé ; puis vidé et rouvert",
          asyncio.run(macos_muet()), (True, False, ""))
