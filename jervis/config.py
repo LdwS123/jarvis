@@ -160,6 +160,11 @@ LECONS_MAX = int(_env("LECONS_MAX", "60"))
 QUESTION_ECRITE_S = float(_env("QUESTION_ECRITE_S", "300"))
 ECRIT_RELECTURE_S = float(_env("ECRIT_RELECTURE_S", "120"))
 
+# --- Ses outils « infos » (infos.py) --------------------------------------------------
+# Actualité, météo, taux de change, Wikipédia, jours fériés, cryptos : des services gratuits, sans clé.
+# Un service qui ne répond pas dans ce délai : il le dit et passe à WebSearch.
+INFOS_DELAI_S = float(_env("INFOS_DELAI_S", "8"))
+
 # --- Mémoire de l'écran (screenpipe, optionnel) -----------------------------------
 # screenpipe enregistre en local ce qui passe sur ton écran (texte lu par OCR) et dans ton micro.
 # auto = branché seulement s'il tourne (npx screenpipe record). oui / non pour forcer.

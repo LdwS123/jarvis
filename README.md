@@ -239,6 +239,12 @@ Ce qu'il faut savoir :
 | « Tous les jours à 9 h, regarde si mon train a du retard » | il le fera lui-même chaque jour à 9 h, puis te dira le résultat. « Qu'est-ce que tu as de programmé ? », « annule le 3 » |
 | « Qu'est-ce que je faisais hier vers 15 h ? », « retrouve l'article sur l'IA que j'ai lu ce matin » | avec screenpipe (voir plus bas), il retrouve ce qui est passé sur ton écran |
 | « Regarde mon écran, c'est quoi cette erreur ? » | il fait une capture et l'analyse |
+| « Quoi de neuf ? », « les dernières nouvelles sur la grève SNCF » | il lit les titres de **Google Actualités** (la une, ou sur ton sujet), avec le journal et l'heure (heure de Paris) : `chercher_actualites` |
+| « Quel temps fera-t-il à Lyon demain ? » | il demande à **Open-Meteo** : le temps qu'il fait là-bas, puis jour par jour (jusqu'à 7 jours), minimales, maximales et risque de pluie : `chercher_meteo` |
+| « Combien font 100 euros en dollars ? » | il convertit au taux du jour de la BCE (**Frankfurter**) : `chercher_taux_de_change` |
+| « C'est qui, Hedy Lamarr ? » | il lit le résumé de l'article **Wikipédia** en français, même si tu écorches le nom : `chercher_wikipedia` |
+| « C'est quand, le prochain jour férié ? » | il donne les jours fériés de l'année (**Nager.Date**, la France par défaut, ou un autre pays) et le prochain : `chercher_jours_feries` |
+| « Combien vaut le bitcoin ? » | il donne son cours en euros et sa variation sur 24 h (**CoinGecko**) : `chercher_crypto` |
 | « Envoie un message à Léa : j'arrive dans 10 minutes » | il cherche Léa dans Contacts, puis te lit le message avant de l'envoyer |
 | « Rappelle-moi d'appeler maman demain à 18 h » | il crée un rappel dans Rappels, qui sonne aussi sur l'iPhone |
 | « Note mes idées : … » | il crée une note dans Notes |
@@ -259,6 +265,8 @@ Ce qu'il faut savoir :
 | « Renomme / déplace / ouvre / range… » n'importe où sur le Mac | il a accès à tout le disque avec les chemins complets (`~/Desktop/…`, `/Applications/…`), pas seulement à son dossier |
 Il réfléchit avant de répondre, autant que la question le demande : presque pas pour « mets de la musique »,
 beaucoup plus pour « organise ma semaine ». Il enchaîne seul les étapes et vérifie que ça a marché.
+Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos) passent par des services gratuits,
+sans clé ni compte (`jervis/infos.py`) ; s'ils ne suffisent pas ou ne répondent pas, il cherche sur le web.
 
 ### Ce qu'il retient tout seul
 
@@ -312,8 +320,11 @@ fait de bout en bout, dans son Chrome ou dans le tien.
    manque, il te le demande. Comme tes autres documents, elle reste sur le Mac (pas sur GitHub).
 2. **Le mot de passe, Claude ne le voit jamais.** Il est tiré au hasard sur ton Mac (`secrets`, 20 caractères),
    rangé dans ton **Trousseau macOS** au nom du site (app Mots de passe ou Trousseau d'accès → cherche « Steve »),
-   puis mis dans le presse-papiers le temps qu'il le colle (cmd+v). Il quitte le presse-papiers au bout de 90
-   secondes, sauf si tu as copié autre chose entre-temps. Steve ne reçoit que « c'est rangé » : rien ne part chez
+   puis mis dans le presse-papiers le temps qu'il le colle (cmd+v). Il en part 15 secondes après le dernier
+   collage (le temps de remplir aussi la confirmation), 90 secondes au plus, sauf si tu as copié autre chose
+   entre-temps. Tant qu'il y est, Steve n'a droit à aucune commande ni aucun code (Bash, code dans une page,
+   outil « presse-papiers ») : il ne peut que coller. Il ne ressort d'ailleurs que les mots de passe qu'il a rangés
+   lui-même (étiquette « site (Steve) »), jamais les autres de ton Trousseau. Steve ne reçoit que « c'est rangé » : rien ne part chez
    Claude, rien n'est dit à voix haute, rien n'est écrit dans ses conversations. La liste des comptes créés
    (`espace/comptes.jsonl`) n'a que le site, l'identifiant et la date.
 3. **Le code de vérification.** Par mail : il le lit dans Gmail. Par SMS : `chercher_code_recu` le lit dans
@@ -385,8 +396,8 @@ depuis ce matin, je te prépare un brouillon ? »). Il retient ce qu'il t'a déj
 le répéter.
 
 La ronde ne fait que **regarder** : elle peut chercher, lister et lire, mais tout envoi, suppression, création ou
-commande du terminal lui est refusé, et elle n'a pas accès au web (un mail piégé ne peut donc pas lui faire ouvrir un
-lien pour faire sortir tes données). Agir reste ta décision : c'est lui, après t'avoir parlé, qui fait la suite si tu
+commande du terminal lui est refusé, et elle n'a pas accès au web, ni à ses outils d'infos (un mail piégé ne peut donc
+pas lui faire ouvrir un lien ou lancer une recherche pour faire sortir tes données). Agir reste ta décision : c'est lui, après t'avoir parlé, qui fait la suite si tu
 dis oui. Elle ne prend jamais la dernière place d'agent de fond : il en reste toujours une pour toi. Quand il te rapporte ce
 qu'elle (ou une tâche de fond) a trouvé, il se méfie : ce compte rendu peut répéter un mail piégé, alors pendant ce
 tour-là il ne fait que lire et te parler, et toute action (même un brouillon) attend ton « oui ».
@@ -616,6 +627,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_INITIATIVE_FIN` | 20:00 | ni après celle-ci |
 | `JERVIS_MODELE_INITIATIVE` | sonnet | modèle de la ronde (elle ne fait que lire : un modèle léger suffit) |
 | `JERVIS_LECONS_MAX` | 60 | lignes gardées dans son carnet de leçons (les plus anciennes s'en vont) |
+| `JERVIS_INFOS_DELAI_S` | 8 | secondes qu'il laisse à un service d'infos (actualité, météo, change…) avant de dire qu'il ne répond pas et de passer à WebSearch |
 | `JERVIS_QUESTION_ECRITE_S` | 300 | une question Oui / Non du chat restée sans clic ce temps-là : c'est non |
 | `JERVIS_ECRIT_RELECTURE_S` | 120 | après ce temps sans message tapé, il relit l'échange écrit pour sa mémoire et son carnet |
 | `JERVIS_PRESENT_S` | 120 | tu es « devant le Mac » si tu as touché clavier ou souris depuis ce nombre de secondes |
@@ -647,6 +659,7 @@ Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tes
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
 Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.
+Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -659,12 +672,14 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   lit dans tes apps partent vers Claude pour qu'il réponde.
 - Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur
   ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
+- Ses outils d'infos n'envoient à Google Actualités, Open-Meteo, Frankfurter, Wikipédia, Nager.Date et CoinGecko
+  que le sujet, le lieu, la monnaie ou le pays demandés (sans clé ni compte, sous un nom générique), jamais ta voix ni ta mémoire.
 - Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son graphe (`espace/graphe.db`,
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents
   (`documents/`) : seule leur liste est dans ses consignes, et il n'en lit un que quand ta demande le demande.
 - Les mots de passe qu'il crée ne partent jamais chez Claude : tirés et rangés sur le Mac (Trousseau), ils passent
-  par le presse-papiers 90 secondes au plus. Si tu as un historique du presse-papiers (Raycast, Paste, Maccy),
+  par le presse-papiers 90 secondes au plus (et aucune commande ne peut l'y lire pendant ce temps). Si tu as un historique du presse-papiers (Raycast, Paste, Maccy),
   exclus-en Jervis ou les mots de passe. D'un SMS, seul le code (et l'expéditeur) part chez Claude, pas le message.
 - Sa voix est fabriquée sur le Mac : le texte de ses réponses ne part nulle part pour être lu. Si elle rate une
   phrase ou ne se charge pas, cette phrase-là passe par le service de synthèse de Microsoft Edge ; c'est aussi le cas

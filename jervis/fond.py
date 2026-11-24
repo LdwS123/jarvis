@@ -25,7 +25,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ToolUseBlock, tool)
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import compteur, config, outils
+from . import compteur, config, infos, outils
 from .brain import EXPERT, _maintenant, carnet, documents, preparer_connecteurs
 from .permissions import Gardien, est_lecture
 
@@ -332,9 +332,15 @@ Regarde, sans rien envoyer ni modifier :
 ETAT_RONDE = config.ESPACE / "ronde.json"
 
 
+# Ses outils d'infos lisent, mais sur Internet : un mail piégé lu pendant la ronde pourrait glisser tes données dans
+# la recherche envoyée. Comme le web, ils restent hors de sa ronde (Steve s'en sert quand tu lui parles).
+_INFOS = {f"mcp__{outils.NOM_SERVEUR}__{t.name}" for t in infos.OUTILS_INFOS}
+
+
 def outil_de_lecture(outil: str) -> bool:
-    """mcp__claude_ai_Gmail__search_threads, mcp__jervis__lister_rappels : oui. send_message, Bash, WebFetch : non."""
-    return est_lecture(outil)
+    """mcp__claude_ai_Gmail__search_threads, mcp__jervis__lister_rappels : oui. send_message, Bash, WebFetch,
+    chercher_meteo (Internet) : non."""
+    return est_lecture(outil) and outil not in _INFOS
 
 
 async def lecture_seule(outil: str, entree: dict[str, Any], _ctx: Any):
@@ -362,7 +368,7 @@ PROGRAMMES = config.ESPACE / "programmes.json"
 ETAT_BRIEFING = config.ESPACE / "briefing_fait.txt"
 BRIEFING_PAR_DEFAUT = """\
 Fais-lui le point du matin, en quatre ou cinq phrases parlées, sans liste :
-- la météo du jour là où il est (WebSearch) ;
+- la météo du jour là où il est (chercher_meteo) ;
 - ses rendez-vous d'aujourd'hui (agenda), avec l'heure et avec qui ;
 - les mails importants non lus depuis hier soir (ignore les newsletters et les pubs) ;
 - ses rappels du jour.
