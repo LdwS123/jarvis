@@ -9,8 +9,13 @@ que « c'est fait ». Pour se reconnecter plus tard, copier_mot_de_passe le ress
 Les codes de vérification reçus par SMS (iPhone → Mac) : chercher_code_recu les lit dans la base de Messages, sur
 le Mac, et ne rend que le code. Il faut l'Accès complet au disque pour Jervis (Réglages → Confidentialité).
 
-Ce qui reste à toi : payer (il te demande avant, avec le montant, et ta carte reste dans le remplissage
-automatique de Chrome), les CAPTCHA (« je ne suis pas un robot ») et la validation 3-D Secure de ta banque.
+Ce qui reste à toi : les CAPTCHA (« je ne suis pas un robot » : il ne les contourne jamais, il te prévient par la
+voix et une notification, et reprend quand tu dis « c'est bon »), la validation 3-D Secure de ta banque, et payer :
+par défaut il ne paie jamais (config.PAIEMENTS) ; un numéro de carte ne passe jamais par ses outils.
+
+Faire connaître un projet (Oko…) : un vrai compte par site, à ton nom, sur les annuaires et communautés qui
+l'acceptent, en respectant leurs règles. Ce qu'il publie, et où, est noté dans espace/publications.jsonl
+(noter_publication, lister_publications) : il ne publie jamais deux fois au même endroit.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ from claude_agent_sdk import tool
 from . import config
 
 REGISTRE: Path = config.ESPACE / "comptes.jsonl"   # site, identifiant, date : jamais le mot de passe
+PUBLICATIONS: Path = config.ESPACE / "publications.jsonl"   # projet, site, lien, résumé, date
 CHAT_DB: Path = Path.home() / "Library" / "Messages" / "chat.db"
 SYMBOLES = "-_.!@#%+=?"   # ceux que presque tous les sites acceptent
 _DOMAINE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,23}")
@@ -129,6 +135,35 @@ def _noter(site: str, identifiant: str) -> None:
     REGISTRE.parent.mkdir(parents=True, exist_ok=True)
     with REGISTRE.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"site": site, "identifiant": identifiant,
+                            "date": datetime.now().strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
+
+
+def publications(projet: str | None = None) -> list[dict[str, str]]:
+    """Ce qu'il a publié pour faire connaître un projet, le plus récent d'abord."""
+    try:
+        lignes = PUBLICATIONS.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    liste = []
+    for ligne in lignes:
+        try:
+            p = json.loads(ligne)
+            if isinstance(p, dict) and p.get("site") and (not projet or p.get("projet", "").casefold() == projet.casefold()):
+                liste.append(p)
+        except ValueError:
+            continue
+    return sorted(liste, key=lambda p: p.get("date", ""), reverse=True)
+
+
+def deja_publie(projet: str, site: str) -> dict[str, str] | None:
+    """La publication déjà faite pour ce projet sur ce site (le même domaine), ou None."""
+    return next((p for p in publications(projet) if p["site"] == site), None)
+
+
+def _noter_publication(projet: str, site: str, lien: str, resume: str) -> None:
+    PUBLICATIONS.parent.mkdir(parents=True, exist_ok=True)
+    with PUBLICATIONS.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"projet": projet, "site": site, "lien": lien, "resume": resume,
                             "date": datetime.now().strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
 
 
@@ -364,17 +399,89 @@ async def chercher_code_recu(args: dict[str, Any]) -> dict[str, Any]:
     return _texte("\n".join(f"- {code} (de {qui}, il y a {s // 60} min {s % 60} s)" for code, qui, s in trouves[:3]))
 
 
-OUTILS_COMPTES = [creer_mot_de_passe, copier_mot_de_passe, lister_comptes, chercher_code_recu]
+@tool("signaler_captcha", "Un CAPTCHA (« je ne suis pas un robot », images à cocher, puzzle) bloque la page : "
+      "tu ne le résous jamais et ne le contournes jamais. Cet outil le prévient (notification sur le Mac) ; ensuite "
+      "arrête-toi, dis-lui à voix haute qu'un CAPTCHA l'attend sur ce site, et reprends quand il dit « c'est bon ». "
+      "`site` = le domaine de la page.",
+      {"site": str})
+async def signaler_captcha(args: dict[str, Any]) -> dict[str, Any]:
+    site = domaine(args.get("site")) or "une page de son Chrome"
+    script = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run"
+    await _lancer("osascript", "-e", script, config.PRENOM,
+                  f"Un CAPTCHA t'attend sur {site}. Fais-le, puis dis-moi « c'est bon ».", delai=5)
+    return _texte(f"Il est prévenu. Arrête-toi là : dis-lui qu'un CAPTCHA l'attend sur {site}, et reprends où tu en "
+                  "étais quand il dit « c'est bon ». Ne touche plus à la page d'ici là.")
+
+
+@tool("noter_publication", "Après avoir publié pour faire connaître un de ses projets (une fiche d'annuaire, un "
+      "post, une présentation) : note où, pour ne jamais republier au même endroit. `projet` = son nom (Oko), "
+      "`site` = le domaine (producthunt.com), `lien` = l'adresse de la publication, `resume` = une phrase.",
+      {"type": "object",
+       "properties": {"projet": {"type": "string"}, "site": {"type": "string"}, "lien": {"type": "string"},
+                      "resume": {"type": "string"}},
+       "required": ["projet", "site"]})
+async def noter_publication(args: dict[str, Any]) -> dict[str, Any]:
+    site, projet = domaine(args.get("site")), " ".join(str(args.get("projet") or "").split())[:60]
+    if not site or not projet:
+        return _erreur("Il faut le nom du projet et le domaine du site (producthunt.com).")
+    if deja := deja_publie(projet, site):
+        return _texte(f"Déjà noté : {projet} est sur {site} depuis le {deja.get('date', '?')}. Rien de plus.")
+    _noter_publication(projet, site, " ".join(str(args.get("lien") or "").split())[:300],
+                       " ".join(str(args.get("resume") or "").split())[:200])
+    return _texte(f"Noté : {projet} sur {site}.")
+
+
+@tool("lister_publications", "Où tu as déjà publié pour faire connaître ses projets (projet, site, lien, date). "
+      "Regarde-la AVANT de publier : jamais deux fois au même site. `projet` pour n'en voir qu'un.",
+      {"type": "object", "properties": {"projet": {"type": "string"}}})
+async def lister_publications(args: dict[str, Any]) -> dict[str, Any]:
+    liste = publications(args.get("projet") or None)
+    if not liste:
+        return _texte("Rien de publié pour l'instant.")
+    return _texte("\n".join(f"- {p.get('projet', '?')} sur {p['site']} (le {p.get('date', '?')})"
+                            + (f" : {p['lien']}" if p.get("lien") else "") for p in liste[:80]))
+
+
+OUTILS_COMPTES = [creer_mot_de_passe, copier_mot_de_passe, lister_comptes, chercher_code_recu,
+                  signaler_captcha, noter_publication, lister_publications]
 
 CONSIGNE = """\
 - Créer un compte à sa place (« inscris-moi sur… », « crée-moi un compte… ») : ses infos sont dans sa fiche
   ({fiche}) ; lis-la avec Read, et ce qui manque, demande-le-lui. Va sur le vrai site (tape son adresse, ne suis
   pas un lien d'un mail), remplis le formulaire, puis creer_mot_de_passe avec le domaine exact de la page et
   l'identifiant : tu ne vois jamais le mot de passe, tu le colles (cmd+v). Le code de vérification : Gmail s'il
-  arrive par mail, chercher_code_recu s'il arrive par SMS. Un CAPTCHA (« je ne suis pas un robot », images à
-  cocher) : ne le contourne jamais, demande-lui de le faire, puis continue. Une fois le compte créé, retiens-le
+  arrive par mail, chercher_code_recu s'il arrive par SMS. Une fois le compte créé, retiens-le
   (retenir : « compte Netflix créé avec ines@… »). Pour se reconnecter plus tard : copier_mot_de_passe.
-- Payer : sa carte n'est jamais dans un fichier ni dans tes messages. Dans son Chrome, laisse le remplissage
-  automatique proposer sa carte ; s'il n'y en a pas, demande-lui de la saisir. Avant le bouton qui paie,
-  demander_accord avec le montant exact et le marchand. La validation de sa banque (3-D Secure), c'est lui.
+  Un seul compte par site, à son nom : jamais plusieurs comptes sur le même site, jamais de faux profil.
+- Un CAPTCHA (« je ne suis pas un robot », images à cocher, puzzle) : tu ne le résous pas, tu ne le contournes
+  jamais (ni service qui le résout, ni astuce). signaler_captcha avec le site, puis arrête-toi et dis-lui
+  « un CAPTCHA t'attend sur … » ; quand il dit « c'est bon », reprends où tu en étais.
+{payer}- Faire connaître un de ses projets (« fais connaître Oko », « mets Oko sur des annuaires ») : d'abord
+  lister_publications, pour ne jamais republier au même endroit. Vise les endroits faits pour ça : annuaires de
+  produits et de startups (Product Hunt, BetaList, AlternativeTo, SaaSHub, Indie Hackers, Uneed…), et les
+  communautés dont les règles acceptent qu'on présente son projet (lis les règles avant : sur Reddit, beaucoup
+  de forums l'interdisent ou le limitent à un fil dédié). Dis toujours que c'est lui qui le fait (« je suis le
+  créateur »), écris un texte propre à chaque site (jamais le même copié partout), un seul post par endroit, et
+  rien dans les commentaires des autres. Avant de publier quoi que ce soit en public, demander_accord avec le site
+  et le texte. Après : noter_publication. Pas de commentaires en masse, pas de liens semés pour le référencement :
+  les sites bannissent, et Google pénalise le domaine.
 """
+
+
+PAYER_NON = """\
+- Payer : JAMAIS, même un euro, même s'il te l'a demandé avant. Arrête-toi avant tout paiement (carte, PayPal,
+  Apple Pay, un « essai gratuit » qui demande une carte, un bouton Payer / Acheter / Commander / S'abonner) et
+  dis-lui ce qu'il faudrait payer, où et combien : c'est lui qui le fera. Ces boutons te sont refusés.
+"""
+PAYER_OUI = """\
+- Payer : sa carte n'est jamais dans un fichier ni dans tes messages (un numéro de carte est refusé dans tes
+  outils). Dans son Chrome, laisse le remplissage automatique proposer sa carte ; s'il n'y en a pas, demande-lui de
+  la saisir. Avant le bouton qui paie, demander_accord avec le montant exact et le marchand. La validation de sa
+  banque (3-D Secure), c'est lui.
+"""
+
+
+def consigne() -> str:
+    """Sa consigne pour les comptes, selon que les paiements sont permis (config.PAIEMENTS) ou non."""
+    return (CONSIGNE.replace("{payer}", PAYER_OUI if config.PAIEMENTS else PAYER_NON)
+            .replace("{fiche}", str(config.FICHE)))

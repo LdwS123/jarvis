@@ -698,7 +698,7 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
 # PRESSE_PAPIERS_S, et quinze secondes après le dernier collage (cmd+v).
 GESTES_PENDANT_COLLAGE = {"browser_click", "browser_press_key", "browser_type", "browser_hover", "browser_wait_for",
                           "click", "type", "press", "hotkey", "scroll", "form_input",
-                          "creer_mot_de_passe", "copier_mot_de_passe", "demander_accord"}
+                          "creer_mot_de_passe", "copier_mot_de_passe", "demander_accord", "signaler_captcha"}
 GESTES_CHROME = {"left_click", "double_click", "triple_click", "key", "type", "scroll", "wait", "hover"}
 _COLLER = re.compile(r"\b(meta|cmd|command|control|ctrl)\s*\+\s*v\b", re.IGNORECASE)
 
@@ -716,6 +716,70 @@ def colle(outil: str, entree: dict[str, Any]) -> bool:
         and bool(_COLLER.search(str(entree)))
 
 
+# --- Payer -----------------------------------------------------------------------------------------------------
+# Un numéro de carte n'a rien à faire dans ses outils (le remplissage automatique de Chrome s'en charge) : il est
+# refusé partout, qu'il le tape, l'écrive dans un fichier ou le passe à une commande. Seuls les formats de vraies
+# cartes comptent (Visa, Mastercard, CB, Amex, Discover) et le chiffre de contrôle (Luhn) doit tomber juste : un
+# SIRET (14 chiffres), une date en millisecondes (13) ou un numéro de colis ne sont pas pris pour une carte.
+_SUITE_DE_CHIFFRES = re.compile(r"(?<![\d])\d+(?:[ -]\d+)*(?![\d])")
+_FORMATS_CARTE = {15: re.compile(r"3[47]"), 16: re.compile(r"4|5[1-5]|2[2-7]|6[05]"), 19: re.compile(r"4|6[05]")}
+
+
+def luhn(chiffres: str) -> bool:
+    total = 0
+    for i, c in enumerate(reversed(chiffres)):
+        n = int(c) * (2 if i % 2 else 1)
+        total += n - 9 if n > 9 else n
+    return total % 10 == 0
+
+
+def numero_de_carte(texte: str) -> bool:
+    """Vrai si le texte contient un numéro de carte bancaire (« 4970 1012 3456 7890 », « 4970-… », collé)."""
+    for suite in _SUITE_DE_CHIFFRES.finditer(texte):
+        groupes = re.split(r"[ -]", suite.group())
+        for debut in range(len(groupes)):   # la carte peut être entourée d'autres nombres (« 4970 … 7890 12/28 »)
+            chiffres = ""
+            for g in groupes[debut:]:
+                chiffres += g
+                if len(chiffres) > 19:
+                    break
+                motif = _FORMATS_CARTE.get(len(chiffres))
+                if motif and motif.match(chiffres) and luhn(chiffres):
+                    return True
+    return False
+
+
+# Quand config.PAIEMENTS est à « non » (par défaut) : les boutons et les outils qui paient lui sont refusés. Le
+# filet attrape les clics nommés (Playwright, Peekaboo, une boîte de dialogue) ; un clic à des coordonnées n'a pas
+# de nom, c'est sa consigne (« ne paie jamais ») qui l'arrête.
+BOUTON_QUI_PAIE = re.compile(
+    r"\b(?:payer|pay|paiement|payment|paypal|acheter|achat|buy|purchase|commander|passer (?:la |ma )?commande"
+    r"|place (?:your |my )?order|order now|checkout|s'abonner|s’abonner|abonnez-vous|subscribe"
+    r"|souscrire|apple pay|google pay|confirmer (?:et payer|le paiement|la commande)"
+    r"|valider (?:et payer|le paiement|la commande|mon panier))\b",
+    re.IGNORECASE,
+)
+ACTION_QUI_PAIE = re.compile(
+    r"(?:(?<![a-zA-Z])|(?<=[a-z])(?=[A-Z]))(?i:pay|payment|purchase|checkout|buy|charge|subscribe|subscription)s?(?![a-z])")
+CLICS_NOMMES = {"browser_click", "click", "dialog", "menu", "action"}
+
+
+def motif_paiement(outil: str, entree: dict[str, Any]) -> str | None:
+    """Pourquoi ce geste lui est refusé (un numéro de carte, ou un paiement quand ils sont coupés), ou None."""
+    if numero_de_carte(str(entree)):
+        return ("Un numéro de carte bancaire ne passe jamais par tes outils. Laisse le remplissage automatique de "
+                "son Chrome proposer sa carte, ou demande-lui de la saisir lui-même.")
+    if config.PAIEMENTS:
+        return None
+    action = nom_action(outil)
+    if (action in CLICS_NOMMES and BOUTON_QUI_PAIE.search(str(entree))) or \
+            (outil.startswith("mcp__") and not est_lecture(outil) and ACTION_QUI_PAIE.search(action)):
+        return ("Les paiements sont coupés : tu ne paies jamais, même s'il te l'a demandé. Arrête-toi ici et dis-lui "
+                "ce qu'il faudrait payer, où et combien ; c'est lui qui le fera. (Si ce bouton ne paie rien, une "
+                "newsletter gratuite par exemple, demande-lui de cliquer lui-même.)")
+    return None
+
+
 # Les outils qui ne font que lire (chercher, lister, lire) : seuls permis à sa ronde, libres même quand il se méfie.
 LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^(?:search|fetch)(?:_|$)|^ToolSearch$")
 # Les seuls outils qui ne lui rendent que son propre état (« noté », ses réglages, ses dépenses) : tout autre outil
@@ -729,7 +793,7 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
                        r"chercher_liens|"
                        # Les comptes : « c'est rangé », et la liste qu'il a écrite lui-même (jamais un mot de passe).
-                       r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes)"
+                       r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes|signaler_captcha|noter_publication)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
 # Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre
@@ -817,6 +881,8 @@ class Gardien:
                                                     "mot de passe (et sa confirmation) : le reste se rouvre peu après.")
             if colle(outil, entree):
                 comptes.apres_collage()
+        if motif := motif_paiement(outil, entree):
+            return PermissionResultDeny(message=motif)
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)

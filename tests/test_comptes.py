@@ -405,9 +405,14 @@ verifier("lecture : chercher un code et lister, oui ; créer, non",
 c = brain._consignes(ecran=False)
 verifier("consignes : il sait créer un compte avec ta fiche", ("creer_mot_de_passe" in c, str(config.FICHE) in c),
          (True, True))
-verifier("consignes : CAPTCHA → c'est toi", "ne le contourne jamais" in c, True)
-verifier("consignes : payer → demander_accord avec le montant, carte jamais dans un fichier",
-         ("montant exact" in c, "jamais dans un fichier" in c), (True, True))
+verifier("consignes : CAPTCHA → c'est toi, il te prévient", ("tu ne le contournes" in c, "signaler_captcha" in c),
+         (True, True))
+verifier("consignes : par défaut il ne paie jamais", ("Payer : JAMAIS" in c, "montant exact" in c), (True, False))
+config.PAIEMENTS = True
+c_oui = brain._consignes(ecran=False)
+verifier("consignes : paiements permis → demander_accord avec le montant, carte jamais dans un fichier",
+         ("montant exact" in c_oui, "jamais dans un fichier" in c_oui, "Payer : JAMAIS" in c_oui), (True, True, False))
+config.PAIEMENTS = False
 verifier("consignes : plus de « jamais de mot de passe » qui bloquerait l'inscription",
          "Tu ne tapes jamais\nde mot de passe" in c, False)
 verifier("consignes : aucun repère oublié", "{comptes}" in c or "{fiche}" in c, False)

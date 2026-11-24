@@ -130,6 +130,10 @@ FICHE = DOCUMENTS / "fiche.md"
 PRESSE_PAPIERS_S = int(_env("PRESSE_PAPIERS_S", "90"))   # après ce délai, le mot de passe quitte le presse-papiers
 MOT_DE_PASSE_LONGUEUR = int(_env("MOT_DE_PASSE_LONGUEUR", "20"))
 CODE_SMS_MINUTES = int(_env("CODE_SMS_MINUTES", "10"))   # jusqu'où il remonte pour trouver un code reçu par SMS
+# Payer à ta place. Par défaut non : il s'arrête avant tout paiement (carte, PayPal, essai gratuit qui demande une
+# carte) et te dit ce qu'il faudrait payer, et ses clics sur « Payer », « Acheter », « S'abonner »… sont refusés.
+# JERVIS_PAIEMENTS=oui : il peut aller jusqu'au bouton qui paie, après ton accord (montant et marchand).
+PAIEMENTS = _env("PAIEMENTS", "non").lower() in {"oui", "on", "1"}
 
 FICHIER_BRIEFING = DOSSIER / "briefing.md"
 PRESENT_S = float(_env("PRESENT_S", "120"))   # tu es « devant le Mac » si tu as touché clavier ou souris depuis ça

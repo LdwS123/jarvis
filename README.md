@@ -249,11 +249,12 @@ Ce qu'il faut savoir :
 | « Rappelle-moi d'appeler maman demain à 18 h » | il crée un rappel dans Rappels, qui sonne aussi sur l'iPhone |
 | « Note mes idées : … » | il crée une note dans Notes |
 | « Éteins les lumières du salon » | il lance le raccourci correspondant de l'app Raccourcis |
-| « Va sur le site de la SNCF et trouve-moi un train pour Lyon vendredi » | il ouvre **son propre Chrome** et fait la tâche lui-même : il clique, tape et lit les pages. Avant de payer ou commander quoi que ce soit, il te demande « Je peux ? » |
+| « Va sur le site de la SNCF et trouve-moi un train pour Lyon vendredi » | il ouvre **son propre Chrome** et fait la tâche lui-même : il clique, tape et lit les pages. Il ne paie jamais : arrivé au paiement, il s'arrête et te dit quoi payer, où et combien |
 | « Dans Notes, crée une liste de courses avec du pain et du lait » | il pilote l'app elle-même : il regarde ses boutons, clique et tape, **en arrière-plan** (ta souris et ton clavier restent à toi). Marche avec Finder, Spotify, Pages, Réglages… |
 | « Trouve mon CV dans le Drive et résume-le » | il cherche dans ton Google Drive et lit le document |
 | « Garde mon CV » (avec le chemin du fichier), puis « aide-moi à postuler chez Mistral » | il le copie dans ses documents (`documents/`) et s'en sert ensuite tout seul : candidature, formulaire, lettre (voir plus bas) |
 | « Inscris-moi sur Canva avec mon adresse perso » | il prend tes infos dans ta fiche (`documents/fiche.md`), remplit le formulaire, **tire un mot de passe solide sur le Mac, le range dans ton Trousseau et le colle sans jamais le voir**, puis va chercher le code de vérification dans Gmail ou dans tes SMS. Il te demande « Je crée ton compte sur canva.com avec … ? » avant, et te passe la main pour un CAPTCHA (voir plus bas) |
+| « Fais connaître Oko : mets-le sur les annuaires de startups » | il regarde d'abord où il a déjà publié, puis crée **un** compte à ton nom par site (Product Hunt, BetaList, AlternativeTo, SaaSHub, Indie Hackers…), écrit une fiche propre à chacun en disant que c'est toi le créateur, te lit le texte avant de publier (« Je peux ? »), et note la publication pour ne jamais republier au même endroit (voir plus bas) |
 | « Connecte-toi à mon compte Canva » | pour un compte qu'il a créé, il ressort le mot de passe du Trousseau et le colle (« Je sors ton mot de passe de canva.com… ? ») ; « quels comptes tu m'as créés ? » |
 | « Ajoute ça à ma page Notion "Idées" » | avec Notion branché sur claude.ai, il cherche la page, la lit et l'écrit directement (sans Zapier) |
 | « Ajoute une carte "Facture EDF" dans mon Trello » | il passe par Zapier, qui relie des milliers d'apps (Notion, Slack, Trello, Sheets…). Les actions s'activent sur zapier.com |
@@ -334,13 +335,31 @@ fait de bout en bout, dans son Chrome ou dans le tien.
 4. **Ce qui reste à toi.** Il te demande « Je peux ? » en te disant le site exact (« canva.com », pas
    « canva-connexion.xyz ») avant de créer le compte, avant de sortir un mot de passe du Trousseau et avant de lire
    un SMS : une page piégée ne peut pas lui faire voler un de tes comptes en le réinitialisant. Un **CAPTCHA** (« je
-   ne suis pas un robot », images à cocher), c'est toi : il ne le contourne jamais, il te le dit et reprend ensuite.
+   ne suis pas un robot », images à cocher, puzzle), c'est toi : il ne le résout pas et ne le contourne jamais (ni
+   service qui les résout, ni astuce). Il t'envoie une notification « Un CAPTCHA t'attend sur reddit.com », te le
+   dit, et reprend où il en était quand tu dis « Steve, c'est bon ».
 
-**Payer** (un abonnement à l'inscription, une commande) : ta carte n'est jamais dans un fichier ni dans ses
-messages. Range-la une fois dans Chrome (Paramètres → Saisie automatique → Modes de paiement) : dans **ton Chrome**
-(voir « Ton Chrome à toi »), le remplissage automatique la propose, il te demande « Je paie 12,99 € à Canva, je
-peux ? » avant le bouton, et la validation de ta banque (3-D Secure) reste dans ton app bancaire. Pour aller plus
-loin : une **carte virtuelle** (Revolut, ta banque) que tu peux bloquer à tout moment.
+**Payer : coupé par défaut.** Il ne paie jamais, même si tu le lui demandes : arrivé à un paiement (carte, PayPal,
+Apple Pay, un « essai gratuit » qui demande une carte), il s'arrête et te dit ce qu'il faudrait payer, où et
+combien. Ce n'est pas qu'une consigne : ses clics sur « Payer », « Acheter », « Commander », « S'abonner »… et les
+outils qui paient (`checkout`, `purchase`…) sont refusés par le gardien (`motif_paiement` dans `permissions.py`).
+Un clic à des coordonnées n'a pas de nom ; là, c'est sa consigne qui l'arrête. Et dans tous les cas, **un numéro de
+carte bancaire ne passe jamais par ses outils** : tapé dans une page, écrit dans un fichier ou dans une commande,
+il est refusé (formats Visa, Mastercard, CB, Amex et chiffre de contrôle : un SIRET ou un numéro de colis passent).
+
+Pour les lui rouvrir un jour : `JERVIS_PAIEMENTS=oui`. Il va alors jusqu'au bouton, après « Je paie 12,99 € à
+Canva, je peux ? » ; ta carte reste dans le remplissage automatique de **ton Chrome** (Paramètres → Saisie
+automatique → Modes de paiement, voir « Ton Chrome à toi »), et la validation de ta banque (3-D Secure) dans ton
+app bancaire. Une **carte virtuelle** (Revolut, ta banque), que tu bloques à tout moment, est encore plus sûre.
+
+**Faire connaître un projet** (« fais connaître Oko ») : il vise les endroits faits pour ça, les annuaires de
+produits et de startups (Product Hunt, BetaList, AlternativeTo, SaaSHub, Indie Hackers, Uneed…) et les communautés
+dont les règles acceptent qu'on présente son projet (il les lit avant : beaucoup de forums Reddit l'interdisent ou
+le limitent à un fil dédié). Un seul compte par site, à ton nom ; il dit que c'est toi le créateur, écrit un texte
+propre à chaque site et te le lit avant de publier. Chaque publication est notée dans `espace/publications.jsonl`
+(`noter_publication`, `lister_publications` : « où est-ce qu'Oko est déjà ? ») : jamais deux fois au même endroit.
+Il ne fait pas de comptes en série ni de liens semés dans les commentaires pour le référencement : les sites
+bannissent les comptes (et ton projet avec), et Google pénalise le domaine qui reçoit ces liens.
 
 Pour tes comptes existants (ceux qu'il n'a pas créés) : il te demande de te connecter, ou laisse ton gestionnaire
 de mots de passe remplir la page. **1Password for Claude** (1password.com/blog/1password-for-claude) fait
@@ -610,6 +629,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_PRESSE_PAPIERS_S` | 90 | au bout de combien de secondes un mot de passe qu'il a collé quitte le presse-papiers |
 | `JERVIS_MOT_DE_PASSE_LONGUEUR` | 20 | la longueur des mots de passe qu'il crée (de 12 à 64 ; il s'adapte si un site impose moins) |
 | `JERVIS_CODE_SMS_MINUTES` | 10 | jusqu'où il remonte dans tes SMS pour trouver un code de vérification |
+| `JERVIS_PAIEMENTS` | non | `oui` = il peut payer, après ton accord (montant et marchand) ; `non` = il s'arrête avant tout paiement et ses clics « Payer », « Acheter »… sont refusés. Un numéro de carte reste refusé dans ses outils dans les deux cas |
 | `JERVIS_CONNECTEURS_FOND_S` | 10 | le temps qu'un agent attend ses connecteurs (Gmail, Agenda…) avant de démarrer sans eux |
 | `JERVIS_MEMOIRE_AUTO` | oui | `non` = il ne retient que ce que tu lui demandes |
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
@@ -659,6 +679,7 @@ Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tes
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
 Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.
+Payer coupé, les numéros de carte, les CAPTCHA et ses publications (fausse notification, dossier temporaire) : `tests/test_paiements.py`.
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
