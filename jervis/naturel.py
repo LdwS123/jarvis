@@ -5,10 +5,13 @@ Deux filets de sécurité, en plus de ses consignes (le modèle les oublie parfo
   les « N'hésite pas si… », les « Ta phrase s'est coupée » ;
 - corriger_transcription() : ta phrase, juste après la reconnaissance vocale. Corrige les mots qu'elle
   écorche à coup sûr (« load code » = Claude Code). Les cas ambigus (« Watt » = WhatsApp ?) sont dans
-  ses consignes : lui sait deviner avec le contexte, une regex non.
+  ses consignes : lui sait deviner avec le contexte, une regex non. Les lettres épelées (« T A double L »)
+  sont recollées en un mot (decoder_epellation) ;
+- hors_alphabet() : le bruit d'une vidéo en russe, en arabe… n'est jamais pour lui.
 """
 
 import re
+import unicodedata
 
 _I = re.IGNORECASE
 
@@ -110,11 +113,60 @@ _CORRECTIONS = [
     (re.compile(r"\bchat\s?gpt\b|\bchat j'ai pété\b|\bchat g p t\b", _I), "ChatGPT"),
     # « ouvre curseur » = l'app Cursor ; pas « déplace le curseur » (celui de la souris).
     (re.compile(r"\b(ouvre|ouvrir|lance|lancer|ferme|fermer|dans|sur|avec|prompt)\s+curseur\b", _I), r"\1 Cursor"),
+    # Les noms que la transcription déforme le plus souvent dans jervis.log.
+    (re.compile(r"\blink(?:ed)?[\s-]?(?:in|inn|zin|sin|zinc|ink)\b|\blinkdin\b|\blinquedin\b", _I), "LinkedIn"),
+    (re.compile(r"(?<!san\s)\bfrisco\b", _I), "San Francisco"),
+    (re.compile(r"(?<!vidi )(?<!vidi, )\bv(?:ici|icy|issi)\b", _I), "VC"),   # « veni, vidi, vici » reste intact
+    (re.compile(r"\bl[ée]\s?g[oa]ra\b|\blegorra\b", _I), "Legora"),
+    (re.compile(r"\bzap+i[eè]re?s?\b", _I), "Zapier"),
 ]
 
 
 def corriger_transcription(texte: str) -> str:
-    """« ouvre load code » → « ouvre Claude Code ». Ne touche qu'aux erreurs sûres."""
+    """« ouvre load code » → « ouvre Claude Code ». Ne touche qu'aux erreurs sûres. Les lettres épelées
+    (« T A double L ») sont recollées en un seul mot (« TALL »)."""
     for motif, remplacement in _CORRECTIONS:
         texte = motif.sub(remplacement, texte)
-    return texte
+    return decoder_epellation(texte)
+
+
+# --- Les épellations : « T, A, double L » → « TALL » ----------------------------------------------------------
+# La transcription écrit chaque lettre épelée en majuscule, séparée par un espace ou une virgule, et « double L »
+# pour deux lettres pareilles. En minuscule, un « a » ou un « y » seul est un vrai mot : on ne touche qu'aux
+# majuscules (et à « double / triple » suivi d'une lettre).
+_LETTRE = r"(?:(?i:double|triple)\s+[A-Za-z]|[A-Z])"
+_SEPARATEUR = r"[\s,.\-]+"
+_EPELLE = re.compile(rf"(?<![\w'’]){_LETTRE}(?:{_SEPARATEUR}{_LETTRE})+(?![\w'’])")
+_UNE_LETTRE = re.compile(r"(?i:(double|triple)\s+)?([A-Za-z])")
+
+
+def _lettres(suite: str) -> str:
+    return "".join(
+        l.upper() * ({"double": 2, "triple": 3}.get((m.group(1) or "").lower(), 1))
+        for m in _UNE_LETTRE.finditer(suite) for l in m.group(2))
+
+
+def decoder_epellation(texte: str) -> str:
+    """« Jessica T A double L » → « Jessica TALL ». Au moins trois lettres, sinon « plan B. C » resterait collé."""
+    def recoller(m: re.Match) -> str:
+        mot = _lettres(m.group(0))
+        return mot if len(mot) >= 3 else m.group(0)
+    return _EPELLE.sub(recoller, texte)
+
+
+_FIN_EPELLE = re.compile(rf"(?<![\w'’])(?:[A-Z]{_SEPARATEUR}){{1,}}[A-Z]\W*$|(?<![\w'’])(?i:double|triple)\W*$")
+
+
+def epellation_en_cours(texte: str) -> bool:
+    """« T A » ou « C V » : il épelle encore, la suite arrive. Une lettre seule (« plan B ») est une phrase finie."""
+    return bool(_FIN_EPELLE.search(texte.strip()))
+
+
+# --- Le bruit d'une vidéo dans une autre écriture (russe, chinois, arabe…) : pas toi -------------------------------
+def hors_alphabet(texte: str) -> bool:
+    """Plus de la moitié des lettres sont hors de l'alphabet latin : une vidéo, jamais une demande pour lui."""
+    lettres = [c for c in texte if c.isalpha()]
+    if len(lettres) < 3:
+        return False
+    etrangeres = sum(not ("LATIN" in unicodedata.name(c, "")) for c in lettres)
+    return etrangeres / len(lettres) > 0.5

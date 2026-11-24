@@ -16,7 +16,7 @@ import unicodedata
 
 from . import compteur, config, oral, tts, voix_locale
 from .brain import Cerveau
-from .naturel import corriger_transcription
+from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hors_alphabet
 from .fond import Evenement, Programmateur, Standard, Taches, outils_fond
 
 NOM = re.compile(config.NOM, re.IGNORECASE)
@@ -115,7 +115,7 @@ def attente_suite(texte: str, ponctuee: bool | None = None) -> float:
     texte = texte.strip()
     if ponctuee is None:
         ponctuee = bool(FIN_NETTE.search(texte))
-    if phrase_coupee(texte):  # « est-ce que tu peux ouvrir » : il manque la suite, point ou pas
+    if phrase_coupee(texte) or epellation_en_cours(texte):  # « est-ce que tu peux ouvrir », « T A » : il manque la suite
         return min(config.SUITE_PHRASE_S, 2.5) if ponctuee else config.SUITE_PHRASE_S
     if not ponctuee and len(re.findall(r"[\w'’-]+", NOM.sub(" ", texte))) >= 3 and not fin_de_conversation(texte):
         return config.SUITE_SANS_POINT_S  # « No parce que Scott » : pas de point, tu allais continuer
@@ -373,8 +373,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             texte = corriger_transcription(await asyncio.to_thread(stt.transcrire, phrase.audio, veille) or "")
             chrono.update(fin=entendue - phrase.silence, silence=phrase.silence,
                           transcription=time.monotonic() - entendue, texte_pret=time.monotonic())
-        if not texte or HALLUCINATIONS.search(texte) or BRUITS.match(texte):
-            texte = ""
+        if not texte or HALLUCINATIONS.search(texte) or BRUITS.match(texte) or hors_alphabet(texte):
+            texte = ""  # (hors_alphabet : une vidéo en russe, en arabe…)
         elif not en_anglais(texte):
             # Une vraie phrase de toi : il affine ta voix. Avec son nom dedans, c'est sûr que c'est toi.
             if appris := oreilles.apprendre_voix(phrase, sure=phrase.reveil or bool(NOM.search(texte))):
@@ -403,7 +403,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             if not suite or (en_anglais(suite) and not NOM.search(suite)):
                 break
             print(f"🧑 Toi (suite) : {suite}")
-            texte = f"{texte.rstrip(' ?.!,…')} {suite}"
+            texte = decoder_epellation(f"{texte.rstrip(' ?.!,…')} {suite}")  # « T A » + « double L » → « TALL »
         return texte
 
     async def guetter(guet: dict, arret: threading.Event) -> None:
@@ -452,6 +452,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                                   or debut < guet["fin_voix"] + 0.3)
                     entendu = corriger_transcription(
                         await asyncio.to_thread(stt.transcrire, phrase.audio, oreilles.anti_echo) or "")
+                    if hors_alphabet(entendu):
+                        entendu = ""  # le bruit d'une vidéo dans une autre écriture : pas toi
                     pour_lui = False
                     if entendu and not arret.is_set() and est_interruption(entendu, guet["dit"]):
                         print(f"✋ Toi : {entendu}")

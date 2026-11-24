@@ -17,7 +17,8 @@ from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock  # noqa: E
 
 from jervis import audio, brain, config, fond, outils, stt, tts  # noqa: E402
 from jervis import __main__ as m  # noqa: E402
-from jervis.naturel import avis_limite, corriger_transcription, nettoyer  # noqa: E402
+from jervis.naturel import (avis_limite, corriger_transcription, decoder_epellation, epellation_en_cours,  # noqa: E402
+                            hors_alphabet, nettoyer)
 
 echecs: list[str] = []
 total = 0
@@ -68,9 +69,37 @@ TRANSCRIPTIONS = [
     ("ouvre curseur", "ouvre Cursor"),
     ("déplace le curseur en haut", "déplace le curseur en haut"),            # la souris : pas touché
     ("quelle heure il est", "quelle heure il est"),
+    # Les noms que la transcription déforme le plus dans jervis.log
+    ("poste ça sur Link Zin", "poste ça sur LinkedIn"),
+    ("mon profil linked in", "mon profil LinkedIn"),
+    ("je pars à Frisco", "je pars à San Francisco"),
+    ("je pars à San Francisco", "je pars à San Francisco"),                  # déjà bon : pas doublé
+    ("cherche des Vici en France", "cherche des VC en France"),
+    ("veni, vidi, vici", "veni, vidi, vici"),                                 # le latin reste intact
+    ("regarde Legora", "regarde Legora"),
+    ("ouvre lé gora", "ouvre Legora"),
+    ("lance une zapière", "lance une Zapier"),
+    # Les lettres épelées sont recollées
+    ("Jessica T A double L", "Jessica TALL"),
+    ("Jessica T, A, double L, et après", "Jessica TALL, et après"),
+    ("C V G Dave.", "CVG Dave."),
+    ("passe au plan B. C est bon", "passe au plan B. C est bon"),             # une lettre seule : intacte
+    ("il y a A et B", "il y a A et B"),                                         # deux lettres : pas un mot
+    ("j'ai un A. Un B", "j'ai un A. Un B"),
 ]
 for entendu, attendu in TRANSCRIPTIONS:
     verifier(f"transcription « {entendu} »", corriger_transcription(entendu), attendu)
+
+# Épellation : « T A » arrive en deux morceaux, il attend la suite au lieu de répondre « continue d'épeler ».
+for texte, en_cours in [("Jessica T A", True), ("C V", True), ("Jessica T A double", True), ("c'est T, A", True),
+                        ("passe au plan B", False), ("Jessica TALL", False), ("quelle heure il est", False),
+                        ("mets du jazz.", False)]:
+    verifier(f"épellation en cours ? « {texte} »", epellation_en_cours(texte), en_cours)
+verifier("épellation recollée entre deux morceaux", decoder_epellation("Jessica T A" + " " + "double L"), "Jessica TALL")
+verifier("triple", decoder_epellation("W triple W"), "WWWW")
+for texte, etranger in [("Щяшки, весь яркий день", True), ("今天天气很好我们走吧", True), ("مرحبا بكم في القناة", True),
+                        ("ouvre Cursor", False), ("tu peux lire ce message de Дмитрий", False), ("ok", False), ("", False)]:
+    verifier(f"hors alphabet ? « {texte} »", hors_alphabet(texte), etranger)
 
 # --- 3. Phrase finie ou juste un début ? ----------------------------------------------------------------------------
 PHRASES = [
@@ -474,6 +503,8 @@ for texte, attendu in [("Steve, est-ce que tu peux ouvrir", 2.0),     # en l'air
                        ("Est-ce que tu peux ouvrir.", 2.0),            # en l'air malgré le point (2,5 s au plus)
                        ("No parce que Scott", 0.2),                    # pas de point : tu allais continuer
                        ("Bah il me faut que tu regardes", 2.0),
+                       ("Jessica T A", 2.0),                           # épellation en cours : il attend la fin
+                       ("Jessica T A double", 2.0),
                        ("Tu peux regarder mes mails ?", 0.0),          # finie : il répond tout de suite
                        ("Quelle heure il est ?", 0.0),
                        ("Mets du jazz.", 0.0),
