@@ -61,6 +61,15 @@ def controle_voix(voix: float | None, voix_connue: bool, actif: bool = True) -> 
     return "ok" if voix >= config.SEUIL_VOIX else "inconnue"
 
 
+# Ce qu'il te fait dire quand ton « oui » est trop bref pour reconnaître ta voix (moins de 0,8 s de parole :
+# « oui, vas-y » tient en 0,7 s, il le redemandait donc en boucle). Chaque essai demande plus long que le précédent.
+DEMANDES_PHRASE = [
+    "Dis-le en une vraie phrase, que je reconnaisse ta voix : « oui, vas-y, je confirme, fais-le ».",
+    "Encore plus long, s'il te plaît : « oui, je confirme que tu peux y aller, vas-y, fais-le maintenant ».",
+]
+REFUS_VOIX_COURTE = "Je n'arrive pas à reconnaître ta voix sur un oui si court, donc je n'y vais pas."
+
+
 # Ce qui te permet de lui couper la parole (en plus de son nom).
 STOP = re.compile(r"\b(stop|arrête|tais-toi|chut|silence|attends|laisse tomber|ça suffit|c'est bon)\b", re.IGNORECASE)
 # Phrases que la transcription invente quand il n'entend que du bruit.
@@ -620,9 +629,10 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                         return False
                     if controle == "courte":  # un « oui » seul est trop bref pour reconnaître ta voix
                         if essai < 2:
-                            await parler("Dis-le en une phrase, que je reconnaisse ta voix : « oui, vas-y ».",
+                            await parler(DEMANDES_PHRASE[min(essai, len(DEMANDES_PHRASE) - 1)],
                                          interruptible=False)
                             continue
+                        await parler(REFUS_VOIX_COURTE, interruptible=False)
                         return False
                 if accord is not None:
                     return accord

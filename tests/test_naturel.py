@@ -7,6 +7,7 @@ Sans micro ni Claude : les oreilles, la voix et Claude sont remplacés par des f
 
 import asyncio
 import os
+import re
 import threading
 import time
 import types
@@ -565,6 +566,17 @@ for nom, voix, connue, actif, attendu in [
     ("contrôle coupé (autre voix)", SEUIL - 0.3, True, False, "ok"),
 ]:
     verifier(f"oui sensible : {nom}", m.controle_voix(voix, connue, actif), attendu)
+
+# La phrase qu'il demande pour reconnaître ta voix doit être assez longue (0,8 s de parole minimum : « oui, vas-y »
+# n'y suffisait pas, il le redemandait en boucle) et elle doit elle-même valoir un « oui ».
+for i, demande in enumerate(m.DEMANDES_PHRASE):
+    dite = re.search(r"« (.+?) »", demande).group(1)
+    verifier(f"demande de phrase {i + 1} : au moins 5 mots", len(dite.split()) >= 5, True)
+    verifier(f"demande de phrase {i + 1} : vaut un oui", m.lire_accord(dite), True)
+verifier("chaque demande est plus longue que la précédente",
+         len(m.DEMANDES_PHRASE[1]) > len(m.DEMANDES_PHRASE[0]), True)
+verifier("ancienne boucle : « oui, vas-y » ne suffit plus comme phrase demandée",
+         all("« oui, vas-y »" not in d for d in m.DEMANDES_PHRASE), True)
 
 print(f"\n{'✅' if not echecs else '❌'} naturel : {total - len(echecs)}/{total} vérifications OK "
       f"({len(REPONSES) + len(TRANSCRIPTIONS) + len(PHRASES) + len(CERVEAU)} phrases d'exemple)", flush=True)
