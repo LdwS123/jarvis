@@ -9,6 +9,7 @@ la page n'est pas ouverte : la boucle vocale ne le sent pas.
 
 from __future__ import annotations
 
+import ast
 import ctypes
 import ctypes.util
 import datetime as dt
@@ -37,7 +38,7 @@ FIN_DU_JOURNAL = 96 * 1024   # on ne relit que la fin du journal : assez pour un
 
 _COULEURS = re.compile(r"\x1b\[[0-9;]*m")
 _TOI = re.compile(r"^🧑 Toi(?: \([^)]*\))? : (.*)$")
-_OUTIL = re.compile(r"^\s*⚙️?\s+(\S+)")
+_OUTIL = re.compile(r"^\s*⚙️?\s+(\S+)(.*)$")
 _CHRONO = re.compile(r"^\s*⏱ ([\d,]+) s\s+\((.*)\)\s*$")
 _ETAPE = re.compile(r"^(.+?) ([\d,]+|\?)$")
 _SERVEURS = {"jervis": config.PRENOM, "claude-in-chrome": "Chrome", "navigateur": "Navigateur", "mac": "Mac",
@@ -52,6 +53,39 @@ _ACTIONS = {"trash thread": "mail à la corbeille", "search threads": "recherche
             "ecrire dans cursor": "prompt dans Cursor", "mettre a la corbeille": "à la corbeille",
             "effacer memoire": "efface sa mémoire", "memoire du mac": "mémoire vive du Mac",
             "verifier autorisations": "vérifie ses autorisations"}
+
+
+# Une commande du terminal, telle qu'il l'a lancée : on n'en garde que le début, et jamais un mot de passe.
+_SECRET = re.compile(
+    r"(?i)(\b(?:[\w-]*(?:token|secret|passw(?:or)?d|passwd|pwd|api[_-]?key|apikey|auth\w*|bearer)[\w-]*)\b\s*[=:]\s*|"
+    r"\b(?:bearer|basic)\s+|(?<=\s)-u\s+[^\s:]+:|--?(?:password|passwd|token|secret|api-key|key)[= ]\s*)(?:'[^']*'|\"[^\"]*\"|\S+)")
+_PORTEUR = re.compile(r"(?i)\b(bearer|basic)\s+\S+")
+_CLE_BRUTE = re.compile(r"\b(?:sk-[\w-]{8,}|gh[pousr]_\w{12,}|xox[abprs]-[\w-]{8,}|AKIA[0-9A-Z]{12,}|eyJ[\w-]{15,}\.[\w.-]+)")
+COMMANDE_MAX = 140
+
+
+def masquer_secrets(commande: str) -> str:
+    """« curl -H 'Authorization: Bearer abc' … » → « curl -H 'Authorization: ••• … » : la page ne montre jamais un secret."""
+    commande = _PORTEUR.sub(lambda m: m.group(1) + " •••", commande)
+    commande = _SECRET.sub(lambda m: m.group(1) + "•••", commande)
+    return _CLE_BRUTE.sub("•••", commande)
+
+
+def lire_commande(reste: str) -> dict[str, str] | None:
+    """Ce qui suit « ⚙️  Bash » dans le journal (un dict Python imprimé) → la commande et ce qu'elle voulait faire."""
+    try:
+        entree = ast.literal_eval(reste.strip())
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return None  # une ligne coupée ou étrange : on l'ignore plutôt que de la deviner
+    if not isinstance(entree, dict) or not isinstance(entree.get("command"), str):
+        return None
+    commande = " ".join(masquer_secrets(entree["command"]).split())
+    if not commande:
+        return None
+    if len(commande) > COMMANDE_MAX:
+        commande = commande[:COMMANDE_MAX - 1].rstrip() + "…"
+    but = entree.get("description")
+    return {"commande": commande, "but": " ".join(but.split())[:90] if isinstance(but, str) else ""}
 
 
 def _nombre(texte: str) -> float | None:
@@ -90,8 +124,9 @@ def lire_chrono(total: str, detail: str) -> dict[str, Any] | None:
 
 
 def lire_journal(texte: str) -> dict[str, list]:
-    """Les derniers tours de parole, ses dernières actions et ses derniers temps de réponse."""
+    """Les derniers tours de parole, ses dernières actions, ses dernières commandes et ses derniers temps de réponse."""
     echanges: list[dict[str, str]] = []
+    commandes: list[dict[str, str]] = []
     outils: list[dict[str, Any]] = []
     chronos: list[dict[str, Any]] = []
     lui = f"🤖 {config.PRENOM} : "
@@ -111,13 +146,15 @@ def lire_journal(texte: str) -> dict[str, list]:
                 tour("steve", ligne[len(lui):])
         elif m := _OUTIL.match(ligne):
             nom, action = nommer_outil(m[1])
+            if m[1] == "Bash" and (commande := lire_commande(m[2])):
+                commandes.append(commande)
             if outils and (outils[-1]["nom"], outils[-1]["action"]) == (nom, action):
                 outils[-1]["fois"] += 1
             else:
                 outils.append({"nom": nom, "action": action, "fois": 1})
         elif (m := _CHRONO.match(ligne)) and (chrono := lire_chrono(m[1], m[2])):
             chronos.append(chrono)
-    return {"echanges": echanges[-8:], "outils": outils[-6:], "chronos": chronos[-24:]}
+    return {"echanges": echanges[-8:], "outils": outils[-6:], "commandes": commandes[-6:], "chronos": chronos[-24:]}
 
 
 def fin_du_journal(chemin: Path = JOURNAL) -> str:
@@ -396,6 +433,25 @@ class Tableau:
         except Exception:  # un agent qui change pendant qu'on le lit : la page le redemandera dans 1,5 s
             return []
 
+    @staticmethod
+    def _connecteurs() -> list[dict[str, str]]:
+        """Chrome et les connecteurs qu'il utilise, avec ce que Claude Code en a dit la dernière fois (« connected »,
+        « needs-auth », « failed »…). Un connecteur dont il n'a pas encore parlé : « inconnu »."""
+        from . import brain   # ici et pas en haut : le tableau ne charge Claude que quand la page le demande
+        noms = {"claude-in-chrome": "Chrome"}
+        for brut in config.CONNECTEURS:
+            court = brut.removeprefix("claude.ai ").strip()
+            noms[brut] = _SERVEURS.get(court.replace(" ", "_"), court)
+        return [{"nom": nom, "statut": brain.STATUT_SERVEURS.get(brut, ("inconnu", 0))[0]} for brut, nom in noms.items()]
+
+    def _bilan_agents(self) -> dict[str, int]:
+        """Combien d'agents lancés, en cours, finis, en échec, annulés depuis son démarrage."""
+        taches = getattr(self.etat, "taches", None)
+        try:
+            return taches.bilan() if taches is not None else {}
+        except Exception:
+            return {}
+
     def instantane(self) -> dict[str, Any]:
         """Tout ce que la page affiche (elle le redemande toutes les secondes et demie)."""
         lu = self._du_journal()
@@ -408,7 +464,8 @@ class Tableau:
                 "systeme": self._gardé("systeme", 2, self._systeme),
                 "voix": self._voix(),
                 "souvenirs": self._gardé("souvenirs", 10, _souvenirs),
-                "agents": self._agents()}
+                "agents": self._agents(), "bilan_agents": self._bilan_agents(),
+                "connecteurs": self._gardé("connecteurs", 5, self._connecteurs)}
 
     def page(self) -> tuple[str, str]:
         """La page et son `nonce` (seul le script qui le porte a le droit de tourner)."""

@@ -164,6 +164,23 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
 .agents li.fini .pastille-agent { color: var(--brume); }
 .agents li.echec .pastille-agent, .agents li.echec .detail { color: var(--alerte); }
 .agents li.en-cours .pastille-agent { animation: souffle 2.4s ease-in-out infinite; }
+.agents .bilan { margin: -4px 0 9px; font-size: 12px; color: var(--brume); }
+.agents .bilan b { color: var(--glace); font: 15px/1 var(--chiffres); font-weight: 400; margin-right: 2px; }
+.agents .bilan .echec b { color: var(--alerte); }
+
+/* --- Ses outils connectés et ses dernières commandes --- */
+.connecteurs { margin-bottom: 20px; flex: none; }
+.connecteurs ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.connecteurs li { font-size: 13px; border-radius: 6px; cursor: help; white-space: nowrap; }
+.connecteurs li:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+.connecteurs li.hors { color: var(--brume); }
+.commandes { margin-bottom: 20px; flex: none; min-width: 0; }
+.commandes ul { list-style: none; padding: 0; display: grid; gap: 5px; }
+.commandes li { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 12.5px; cursor: help; border-radius: 4px; }
+.commandes li:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.commandes .invite { color: var(--cyan); font-family: var(--chiffres); flex: none; }
+.commandes code { font: 12px/1.3 ui-monospace, "SF Mono", Menlo, monospace; color: var(--glace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.commandes .vide { color: var(--brume); }
 @keyframes souffle { 50% { opacity: .35; } }
 
 /* --- La bande du bas --- */
@@ -257,6 +274,7 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
     </section>
     <section class="agents" aria-label="Ses agents">
       <h2>Ses agents</h2>
+      <p class="bilan" id="bilan-agents" hidden></p>
       <ul id="agents"></ul>
     </section>
     <section class="actions">
@@ -302,6 +320,14 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
     <section class="systemes" aria-label="Ses systèmes">
       <h2>Ses systèmes</h2>
       <ul id="systemes"></ul>
+    </section>
+    <section class="connecteurs" aria-label="Ses outils connectés">
+      <h2>Ses outils connectés</h2>
+      <ul id="connecteurs"></ul>
+    </section>
+    <section class="commandes" aria-label="Ses dernières commandes">
+      <h2>Ses dernières commandes</h2>
+      <ul id="commandes"></ul>
     </section>
     <section class="fil">
       <h2>Conversation</h2>
@@ -671,6 +697,53 @@ function peindreActions(outils) {
   }));
 }
 
+// Ses outils connectés : ce que Claude Code a dit la dernière fois (connected, needs-auth, failed…).
+const ETATS_OUTIL = {
+  "connected": ["ok", "connecté"], "pending": ["verif", "se connecte…"], "needs-auth": ["attention", "à reconnecter"],
+  "failed": ["critique", "ne répond pas"], "disabled": ["neutre", "coupé"], "inconnu": ["neutre", "pas encore vérifié"],
+};
+function peindreConnecteurs(outils) {
+  const liste = $("connecteurs");
+  if (!outils.length) return liste.replaceChildren(el("li", "hors", "Aucun outil branché."));
+  liste.replaceChildren(...outils.map(o => {
+    const [statut, texte] = ETATS_OUTIL[o.statut] || ETATS_OUTIL["inconnu"];
+    const li = el("li", statut === "ok" ? "" : "hors");
+    li.append(signe(statut), document.createTextNode(o.nom));
+    li.tabIndex = 0;
+    li.setAttribute("aria-label", `${o.nom} : ${texte}`);
+    avecBulle(li, [o.nom, texte]);
+    return li;
+  }));
+}
+
+// Ses dernières commandes : du terminal, la plus récente en haut (les secrets sont déjà masqués côté Mac).
+function peindreCommandes(commandes) {
+  const liste = $("commandes");
+  if (!commandes.length) return liste.replaceChildren(el("li", "vide", "Aucune commande récente."));
+  liste.replaceChildren(...commandes.slice(-3).reverse().map(c => {
+    const li = el("li"), code = el("code", "", c.commande);
+    li.append(el("span", "invite", "›"), code);
+    li.tabIndex = 0;
+    li.setAttribute("aria-label", "Commande : " + (c.but || c.commande));
+    avecBulle(li, [c.but || "Commande du terminal", c.commande], true);
+    return li;
+  }));
+}
+
+function peindreBilan(b) {
+  const p = $("bilan-agents");
+  p.hidden = !b || !b.lancees;
+  if (p.hidden) return;
+  const morceaux = [[b.lancees, b.lancees > 1 ? "lancés" : "lancé", ""], [b.en_cours, "en cours", ""],
+                    [b.finies, b.finies > 1 ? "finis" : "fini", ""], [b.echecs, b.echecs > 1 ? "échecs" : "échec", " echec"],
+                    [b.annulees, b.annulees > 1 ? "annulés" : "annulé", ""]].filter(([n], i) => i === 0 || n > 0);
+  p.replaceChildren(...morceaux.flatMap(([n, mot, classe], i) => {
+    const m = el("span", classe.trim());
+    m.append(el("b", "", n), document.createTextNode(" " + mot));
+    return i ? [document.createTextNode(" · "), m] : [m];
+  }));
+}
+
 const tempsEcoule = s => (s < 90 ? s + " s" : Math.round(s / 60) + " min");
 const STATUTS_AGENT = { "en cours": ["en-cours", "●"], "finie": ["fini", "✓"], "échec": ["fini echec", "✕"], "annulée": ["fini", "–"] };
 function peindreAgents(agents) {
@@ -699,7 +772,8 @@ function peindreAgents(agents) {
     }
     li.append(el("span", "detail", a.statut === "en cours"
       ? (a.action || "démarre") + (a.etapes > 1 ? " · " + a.etapes + " étapes" : "")
-      : a.statut + (a.fini_il_y_a != null ? ", il y a " + tempsEcoule(a.fini_il_y_a) : "")));
+      : a.statut + (a.fini_il_y_a != null ? ", il y a " + tempsEcoule(a.fini_il_y_a) : "")
+        + (a.jetons ? " · " + jetons(a.jetons) : "")));
     return li;
   }));
 }
@@ -781,6 +855,9 @@ function peindre(e) {
   peindreSystemes(e);
   siChange("fil", e.echanges, peindreFil);
   siChange("agents", e.agents || [], peindreAgents);
+  siChange("bilan", e.bilan_agents || {}, peindreBilan);
+  siChange("connecteurs", e.connecteurs || [], peindreConnecteurs);
+  siChange("commandes", e.commandes || [], peindreCommandes);
   siChange("actions", e.outils, peindreActions);
   siChange("temps", { chronos: e.chronos, mediane: e.mediane }, peindreTemps);
   siChange("usage", e.usage, peindreUsage);

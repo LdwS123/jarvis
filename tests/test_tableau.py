@@ -91,7 +91,37 @@ long = tableau.lire_journal("".join(f"🧑 Toi : question {i}\n🤖 {P} : répon
                                     for i in range(40)))
 verifier("journal : seulement la fin (8 tours, 24 chronos)", (len(long["echanges"]), len(long["chronos"]),
                                                                long["echanges"][-1]["texte"]), (8, 24, "réponse 39"))
-verifier("journal vide", tableau.lire_journal(""), {"echanges": [], "outils": [], "chronos": []})
+verifier("journal vide", tableau.lire_journal(""), {"echanges": [], "outils": [], "commandes": [], "chronos": []})
+
+# --- 3 bis. Ses dernières commandes du terminal, sans jamais un secret ----------------------------------------------
+verifier("commande : le texte et ce qu'elle voulait faire",
+         tableau.lire_commande("{'command': 'df  -h /', 'description': 'Lire le disque'}"),
+         {"commande": "df -h /", "but": "Lire le disque"})
+verifier("commande : sans description", tableau.lire_commande("{'command': 'ls'}"), {"commande": "ls", "but": ""})
+verifier("commande : une ligne coupée ou étrange est ignorée",
+         [tableau.lire_commande(x) for x in ("{'command': 'ls", "", "{'file_path': 'x'}", "[1]", "{'command': ''}")], [None] * 5)
+longue = tableau.lire_commande("{'command': '" + "a" * 400 + "'}")["commande"]
+verifier("commande : très longue, elle est coupée", (len(longue) == tableau.COMMANDE_MAX, longue.endswith("…")), (True, True))
+for brut, attendu in [
+    ("curl -H 'Authorization: Bearer abc123def' https://x.fr", "abc123def"),
+    ("export API_KEY=sk-abcdefghijk1234 && run", "abcdefghijk1234"),
+    ("git push https://ghp_abcdefghijklmnop1234@github.com/x", "abcdefghijklmnop1234"),
+    ("mysql --password=hunter2 base", "hunter2"),
+    ("curl -u moi:motdepasse https://x.fr", "motdepasse"),
+    ("TOKEN=\"deux mots\" lancer", "deux mots"),
+]:
+    verifier(f"commande : le secret est masqué ({brut[:28]}…)", attendu in tableau.masquer_secrets(brut), False)
+verifier("commande : une commande ordinaire reste intacte", tableau.masquer_secrets("git log --oneline | head -5 && ls -u"),
+         "git log --oneline | head -5 && ls -u")
+cmd = tableau.lire_journal(f"""   ⚙️  Bash {{'command': 'pmset -g batt', 'description': 'Batterie'}}
+   ⚙️  Read {{'file_path': '/x'}}
+   ⚙️  Bash {{'command': 'git status', 'description': 'Voir les changements'}}
+   ⚙️  mcp__mac__app {{'command': 'pas du terminal'}}
+""")
+verifier("journal : seulement les commandes du terminal, dans l'ordre", [c["commande"] for c in cmd["commandes"]],
+         ["pmset -g batt", "git status"])
+verifier("journal : les six dernières commandes",
+         len(tableau.lire_journal("".join(f"   ⚙️  Bash {{'command': 'ls {i}'}}\n" for i in range(20)))["commandes"]), 6)
 
 gros = dossier / "gros.log"
 gros.write_text("x" * tableau.FIN_DU_JOURNAL + "\ncoupée\n🧑 Toi : la fin\n", encoding="utf-8")
@@ -209,7 +239,20 @@ etat.oreilles, oreilles.en_pause = oreilles, False
 
 e = ecran.instantane()
 verifier("instantané : ses clés", sorted(e), sorted(["prenom", "etat", "micro_en_pause", "echanges", "outils", "chronos",
-                                                    "mediane", "usage", "systeme", "voix", "souvenirs", "agents"]))
+                                                    "mediane", "usage", "systeme", "voix", "souvenirs", "agents", "commandes",
+                                                    "bilan_agents", "connecteurs"]))
+verifier("instantané : sans agents, pas de bilan", e["bilan_agents"], {})
+verifier("instantané : ses outils connectés, pas encore vérifiés",
+         [(c["nom"], c["statut"]) for c in e["connecteurs"]],
+         [("Chrome", "inconnu"), ("Gmail", "inconnu"), ("Agenda", "inconnu"), ("Drive", "inconnu"), ("Zapier", "inconnu")])
+from jervis import brain  # noqa: E402
+brain.STATUT_SERVEURS.update({"claude-in-chrome": ("connected", 1.0), "claude.ai Gmail": ("needs-auth", 1.0),
+                              "claude.ai Zapier": ("failed", 1.0), "jervis": ("connected", 1.0)})
+ecran._garde.pop("connecteurs", None)   # (la page ne les relit que toutes les 5 s)
+verifier("instantané : leur état, tel que Claude Code l'a dit (et pas ses propres serveurs)",
+         [(c["nom"], c["statut"]) for c in ecran.instantane()["connecteurs"]],
+         [("Chrome", "connected"), ("Gmail", "needs-auth"), ("Agenda", "inconnu"), ("Drive", "inconnu"), ("Zapier", "failed")])
+brain.STATUT_SERVEURS.clear()
 verifier("instantané : sans agents branchés", e["agents"], [])
 verifier("instantané : la médiane de ses temps de réponse", e["mediane"], 3.7)
 verifier("instantané : le Mac", (e["systeme"]["memoire"], e["systeme"]["batterie"], 0 <= e["systeme"]["processeur"] <= 1,
@@ -235,6 +278,8 @@ verifier("page : elle reçoit le jeton", f'data-jeton="{ecran.jeton}"' in page, 
 verifier("page : un nonce neuf à chaque fois", ecran.page()[1] != nonce, True)
 verifier("page : aucun style ni geste en ligne (la règle CSP les bloquerait)",
          [m for m in (' style="', " onclick=", " onload=") if m in page], [])
+verifier("page : les nouveaux panneaux y sont", [m for m in ('id="connecteurs"', 'id="commandes"', 'id="bilan-agents"')
+                                                  if m not in page], [])
 verifier("page : plus de prix", [m for m in (" $", " $\"", "argent", ".cout", "peindreCout", "coût") if m in page], [])
 
 # --- 6. Le serveur : cette machine seulement, et un jeton pour appuyer sur un bouton -------------------------------

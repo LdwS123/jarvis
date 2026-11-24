@@ -89,6 +89,7 @@ class Tache:
     etapes: int = 0                  # nombre d'outils lancés jusqu'ici
     statut: str = "en cours"         # en cours | finie | échec | annulée
     fin: datetime | None = None
+    jetons: int = 0                  # ce que l'agent a lu et écrit chez Claude (entrée + sortie), connu à la fin
 
 
 _OUTILS_COURANTS = {"Bash": "lance une commande", "Read": "lit un fichier", "Glob": "cherche des fichiers",
@@ -115,6 +116,7 @@ class Taches:
         self._taches: dict[int, Tache] = {}
         self._histoire: deque[Tache] = deque(maxlen=8)   # les dernières tâches finies, pour le tableau de bord
         self._suivant = 1
+        self._bilan = {"lancees": 0, "finies": 0, "echecs": 0, "annulees": 0}   # depuis le démarrage de Steve
         self._boucle: asyncio.AbstractEventLoop | None = None  # celle de Steve : le tableau y envoie ses annulations
 
     def lancer(self, titre: str, brief: str) -> str:
@@ -123,6 +125,7 @@ class Taches:
                     "ou annules-en une.")
         tache = Tache(self._suivant, titre.strip() or "sans titre", datetime.now())
         self._suivant += 1
+        self._bilan["lancees"] += 1
         self._boucle = asyncio.get_running_loop()
         tache.travail = self._boucle.create_task(self._travailler(tache, brief))
         self._taches[tache.numero] = tache
@@ -148,8 +151,12 @@ class Taches:
         maintenant = datetime.now()
         vus = [*self._taches.values(), *self._histoire]
         return [{"numero": t.numero, "titre": t.titre, "statut": t.statut, "action": t.action if t.fin is None else "",
-                 "etapes": t.etapes, "secondes": int(((t.fin or maintenant) - t.debut).total_seconds()),
+                 "etapes": t.etapes, "jetons": t.jetons, "secondes": int(((t.fin or maintenant) - t.debut).total_seconds()),
                  "fini_il_y_a": int((maintenant - t.fin).total_seconds()) if t.fin else None} for t in vus]
+
+    def bilan(self) -> dict[str, int]:
+        """Pour le tableau de bord : combien d'agents lancés, en cours, finis, en échec, annulés depuis le démarrage."""
+        return {**self._bilan, "en_cours": len(self._taches)}
 
     def _clore(self, tache: Tache, statut: str) -> None:
         """Une tâche sort de la liste des vivantes et entre dans l'histoire (une seule fois)."""
@@ -158,6 +165,7 @@ class Taches:
         tache.statut, tache.fin = statut, datetime.now()
         self._taches.pop(tache.numero, None)
         self._histoire.appendleft(tache)
+        self._bilan[{"finie": "finies", "échec": "echecs", "annulée": "annulees"}[statut]] += 1
 
     def annuler(self, numero: int) -> str:
         tache = self._taches.get(numero)
@@ -228,6 +236,7 @@ class Taches:
                     resultat = message.result
                     cout = compteur.chiffres(message)
                     compteur.noter("taches", cout)
+                    tache.jetons = int(cout["entree"] + cout["sortie"])
                     self._journal(f"   🧵 Tâche {tache.numero} : {compteur.dollars(cout['cout'])} (prix API)")
             self._clore(tache, "finie")
             compte_rendu = (resultat or (textes[-1] if textes else "")).strip() or "(pas de compte rendu)"

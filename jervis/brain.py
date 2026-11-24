@@ -278,6 +278,9 @@ def _serveurs(outils_en_plus: list) -> dict:
 # L'extension Claude in Chrome : branchée par l'option --chrome de Claude Code (comme `claude --chrome`).
 NOM_CHROME = "claude-in-chrome"
 GARDES = {outils.NOM_SERVEUR, outils.NOM_NAVIGATEUR, outils.NOM_MAC, outils.NOM_ECRAN, NOM_CHROME}
+# Ce que Claude Code a répondu la dernière fois qu'on a demandé l'état des connecteurs : {nom: (statut, quand)}.
+# Le tableau de bord le lit pour montrer Chrome, Gmail, l'agenda, Zapier… sans rien redemander lui-même.
+STATUT_SERVEURS: dict[str, tuple[str, float]] = {}
 
 
 def _couper_en_phrases(tampon: str) -> tuple[list[str], str]:
@@ -297,6 +300,9 @@ async def couper_intrus(client: ClaudeSDKClient) -> tuple[bool, set[str]]:
     voulus = set(config.CONNECTEURS)
     propre = True
     serveurs = (await client.get_mcp_status())["mcpServers"]
+    maintenant = time.time()
+    for s in serveurs:
+        STATUT_SERVEURS[s["name"]] = (str(s.get("status") or "inconnu"), maintenant)
     for s in serveurs:
         if s["name"] not in voulus | GARDES and s.get("status") != "disabled":
             propre = False

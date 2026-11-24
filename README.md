@@ -78,6 +78,10 @@ tu appuies sur Entrée pour le suivant, et il propose de relancer Steve à la fi
 nouvelle autorisation qu'au lancement suivant). Si « Jervis » n'est pas dans une liste : bouton « + », puis choisis
 `~/Jervis/Jervis.app` (le script te la montre dans le Finder : tu peux aussi la glisser dans la liste).
 
+Si macOS refuse une app (erreur -1743 : « Contacts », Messages, Notes ou Rappels n'ont pas l'autorisation
+Automatisation), Steve ne répond pas « erreur » : il te dit laquelle, ouvre le bon volet des Réglages et te
+guide (« allume Jervis dans Automatisation, puis redis-moi la même chose »).
+
 Au démarrage, une ligne `🔐 Autorisations de macOS à me donner : …` dans le journal dit ce qui manque encore. Tu peux
 aussi lui demander « Steve, vérifie tes autorisations » : il te dit lesquelles manquent et ouvre le bon volet. Il ne
 peut pas les allumer à ta place, et c'est voulu.
@@ -255,12 +259,16 @@ redemander, et il en prend la responsabilité. Il ne demande « Je peux ? » que
 | Ce qui reste confirmé | Exemples |
 |---|---|
 | L'argent | payer, acheter, commander, réserver ou s'abonner (Steve ne paie jamais lui-même) |
-| Ce qui détruit pour de bon | `rm`, `kill`, `git push`, vider la corbeille, supprimer un rendez-vous ou un brouillon, un menu « Supprimer » ou « Vider » (mettre à la corbeille se rattrape : il le fait seul, y compris pour sa propre mémoire) |
+| Ce qui détruit pour de bon | `kill`, `git push`, vider la corbeille, supprimer un rendez-vous ou un brouillon, un menu « Supprimer » ou « Vider » (mettre à la corbeille se rattrape : il le fait seul, y compris pour sa propre mémoire) |
 | Ce qui part chez tout le monde | publier, partager un fichier « à tous ceux qui ont le lien » |
 | Les secrets et le système | lire, écrire ou jeter `.ssh`, `.env`, clés, trousseau, 1Password, toucher au Terminal, lancer du code dans ton Chrome connecté |
 | Ce qui ne vient pas de toi | une action suggérée par une page web, un mail ou une app, que tu n'as pas demandée |
 
 `sudo`, `rm -rf`, formater un disque, éteindre ou redémarrer le Mac restent interdits, même si tu dis oui.
+Pareil pour **tout `rm` direct** (`rm`, `rmdir`, `unlink`, `shred`, `find … -delete`) : il n'efface jamais un fichier,
+il le met à la corbeille avec son outil dédié, et te le dit s'il a dû renoncer à une commande (« je ne supprime pas :
+je mets à la corbeille »). Le reste du terminal lui est ouvert : lire les journaux, lancer un script, `git status`,
+`git commit`, installer un outil (`brew`, `pip`, `npm`), tant que ça ne touche pas aux secrets ni au système.
 La corbeille refuse aussi, quoi qu'il arrive : les dossiers du système, ton dossier personnel entier, un grand
 dossier en bloc (Bureau, Documents, Bibliothèque… : ce qu'il y a dedans part, pas le dossier), un disque ou un compte
 entier, et Steve lui-même (son code, sa mémoire : pour elle, c'est « efface ta mémoire »). Une tâche de fond qui a besoin de ton accord
@@ -297,7 +305,10 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   signe : ✓ ça va, ▲ à surveiller, ✕ problème. Survole-la (ou passe dessus au clavier) pour l'explication
   complète et les apps qui en prennent le plus. En dessous, Steve résume en une ou deux phrases.
 - **À droite** : ses systèmes (micro, voix, réseau avec sa courbe, activité du processeur sur les 3 dernières
-  minutes, depuis quand le Mac est allumé ; ils s'allument un par un à l'ouverture), puis vos derniers échanges.
+  minutes, depuis quand le Mac est allumé ; ils s'allument un par un à l'ouverture), puis **ses outils connectés**
+  (Chrome, Gmail, Agenda, Drive, Zapier : ✓ connecté, ▲ à reconnecter, ✕ ne répond pas, tel que Claude Code
+  l'a dit à la dernière vérification), **ses dernières commandes** du terminal (survole-en une pour son but et la
+  commande entière ; les mots de passe, jetons et clés y sont toujours masqués), puis vos derniers échanges.
 - **En bas** : ses temps de réponse (survole une barre : fin de phrase, texte, Claude, voix), ce qu'il sait sur
   toi, et son usage de Claude : la part utilisée de ta fenêtre de 5 heures et de ta semaine d'abonnement, et ses
   jetons jour par jour (pas de prix). Il te prévient à voix haute à 80 % puis 95 % d'une limite ; quand elle est
@@ -305,7 +316,9 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   se libère à 21 h 50. ») et ne peut plus rien faire d'ici là.
 - **Ses agents** (à gauche) : chaque agent de fond qu'il a lancé, avec le temps qu'il y passe, l'outil qu'il utilise en
   ce moment (« cherche sur le web : … », « Navigateur · ouvre une page ») et son nombre d'étapes ; les derniers finis restent
-  quelques minutes, grisés (✓ fini, ✕ échec). Un **×** à droite d'un agent en cours l'arrête.
+  quelques minutes, grisés (✓ fini, ✕ échec) avec ce qu'ils ont consommé chez Claude, en jetons. Un **×** à droite d'un
+  agent en cours l'arrête. Au-dessus, le bilan depuis son démarrage : « 5 lancés · 1 en cours · 2 finis · 1 échec ·
+  1 annulé ». Ni prix ni dollars : ce qui compte, c'est ta part d'abonnement, pas la facture API.
 - **Les boutons** : couper ou rallumer le micro, ouvrir sa mémoire, ses conversations, son briefing, son journal.
 
 La page est servie par Steve lui-même sur `http://127.0.0.1:8765` : elle n'existe que sur ce Mac, et tant qu'elle
@@ -399,7 +412,18 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_TABLEAU_AU_DEMARRAGE` | non | `oui` = le tableau de bord s'ouvre à chaque lancement |
 
 Les mots que la reconnaissance vocale écorche à coup sûr (« load code » → Claude Code, « whatsap » → WhatsApp,
-« ouvre curseur » → Cursor…) sont corrigés dans `jervis/naturel.py` ; ajoute les tiens dans `_CORRECTIONS`.
+« ouvre curseur » → Cursor, « link inn » → LinkedIn, « Frisco » → San Francisco…) sont corrigés dans
+`jervis/naturel.py` ; ajoute les tiens dans `_CORRECTIONS`. Ce qui reste ambigu (« Watt » = WhatsApp ?), il le devine
+avec le contexte et ne redemande que s'il est vraiment bloqué (ses consignes, dans `jervis/brain.py`).
+
+**Ce qu'il comprend de mieux :**
+
+- **Les lettres épelées** : « Jessica T, A, double L » devient « Jessica TALL » (au moins trois lettres, en
+  majuscules ; « plan B » ne bouge pas). Tant que tu épelles (« T A… »), il attend la suite au lieu de répondre.
+- **Une phrase coupée puis reprise** (« interrompu », « il a continué sa phrase ») : il recolle les morceaux, et si
+  tu l'as coupé, il répond à ta nouvelle phrase sans reprendre la tâche à zéro ni s'excuser.
+- **Le bruit d'une vidéo** en russe, en arabe, en chinois… (plus de la moitié des lettres hors de l'alphabet latin)
+  n'est jamais pour lui : il l'ignore, et ta tâche en cours n'est pas perdue.
 Test sans micro : `PYTHONPATH=. .venv/bin/python tests/test_naturel.py`. La ligne directe de la voix, sans
 Internet : `PYTHONPATH=. .venv/bin/python tests/test_ligne.py`. Sa voix locale, sans le modèle :
 `tests/test_voix.py` (et l'apprentissage de ta voix). Les chiffres écrits en mots : `tests/test_oral.py`.

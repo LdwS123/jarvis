@@ -63,7 +63,9 @@ class FauxClient:
         if self.brief == "casse":
             raise RuntimeError("boum")
         yield AssistantMessage([TextBlock("brouillon")], "m")
-        yield ResultMessage("success", 1, 1, False, 1, "s", result=f"résultat de {self.brief}")
+        usage = {"m": {"inputTokens": 1200, "cacheCreationInputTokens": 300, "cacheReadInputTokens": 90000, "outputTokens": 500}}
+        yield ResultMessage("success", 1, 1, False, 1, "s", result=f"résultat de {self.brief}",
+                            model_usage=usage if self.brief == "jetons" else None)
 
 
 async def sans_connecteurs(*_a, **_k) -> None: ...
@@ -81,6 +83,7 @@ async def main() -> None:
     verifier("plafond par défaut : cinq agents à la fois", config.TACHES_MAX, 5)
     verifier("rien au départ (voix)", taches.lister(), "Aucune tâche en cours.")
     verifier("rien au départ (tableau)", taches.etat(), [])
+    verifier("bilan au départ", taches.bilan(), {"lancees": 0, "finies": 0, "echecs": 0, "annulees": 0, "en_cours": 0})
 
     config.TACHES_MAX = 3
     for brief in ("alpha", "bravo"):
@@ -105,6 +108,10 @@ async def main() -> None:
     await asyncio.sleep(0.1)
     par_titre = {t["titre"]: t for t in taches.etat()}
     verifier("alpha est finie", par_titre["Tâche alpha"]["statut"], "finie")
+    verifier("le bilan compte les agents (3 lancés, 1 fini, 1 en échec, 1 en cours)", taches.bilan(),
+             {"lancees": 3, "finies": 1, "echecs": 1, "annulees": 0, "en_cours": 1})
+    verifier("chaque agent a son nombre de jetons (0 : le faux client n'en annonce aucun)",
+             [t["jetons"] for t in taches.etat()], [0, 0, 0])
     verifier("elle ne fait plus rien", par_titre["Tâche alpha"]["action"], "")
     verifier("elle garde sa durée et son heure de fin", (par_titre["Tâche alpha"]["secondes"] >= 0,
                                                          par_titre["Tâche alpha"]["fini_il_y_a"] is not None), (True, True))
@@ -124,6 +131,22 @@ async def main() -> None:
     verifier("bravo est annulée, une seule fois dans l'histoire", statuts, ["annulée", "finie", "échec"])
     verifier("plus aucun vivant", "en cours" in statuts, False)
     verifier("annulée = pas d'annonce", standard.en_attente(), False)
+
+    verifier("le bilan final : l'annulation compte, une seule fois", taches.bilan(),
+             {"lancees": 3, "finies": 1, "echecs": 1, "annulees": 1, "en_cours": 0})
+    ecran_bilan = tableau.Tableau(types.SimpleNamespace(nom="veille", oreilles=None, taches=taches))
+    verifier("le tableau montre le bilan", ecran_bilan._bilan_agents()["lancees"], 3)
+    verifier("sans agents branchés, pas de bilan",
+             tableau.Tableau(types.SimpleNamespace(nom="v", oreilles=None))._bilan_agents(), {})
+    verifier("un bilan qui plante ne casse pas la page",
+             tableau.Tableau(types.SimpleNamespace(nom="v", oreilles=None, taches=types.SimpleNamespace(bilan=lambda: 1 / 0)))
+             ._bilan_agents(), {})
+
+    taches.lancer("Tâche jetons", "jetons")
+    await asyncio.sleep(0.1)
+    jetons = next(t["jetons"] for t in taches.etat() if t["titre"] == "Tâche jetons")
+    verifier("les jetons d'un agent : ce qu'il a lu et écrit (le cache relu n'est pas compté)", jetons, 1200 + 300 + 500)
+    standard.prendre()
 
     taches._histoire.clear()
     for i in range(12):
