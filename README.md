@@ -34,6 +34,9 @@ Il envoie des iMessages, crée des rappels et des notes, et pilote la maison via
 Il lit ton Google Drive, agit dans des milliers d'apps via Zapier, et clique ou tape dans n'importe quelle app du Mac.
 Il fait les grosses tâches en arrière-plan pendant que tu continues à lui parler, te fait un point le matin,
 te prévient à l'heure dite, et se souvient de vos conversations (et, avec screenpipe, de ce qui est passé sur ton écran).
+Il travaille comme un bras droit : il fait sa ronde de lui-même (mails, agenda, rappels) et ne te dérange que si
+ça vaut le coup, il tient un carnet de ce qu'il apprend en travaillant pour toi, et tu peux aussi lui écrire au lieu
+de lui parler, depuis son tableau de bord.
 Il tourne sur ton abonnement Claude, sans clé API.
 
 ## Installer dans la barre des menus (recommandé)
@@ -262,6 +265,39 @@ Chaque échange est aussi écrit dans `espace/conversations.jsonl`, où il cherc
 `memoire.md` est un simple fichier texte : tu peux le lire et le corriger toi-même. `JERVIS_MEMOIRE_AUTO=non`
 coupe la mémoire automatique, mais « retiens que… » marche toujours.
 
+### Il apprend de son travail (son carnet de leçons)
+
+La mémoire parle de toi ; son carnet, `lecons.md`, parle de sa façon de travailler pour toi : « ses mails pro sont
+sur le compte Gmail du boulot », « sur Doctolib, filtrer par secteur 1 d'abord », « quand il dit "le projet",
+c'est Oqro ». Il y écrit de lui-même quand tu le corriges ou quand une tâche a coincé puis marché autrement
+(outil `noter_lecon`), et la relecture de fin de conversation y ajoute ce qu'elle remarque : elle voit quels outils
+ont servi et lesquels ont échoué. Il relit le carnet à chaque session, ses agents de fond aussi, donc il ne refait pas
+deux fois la même erreur. Une leçon devenue fausse est remplacée, pas empilée ; au-delà de `JERVIS_LECONS_MAX` lignes,
+les plus anciennes s'en vont. C'est un simple fichier texte : menu → « Ce qu'il a appris (son carnet) », ou le
+bouton **Carnet** du tableau de bord, pour le lire et rayer ce que tu veux. « Efface ta mémoire, tout » le vide aussi.
+Comme le carnet entre dans ses consignes, il est protégé contre les textes piégés : une leçon vient de ce que tu lui
+dis ou de ce qu'il constate, jamais du contenu d'un mail ou d'une page ; ses agents de fond et sa ronde (qui lisent
+seuls) ne peuvent pas y écrire, et une leçon qui contient un lien, une adresse mail ou un numéro est refusée.
+Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
+
+### Sa ronde (il prend l'initiative)
+
+Une fois par heure environ, entre 9 h et 20 h, quand tu es devant le Mac et après le briefing du matin, il lance un
+petit agent qui fait le tour de ce que tu lui as confié : mails importants non lus, prochain rendez-vous, rappels
+en retard. S'il n'y a rien, il se tait (une ligne « 👀 Ronde : rien d'important. » dans le journal). S'il y a
+quelque chose, il te le dit en une ou deux phrases et te propose la suite (« Marc attend ta réponse sur le devis
+depuis ce matin, je te prépare un brouillon ? »). Il retient ce qu'il t'a déjà signalé dans la journée pour ne pas
+le répéter.
+
+La ronde ne fait que **regarder** : elle peut chercher, lister et lire, mais tout envoi, suppression, création ou
+commande du terminal lui est refusé, et elle n'a pas accès au web (un mail piégé ne peut donc pas lui faire ouvrir un
+lien pour faire sortir tes données). Agir reste ta décision : c'est lui, après t'avoir parlé, qui fait la suite si tu
+dis oui. Elle ne prend jamais la dernière place d'agent de fond : il en reste toujours une pour toi.
+
+Ce qu'elle surveille est écrit dans `initiative.md` (menu → « Ce qu'il surveille pour moi (sa ronde) », ou le
+bouton **Ronde**) : « regarde aussi les mails de l'URSSAF », « ignore les newsletters »… `JERVIS_INITIATIVE=non` la
+coupe, `JERVIS_INITIATIVE_MIN=120` l'espace.
+
 ### Le briefing du matin
 
 Le premier matin où tu es devant le Mac (clavier ou souris touchés depuis moins de 2 minutes) après 7 h 30, il te fait
@@ -351,10 +387,21 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   quelques minutes, grisés (✓ fini, ✕ échec) avec ce qu'ils ont consommé chez Claude, en jetons. Un **×** à droite d'un
   agent en cours l'arrête. Au-dessus, le bilan depuis son démarrage : « 5 lancés · 1 en cours · 2 finis · 1 échec ·
   1 annulé ». Ni prix ni dollars : ce qui compte, c'est ta part d'abonnement, pas la facture API.
-- **Les boutons** : couper ou rallumer le micro, ouvrir sa mémoire, ses conversations, son briefing, son journal.
+- **Lui écrire** (sous vos échanges) : tape ta demande et Entrée (Maj+Entrée pour aller à la ligne). Il te
+  répond par écrit, sans un mot à voix haute, et sa réponse s'affiche au fur et à mesure, en entier (listes et
+  retours à la ligne compris). Pratique en réunion, dans le métro, ou pour une adresse, un code, un texte à
+  coller. S'il a besoin de ton accord (« j'envoie le mail ? »), la question apparaît dans le chat avec deux
+  boutons **Oui** / **Non** au lieu de passer par le micro ; sans clic au bout de 5 minutes, c'est non. Si tu lui
+  parles pendant qu'il répond à un message écrit, il te dit « je finis ce que tu m'as écrit » et enchaîne : ta voix
+  ne coupe pas une demande écrite. Ce que vous vous écrivez entre dans la même conversation, la même mémoire et le
+  même carnet que ce que vous vous dites.
+- **Les boutons** : couper ou rallumer le micro, ouvrir sa mémoire, ses conversations, son briefing, sa ronde,
+  son carnet de leçons, son journal.
 
 La page est servie par Steve lui-même sur `http://127.0.0.1:8765` : elle n'existe que sur ce Mac, et tant qu'elle
-n'est pas ouverte elle ne lui coûte rien.
+n'est pas ouverte elle ne lui coûte rien. Le chat passe par la même porte : rien de ce que tu tapes ne sort du Mac
+avant d'arriver à Claude, comme ce que tu dis. Écrire, lire le chat et répondre Oui / Non demandent le jeton secret
+que seule la page reçoit : un autre site ouvert dans ton navigateur ne peut ni lire ni écrire à ta place.
 
 **Ce que veulent dire les chiffres du Mac :**
 
@@ -453,6 +500,14 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
 | `JERVIS_BRIEFING` | oui | `non` = pas de briefing du matin |
 | `JERVIS_BRIEFING_HEURE` | 07:30 | à partir de quelle heure il fait le briefing |
+| `JERVIS_INITIATIVE` | oui | `non` = pas de ronde : il ne te dit plus rien de lui-même (hors briefing et rappels) |
+| `JERVIS_INITIATIVE_MIN` | 60 | minutes entre deux rondes |
+| `JERVIS_INITIATIVE_DEBUT` | 09:00 | pas de ronde avant cette heure |
+| `JERVIS_INITIATIVE_FIN` | 20:00 | ni après celle-ci |
+| `JERVIS_MODELE_INITIATIVE` | sonnet | modèle de la ronde (elle ne fait que lire : un modèle léger suffit) |
+| `JERVIS_LECONS_MAX` | 60 | lignes gardées dans son carnet de leçons (les plus anciennes s'en vont) |
+| `JERVIS_QUESTION_ECRITE_S` | 300 | une question Oui / Non du chat restée sans clic ce temps-là : c'est non |
+| `JERVIS_ECRIT_RELECTURE_S` | 120 | après ce temps sans message tapé, il relit l'échange écrit pour sa mémoire et son carnet |
 | `JERVIS_PRESENT_S` | 120 | tu es « devant le Mac » si tu as touché clavier ou souris depuis ce nombre de secondes |
 | `JERVIS_SCREENPIPE` | auto | `auto` = s'il tourne ; `oui` = toujours ; `non` = jamais |
 | `JERVIS_SCREENPIPE_MCP` | screenpipe-mcp@0.18.14 | version du connecteur screenpipe |
@@ -478,6 +533,7 @@ Internet : `PYTHONPATH=. .venv/bin/python tests/test_ligne.py`. Sa voix locale, 
 `tests/test_voix.py` (l'apprentissage de ta voix, ses empreintes et le diagnostic). Les chiffres écrits en mots : `tests/test_oral.py`.
 Cursor, la corbeille, effacer sa mémoire et les autorisations, sans rien ouvrir ni jeter : `tests/test_mac.py`.
 Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests/test_fond.py`.
+Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tests/test_bras_droit.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -488,7 +544,9 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
 - Ta voix ne quitte jamais le Mac : détection, transcription et empreinte vocale (`voix.npy`) sont calculées en local.
 - Ce que tu dis (en texte), tes mails, ton agenda, tes documents Drive, ta mémoire, les captures d'écran et ce qu'il
   lit dans tes apps partent vers Claude pour qu'il réponde.
-- Vos conversations (`espace/conversations.jsonl`), sa mémoire et les enregistrements de screenpipe (`~/.screenpipe`)
+- Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur
+  ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
+- Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question.
 - Sa voix est fabriquée sur le Mac : le texte de ses réponses ne part nulle part pour être lu. Si elle rate une
   phrase ou ne se charge pas, cette phrase-là passe par le service de synthèse de Microsoft Edge ; c'est aussi le cas

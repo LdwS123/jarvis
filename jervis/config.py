@@ -110,6 +110,32 @@ BRIEFING_HEURE = _env("BRIEFING_HEURE", "07:30")
 FICHIER_BRIEFING = DOSSIER / "briefing.md"
 PRESENT_S = float(_env("PRESENT_S", "120"))   # tu es « devant le Mac » si tu as touché clavier ou souris depuis ça
 
+# --- Son initiative : une ronde discrète pendant la journée ------------------------
+# Toutes les INITIATIVE_MIN minutes (entre INITIATIVE_DEBUT et INITIATIVE_FIN, et seulement si tu es devant le
+# Mac), un agent de fond fait la ronde : mails importants pas lus, rendez-vous qui approchent, rappels dus.
+# Il ne te dit rien s'il n'y a rien d'important, et jamais deux fois la même chose dans la journée. Il ne fait
+# que regarder (jamais d'envoi ni d'effacement). Ce qu'il surveille est dans initiative.md (modifie-le).
+# JERVIS_INITIATIVE=non pour la couper.
+INITIATIVE = _env("INITIATIVE", "oui").lower() not in {"non", "off", "0"}
+INITIATIVE_MIN = float(_env("INITIATIVE_MIN", "60"))
+INITIATIVE_DEBUT = _env("INITIATIVE_DEBUT", "09:00")
+INITIATIVE_FIN = _env("INITIATIVE_FIN", "20:00")
+FICHIER_INITIATIVE = DOSSIER / "initiative.md"
+MODELE_INITIATIVE = _env("MODELE_INITIATIVE", "sonnet")   # un modèle léger : la ronde ne fait que lire
+
+# --- Son carnet de leçons ----------------------------------------------------------
+# Ce qu'il apprend en travaillant (une correction, une façon de faire qui a marché) va dans lecons.md, relu à
+# chaque session par lui et ses agents. Au-delà de LECONS_MAX lignes, les plus anciennes s'en vont.
+FICHIER_LECONS = DOSSIER / "lecons.md"
+LECONS_MAX = int(_env("LECONS_MAX", "60"))
+
+# --- Le chat écrit (tableau de bord) -----------------------------------------------
+# Tu peux lui écrire au lieu de parler : il répond par écrit, sans voix. Une question oui/non dans le chat
+# (« je peux envoyer ? ») sans clic pendant QUESTION_ECRITE_S vaut non.
+# Après ECRIT_RELECTURE_S secondes sans message tapé, il relit l'échange pour sa mémoire et son carnet.
+QUESTION_ECRITE_S = float(_env("QUESTION_ECRITE_S", "300"))
+ECRIT_RELECTURE_S = float(_env("ECRIT_RELECTURE_S", "120"))
+
 # --- Mémoire de l'écran (screenpipe, optionnel) -----------------------------------
 # screenpipe enregistre en local ce qui passe sur ton écran (texte lu par OCR) et dans ton micro.
 # auto = branché seulement s'il tourne (npx screenpipe record). oui / non pour forcer.

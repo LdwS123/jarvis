@@ -2,6 +2,7 @@
 
 Rien n'y est inventé : son état, vos derniers échanges, ce qu'il vient de faire et ses temps de réponse
 (lus à la fin de jervis.log), son usage de Claude, sa voix, et l'état du Mac expliqué en clair.
+On peut aussi lui écrire (le chat, chat.py) : il répond par écrit, sans un mot à voix haute.
 
 Le serveur n'écoute que sur cette machine, refuse les pages d'autres sites, et ne calcule rien tant que
 la page n'est pas ouverte : la boucle vocale ne le sent pas.
@@ -28,16 +29,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from . import compteur, config, ligne, voix_locale
+from . import chat, compteur, config, ligne, voix_locale
 
 PAGE = Path(__file__).with_name("tableau.html")
 JOURNAL = config.DOSSIER / "jervis.log"
 FIN_DU_JOURNAL = 96 * 1024   # on ne relit que la fin du journal : assez pour une longue conversation
+CORPS_MAX = 20_000           # un message tapé (chat.TEXTE_MAX caractères, accents compris) tient largement dedans
 
 # --- Ce que raconte jervis.log ----------------------------------------------------------------------
 
 _COULEURS = re.compile(r"\x1b\[[0-9;]*m")
-_TOI = re.compile(r"^🧑 Toi(?: \([^)]*\))? : (.*)$")
+_TOI = re.compile(r"^🧑 Toi(?: \(([^)]*)\))? : (.*)$")
 _OUTIL = re.compile(r"^\s*⚙️?\s+(\S+)(.*)$")
 _CHRONO = re.compile(r"^\s*⏱ ([\d,]+) s\s+\((.*)\)\s*$")
 _ETAPE = re.compile(r"^(.+?) ([\d,]+|\?)$")
@@ -130,16 +132,20 @@ def lire_journal(texte: str) -> dict[str, list]:
     outils: list[dict[str, Any]] = []
     chronos: list[dict[str, Any]] = []
     lui = f"🤖 {config.PRENOM} : "
+    lui_ecrit = f"🤖 {config.PRENOM} (écrit) : "
 
-    def tour(qui: str, phrase: str) -> None:
-        if echanges and echanges[-1]["qui"] == qui:  # ses phrases d'une même réponse : un seul tour
+    def tour(qui: str, phrase: str, ecrit: bool = False) -> None:
+        # Ses phrases d'une même réponse : un seul tour. Une réponse écrite reste à part (et en entier sur la page).
+        if echanges and echanges[-1]["qui"] == qui and echanges[-1].get("ecrit", False) == ecrit and not ecrit:
             echanges[-1]["texte"] += " " + phrase
         else:
-            echanges.append({"qui": qui, "texte": phrase})
+            echanges.append({"qui": qui, "texte": phrase, **({"ecrit": True} if ecrit else {})})
 
     for ligne in _COULEURS.sub("", texte).splitlines():
         if m := _TOI.match(ligne):
-            tour("toi", m[1])
+            tour("toi", m[2], ecrit=m[1] == "écrit")
+        elif ligne.startswith(lui_ecrit):
+            tour("steve", ligne[len(lui_ecrit):].replace(" ⏎ ", "\n"), ecrit=True)
         elif ligne.startswith(lui):
             # Son annonce au démarrage n'est pas une réponse (l'ancienne tournure traîne encore dans le journal).
             if ligne[len(lui):] not in (config.ANNONCE, f"{config.PRENOM} en ligne."):
@@ -502,10 +508,19 @@ class Tableau:
             def _json(self, donnees: Any) -> None:
                 self._repondre(200, json.dumps(donnees, ensure_ascii=False).encode(), "application/json")
 
+            def _jeton_ok(self) -> bool:
+                return self._chez_nous() and hmac.compare_digest(self.headers.get("X-Jeton", ""), tableau.jeton)
+
             def do_GET(self) -> None:
-                chemin = self.path.split("?", 1)[0]
+                chemin, _, requete = self.path.partition("?")
                 if not self._chez_nous():
                     self._repondre(403)
+                elif chemin == "/chat":  # vos messages écrits : seulement pour la page (qui a le jeton)
+                    if not self._jeton_ok():
+                        self._repondre(403)
+                        return
+                    v = re.fullmatch(r"depuis=(\d{1,12})", requete)
+                    self._json(chat.MESSAGERIE.depuis(int(v[1]) if v else 0))
                 elif chemin == "/pouls":
                     self._json(tableau.pouls())
                 elif chemin == "/etat":
@@ -519,11 +534,31 @@ class Tableau:
                     self._repondre(404)
 
             def do_POST(self) -> None:
-                self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096))
-                action = tableau.action(self.path.removeprefix("/action/"))
-                if not self._chez_nous() or not hmac.compare_digest(self.headers.get("X-Jeton", ""), tableau.jeton):
+                try:
+                    taille = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    taille = -1
+                if not 0 <= taille <= CORPS_MAX:  # trop gros : on ne le lit pas, et on ferme la connexion
+                    self.close_connection = True
+                    self._repondre(413, en_plus={"Connection": "close"})
+                    return
+                corps = self.rfile.read(taille)
+                if not self._jeton_ok():
                     self._repondre(403)
-                elif action is None:
+                elif self.path == "/ecrire":
+                    try:
+                        texte = json.loads(corps.decode("utf-8")).get("texte", "")
+                    except (ValueError, AttributeError):
+                        texte = None
+                    if not isinstance(texte, str) or not texte.strip():
+                        self._repondre(400)
+                    elif not chat.MESSAGERIE.recevoir(texte):
+                        self._repondre(503, "Il n'écoute pas encore (il démarre, ou il est en pause).".encode())
+                    else:
+                        self._repondre(204)
+                elif m := re.fullmatch(r"/repondre/(\d{1,12})/(oui|non)", self.path):
+                    self._repondre(204 if chat.MESSAGERIE.repondre(int(m[1]), m[2] == "oui") else 410)
+                elif (action := tableau.action(self.path.removeprefix("/action/"))) is None:
                     self._repondre(404)
                 else:
                     action()

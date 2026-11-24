@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import compteur, config
+from . import compteur, config, lecons
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -734,7 +734,8 @@ a_oublier: str | None = None   # « memoire », « conversations » ou « tout �
 
 
 @tool("effacer_memoire", "Efface TA mémoire à toi (pas la mémoire vive du Mac : pour elle, memoire_du_mac). "
-      "`quoi` = « memoire » (ce que tu sais de lui), « conversations » (le journal de vos échanges) ou « tout ». "
+      "`quoi` = « memoire » (ce que tu sais de lui), « conversations » (le journal de vos échanges) ou « tout » "
+      "(les deux, plus ton carnet de leçons). "
       "Seulement s'il le demande clairement (« efface ta mémoire », « oublie tout ce que tu sais sur moi »). "
       "Les fichiers partent à la corbeille : il peut les en ressortir tant qu'il ne l'a pas vidée.",
       {"type": "object",
@@ -743,7 +744,8 @@ a_oublier: str | None = None   # « memoire », « conversations » ou « tout �
 async def effacer_memoire(args: dict[str, Any]) -> dict[str, Any]:
     global a_oublier
     quoi = _sans_accents(str(args.get("quoi") or "")).strip()
-    fichiers = {"memoire": [MEMOIRE], "conversations": [JOURNAL], "tout": [MEMOIRE, JOURNAL]}.get(quoi)
+    fichiers = {"memoire": [MEMOIRE], "conversations": [JOURNAL],
+                "tout": [MEMOIRE, JOURNAL, lecons.FICHIER]}.get(quoi)
     if fichiers is None:
         return _erreur("`quoi` doit être « memoire », « conversations » ou « tout ».")
     for fichier in fichiers:
@@ -752,7 +754,7 @@ async def effacer_memoire(args: dict[str, Any]) -> dict[str, Any]:
                            "effacé. Dis-lui exactement ça.")
     a_oublier = quoi
     efface = {"memoire": "Ta mémoire est effacée", "conversations": "Le journal de vos conversations est effacé",
-              "tout": "Ta mémoire et le journal de vos conversations sont effacés"}[quoi]
+              "tout": "Ta mémoire, ton carnet de leçons et le journal de vos conversations sont effacés"}[quoi]
     return _texte(f"{efface} (une copie est dans la corbeille du Mac). Dès la fin de cette réponse tu repars de "
                   "zéro, sans rien te rappeler de cette conversation. Dis-le-lui en une phrase.")
 
@@ -897,6 +899,7 @@ async def tableau_de_bord(_args: dict[str, Any]) -> dict[str, Any]:
 
 OUTILS.append(tableau_de_bord)
 OUTILS.extend([mettre_a_la_corbeille, effacer_memoire, memoire_du_mac, verifier_autorisations])
+OUTILS.append(lecons.outil_noter_lecon)  # son carnet de leçons (lecons.py)
 
 
 def serveur_jervis(en_plus: list = ()) -> Any:

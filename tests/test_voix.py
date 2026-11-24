@@ -291,6 +291,9 @@ intrus /= np.linalg.norm(intrus)
 verifier("empreintes : une voix proche d'une empreinte en plus mais pas de ta voix de départ (VOIX_PLANCHER) est refusée",
          (float(intrus @ centre) > 0.7, e.score(intrus) < 0.3), (True, True))
 verifier("empreintes : chaque score est détaillé (voix.npy d'abord)", len(e.scores(phrase_de(toi))), 2)
+verifier("empreintes : pour un oui sensible, une empreinte apprise seule ne suffit pas (score strict)",
+         (e.score(phrase_de(fatiguee)) > config.SEUIL_VOIX, e.score_strict(phrase_de(fatiguee)) < 0.7,
+          e.score_strict(phrase_de(toi)) > 0.9), (True, True, True))
 e.affinages = 0
 e.apprendre(phrase_de(fatiguee), sure=False)
 verifier("empreintes : une phrase de ta voix fatiguée affine son empreinte, pas voix.npy",

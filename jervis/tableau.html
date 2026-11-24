@@ -113,9 +113,9 @@ h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg
 #etat-phrase { font-weight: 500; color: var(--etat); transition: color .4s; }
 #etat-aide { color: var(--brume); font-size: 12.5px; min-height: 1.45em; max-width: 22ch; }
 
-.boutons { display: flex; gap: 6px; padding-top: 10px; }
+.boutons { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; }
 .boutons button {
-  display: flex; flex-direction: column; align-items: center; gap: 7px; width: 96px;
+  display: flex; flex-direction: column; align-items: center; gap: 7px; width: 80px;
   background: none; border: 0; padding: 0; color: var(--brume); font: 12px/1.2 var(--texte); cursor: pointer;
 }
 .boutons .pastille {
@@ -143,6 +143,29 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
 .tour.steve { border-left-color: var(--braise); }
 .tour .qui { display: block; font-size: 11.5px; color: var(--brume); }
 .tour p { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; font-size: 13.5px; max-width: 62ch; }
+.tour.ecrit p { display: block; -webkit-line-clamp: unset; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
+.tour.ecrit .qui::after { content: " · écrit"; }
+.tour.attend { opacity: .6; }
+
+/* --- Le chat écrit --- */
+.direct { flex: none; display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.direct:empty { display: none; }
+.question { padding: 9px 11px; border: 1px solid var(--vigilance); border-radius: 6px; font-size: 13.5px; max-width: 62ch; }
+.question .choix { display: flex; gap: 8px; margin-top: 8px; }
+.question button, .ecrire button {
+  background: none; border: 1px solid var(--filet); border-radius: 5px; color: var(--glace); cursor: pointer;
+  font: 13px/1 var(--texte); padding: 6px 14px;
+}
+.question button.oui:hover, .question button.oui:focus-visible, .ecrire button:hover, .ecrire button:focus-visible { border-color: var(--cyan); color: var(--cyan); }
+.question button.non:hover, .question button.non:focus-visible { border-color: var(--alerte); color: var(--alerte); }
+.ecrire { flex: none; display: flex; gap: 8px; align-items: flex-end; margin-top: 12px; }
+.ecrire textarea {
+  flex: 1; min-width: 0; resize: none; max-height: 120px; padding: 8px 10px; border-radius: 6px;
+  background: rgba(5, 17, 32, .7); border: 1px solid var(--filet); color: var(--glace); font: 13.5px/1.4 var(--texte);
+}
+.ecrire textarea::placeholder { color: var(--brume); }
+.ecrire textarea:focus { outline: none; border-color: var(--cyan); }
+.etat-chat { flex: none; min-height: 1.2em; margin-top: 4px; font-size: 11.5px; color: var(--brume); }
 .actions { margin-top: 26px; min-height: 0; overflow: hidden; }
 .actions ul { list-style: none; padding: 0; display: grid; gap: 5px; }
 .actions li { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
@@ -311,6 +334,14 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
         <span class="pastille"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.5h18M6.5 17.5a5.5 5.5 0 0 1 11 0M12 5.5v3M4.9 9.6l2 2M19.1 9.6l-2 2"/></svg></span>
         <span>Briefing</span>
       </button>
+      <button type="button" data-action="ronde" title="Ce qu'il surveille de lui-même (initiative.md)">
+        <span class="pastille"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.6"/></svg></span>
+        <span>Ronde</span>
+      </button>
+      <button type="button" data-action="carnet" title="Ce qu'il a appris en travaillant pour toi (lecons.md)">
+        <span class="pastille"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h11.5v17H6a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 6 3.5zM9 8h5.5M9 11.5h5.5"/></svg></span>
+        <span>Carnet</span>
+      </button>
       <button type="button" data-action="journal">
         <span class="pastille"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4"/></svg></span>
         <span>Journal</span>
@@ -334,6 +365,12 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
     <section class="fil">
       <h2>Conversation</h2>
       <div class="tours" id="fil"></div>
+      <div class="direct" id="direct" aria-live="polite"></div>
+      <form class="ecrire" id="ecrire" autocomplete="off">
+        <textarea id="message" rows="1" maxlength="4000" aria-label="Lui écrire"></textarea>
+        <button type="submit" aria-label="Envoyer">Envoyer</button>
+      </form>
+      <p class="etat-chat" id="etat-chat"></p>
     </section>
   </aside>
 </div>
@@ -680,9 +717,9 @@ if (!calme) setTimeout(allumer, 450);
 
 function peindreFil(echanges) {
   const fil = $("fil");
-  if (!echanges.length) return fil.replaceChildren(el("p", "vide", `Rien pour l'instant. Dis « ${PRENOM} », puis ta question.`));
+  if (!echanges.length) return fil.replaceChildren(el("p", "vide", `Rien pour l'instant. Dis « ${PRENOM} », puis ta question, ou écris-lui ci-dessous.`));
   fil.replaceChildren(...echanges.map(t => {
-    const tour = el("div", "tour " + t.qui);
+    const tour = el("div", "tour " + t.qui + (t.ecrit ? " ecrit" : ""));
     tour.append(el("span", "qui", t.qui === "toi" ? "Toi" : PRENOM), el("p", "", t.texte));
     return tour;
   }));
@@ -995,6 +1032,99 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) { if (battement === null) pouls(); if (tour === null) instantane(); }
 });
 
+// --- Le chat écrit : tu lui tapes une demande, il répond par écrit (et ses questions ont des boutons) ---------
+const direct = $("direct"), saisie = $("message"), etatChat = $("etat-chat");
+const chat = new Map();   // n → message ; seuls ceux en cours s'affichent ici, les finis passent dans la conversation
+let versionChat = 0, minuteurChat = null, branche = null, avisChat = "";
+saisie.placeholder = `Écris à ${PRENOM}… (Entrée pour envoyer, Maj+Entrée pour aller à la ligne)`;
+
+function peindreDirect() {
+  const enCours = [...chat.values()].filter(m => !m.fini).sort((a, b) => a.n - b.n);
+  direct.replaceChildren(...enCours.map(m => {
+    if (m.qui === "question") {
+      const q = el("div", "question");
+      const choix = el("div", "choix");
+      for (const [mot, oui] of [["Oui", true], ["Non", false]]) {
+        const b = el("button", oui ? "oui" : "non", mot);
+        b.type = "button";
+        b.addEventListener("click", async () => {
+          for (const x of choix.children) x.disabled = true;
+          try { await fetch(`/repondre/${m.n}/${oui ? "oui" : "non"}`, { method: "POST", headers: { "X-Jeton": JETON } }); } catch { }
+          suivreChat();
+        });
+        choix.append(b);
+      }
+      q.append(el("p", "", m.texte), choix);
+      return q;
+    }
+    const tour = el("div", "tour ecrit " + (m.qui === "toi" ? "toi attend" : "steve"));
+    tour.append(el("span", "qui", m.qui === "toi" ? "Toi" : PRENOM), el("p", "", m.texte || "…"));
+    return tour;
+  }));
+}
+
+function peindreEtatChat() {
+  etatChat.textContent = avisChat || (branche === false ? `${PRENOM} démarre : tu pourras lui écrire dans un instant.`
+    : branche === null ? `Pas de liaison avec ${PRENOM}.` : "");
+}
+
+async function suivreChat() {
+  clearTimeout(minuteurChat);
+  let delai = 900;
+  try {
+    const r = await fetch("/chat?depuis=" + versionChat, { cache: "no-store", headers: { "X-Jeton": JETON }, signal: AbortSignal.timeout(4000) });
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    if (d.v < versionChat) chat.clear();   // il a redémarré : on repart de sa numérotation
+    let fini = false;
+    for (const m of d.messages) {
+      if (m.fini && chat.get(m.n)?.fini === false) fini = true;
+      chat.set(m.n, m);
+    }
+    for (const n of [...chat.keys()].slice(0, Math.max(0, chat.size - 60))) chat.delete(n);
+    if (d.messages.length || d.v < versionChat) peindreDirect();
+    versionChat = d.v;
+    branche = d.branche;
+    if (fini) instantane();   // une réponse vient de finir : la conversation la montre tout de suite
+    if ([...chat.values()].some(m => !m.fini)) delai = 400;
+  } catch {
+    branche = null;
+    delai = 2500;
+  }
+  peindreEtatChat();
+  minuteurChat = document.hidden ? null : setTimeout(suivreChat, delai);
+}
+
+function ajuster() {
+  saisie.style.height = "auto";
+  saisie.style.height = Math.min(saisie.scrollHeight + 2, 120) + "px";
+}
+
+async function envoyer() {
+  const texte = saisie.value.trim();
+  if (!texte || saisie.disabled) return;
+  saisie.disabled = true;
+  try {
+    const r = await fetch("/ecrire", { method: "POST", headers: { "X-Jeton": JETON, "Content-Type": "application/json" },
+                                       body: JSON.stringify({ texte }), signal: AbortSignal.timeout(4000) });
+    avisChat = r.ok ? "" : r.status === 503 ? `${PRENOM} n'écoute pas encore : réessaie dans un instant.` : `Pas envoyé (erreur ${r.status}).`;
+    if (r.ok) { saisie.value = ""; ajuster(); }
+  } catch {
+    avisChat = `Pas envoyé : ${PRENOM} ne répond pas.`;
+  }
+  saisie.disabled = false;
+  saisie.focus();
+  peindreEtatChat();
+  suivreChat();
+}
+
+$("ecrire").addEventListener("submit", e => { e.preventDefault(); envoyer(); });
+saisie.addEventListener("input", ajuster);
+saisie.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); envoyer(); }
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden && minuteurChat === null) suivreChat(); });
+
 for (const bouton of document.querySelectorAll(".boutons button")) {
   bouton.addEventListener("click", async () => {
     bouton.disabled = true;
@@ -1009,6 +1139,7 @@ peindreDate();
 mesurer();
 pouls();
 instantane();
+suivreChat();
 </script>
 </body>
 </html>

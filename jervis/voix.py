@@ -240,6 +240,12 @@ class Empreinte:
             return max(principale, *autres)
         return principale
 
+    def score_strict(self, v: np.ndarray) -> float:
+        """Pour un « oui » sensible : la ressemblance avec voix.npy ou ta voix de départ seulement. Les autres
+        empreintes (apprises toutes seules, dès qu'on dit son nom) ne suffisent jamais à autoriser une action."""
+        assert self.reference is not None
+        return max(float(v @ self.reference), *([float(v @ self.depart)] if self.depart is not None else []))
+
     @staticmethod
     def seuil(duree_parole: float, reveil: bool = False) -> float:
         """Le score qu'il faut pour que ce soit toi. Une phrase courte a une empreinte moins nette : le seuil

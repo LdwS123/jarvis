@@ -14,7 +14,7 @@ import threading
 import time
 import unicodedata
 
-from . import compteur, config, oral, tts, voix_locale
+from . import chat, compteur, config, oral, tts, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
 from .fond import Evenement, Programmateur, Standard, Taches, outils_fond
@@ -279,7 +279,7 @@ def _equipe(journal=print) -> tuple[Standard, Taches, Programmateur, list]:
     """Le standard, les tâches de fond, le programmateur, et les outils qui les pilotent."""
     standard = Standard()
     taches = Taches(standard, journal)
-    programmateur = Programmateur(standard, journal)
+    programmateur = Programmateur(standard, journal, taches)
     return standard, taches, programmateur, outils_fond(taches, programmateur)
 
 
@@ -378,7 +378,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                                              laisser_finir=arret is not None, repartir_a_zero=not garder)
             if phrase is None:
                 return None, False
-            chrono["voix"] = getattr(phrase, "voix", None)  # le score de ta voix : confirmer s'en sert pour les oui sensibles
+            # Le score de ta voix principale (sans les empreintes apprises seules) : confirmer s'en sert pour les oui sensibles
+            chrono["voix"] = getattr(phrase, "voix_stricte", None)
             entendue = time.monotonic()
             texte = corriger_transcription(await asyncio.to_thread(stt.transcrire, phrase.audio, veille) or "")
             chrono.update(fin=entendue - phrase.silence, silence=phrase.silence,
@@ -842,6 +843,33 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         discussion["active"] = False
         cerveau.fin_de_conversation()
 
+    async def repondre_par_ecrit() -> None:
+        """Le chat du tableau de bord : tes messages tapés, un par un. Il répond par écrit, sans un mot à voix
+        haute, et ses questions oui/non s'affichent avec des boutons. Ta voix et le chat se relaient (verrou)."""
+        messagerie, a_relire = chat.MESSAGERIE, False
+        while True:
+            try:
+                texte = await (asyncio.wait_for(messagerie.prochain(), config.ECRIT_RELECTURE_S) if a_relire
+                               else messagerie.prochain())
+            except asyncio.TimeoutError:  # tu ne lui écris plus : il relit l'échange pour sa mémoire et son carnet
+                if not discussion["active"]:
+                    cerveau.fin_de_conversation()
+                a_relire = False
+                continue
+            print(f"🧑 Toi (écrit) : {texte}", flush=True)
+            n = messagerie.ajouter("steve", "", fini=False)
+            try:
+                reponse = await cerveau.demander(
+                    texte, ecrit=lambda morceau: messagerie.completer(n, morceau),
+                    confirmer_ecrit=lambda question: messagerie.demander(question, config.QUESTION_ECRITE_S))
+            except Exception as e:
+                reponse = f"⚠️ Je n'ai pas pu répondre ({e!r}). Réessaie, ou dis-le-moi à voix haute."
+            reponse = reponse or "OK."
+            lignes = " ⏎ ".join(l.strip() for l in reponse.splitlines() if l.strip())
+            print(f"🤖 {config.PRENOM} (écrit) : {lignes}", flush=True)  # le journal d'abord : la page le relit aussitôt
+            messagerie.fermer(n, reponse)
+            a_relire = True
+
     standard, taches, programmateur, outils_en_plus = _equipe()
     etat.taches = taches
     cerveau = Cerveau(parler, confirmer, outils_en_plus=outils_en_plus,
@@ -856,6 +884,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         print(f"   ⚠️  Voix locale indisponible ({voix_locale.erreur or 'trop longue à charger'}) : "
               "il parle avec la voix Microsoft.", flush=True)
     horloge = asyncio.create_task(programmateur.tourner())
+    chat.MESSAGERIE.brancher(asyncio.get_running_loop())
+    par_ecrit = asyncio.create_task(repondre_par_ecrit())
     n = config.PRENOM
     if manquantes := outils.autorisations_manquantes():  # sans elles, « efface ci, fais ça » échoue en silence
         noms = ", ".join(outils.VOLETS[m][1] for m in manquantes)
@@ -913,6 +943,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         print(f"💰 Aujourd'hui : {compteur.dollars(compteur.aujourdhui())} en équivalent prix API "
               "(sur ton abonnement, ça compte dans tes limites, tu ne le paies pas en plus).")
         horloge.cancel()
+        chat.MESSAGERIE.debrancher()
+        par_ecrit.cancel()
         await taches.arreter()
         await cerveau.arreter()
         oreilles.fermer()
@@ -975,7 +1007,7 @@ def mode_barre() -> None:
     import rumps
     from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 
-    from . import fond, outils, tableau
+    from . import fond, lecons, outils, tableau
 
     etat = Etat()
 
@@ -1020,6 +1052,8 @@ def mode_barre() -> None:
         "memoire": lambda: ouvrir(outils.MEMOIRE),
         "conversations": lambda: ouvrir(outils.JOURNAL),
         "briefing": lambda: (fond.lire_briefing(), ouvrir(config.FICHIER_BRIEFING)),
+        "ronde": lambda: (fond.lire_initiative(), ouvrir(config.FICHIER_INITIATIVE)),
+        "carnet": lambda: ouvrir(lecons.preparer()),
         "journal": lambda: ouvrir(config.DOSSIER / "jervis.log"),
     })
     if config.TABLEAU and ecran.demarrer() and config.TABLEAU_AU_DEMARRAGE:
@@ -1034,6 +1068,9 @@ def mode_barre() -> None:
         rumps.MenuItem("Nos conversations", callback=lambda _: ouvrir(outils.JOURNAL)),
         rumps.MenuItem("Mon briefing du matin", callback=lambda _: (fond.lire_briefing(),
                                                                      ouvrir(config.FICHIER_BRIEFING))),
+        rumps.MenuItem("Ce qu'il surveille pour moi (sa ronde)", callback=lambda _: (fond.lire_initiative(),
+                                                                                    ouvrir(config.FICHIER_INITIATIVE))),
+        rumps.MenuItem("Ce qu'il a appris (son carnet)", callback=lambda _: ouvrir(lecons.preparer())),
         rumps.MenuItem("Voir le journal technique", callback=lambda _: ouvrir(config.DOSSIER / "jervis.log")),
         rumps.MenuItem("Autorisations…", callback=lambda _: subprocess.Popen(
             ["open", str(config.DOSSIER / "outils" / "autorisations.command")])),  # le guide, dans le Terminal

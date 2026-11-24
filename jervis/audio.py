@@ -41,6 +41,7 @@ class Phrase:
     empreinte: np.ndarray | None = None  # la « signature » de la voix de cette phrase (si assez longue)
     voix: float | None = None            # sa ressemblance avec ta voix (None : pas encore apprise)
     seuil_voix: float | None = None      # le score qu'il fallait pour être toi (selon sa longueur, le mot-clé)
+    voix_stricte: float | None = None    # sa ressemblance avec ta voix principale seule (les « oui » sensibles)
     coupee: bool = False    # arrêtée par la durée maximale : tu parlais encore
 
 
@@ -349,6 +350,7 @@ class Oreilles:
             return
         if self._empreinte.reference is not None:
             phrase.voix = self._empreinte.score(phrase.empreinte)
+            phrase.voix_stricte = self._empreinte.score_strict(phrase.empreinte)
             phrase.seuil_voix = self._empreinte.seuil(phrase.duree_parole, phrase.reveil)
 
     def ecouter_phrase(
