@@ -604,6 +604,9 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     action = nom_action(outil)
     if action == "noter_lecon":
         return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
+    if action == "noter_publication":
+        return (f"Je note que {str(entree.get('projet', '')).strip()} est sur {str(entree.get('site', '')).strip()} : "
+                f"« {str(entree.get('resume', '')).strip()} ». Je peux ?")
     if action == "retenir":
         return f"Je retiens sur toi : « {str(entree.get('fait', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
     if action == "oublier":
@@ -838,7 +841,8 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
 # Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre
 # agent (le brief d'une tâche de fond, qui pourrait faire passer l'ordre d'un mail piégé) : après un texte venu
 # d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui, en voyant le texte exact.
-ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce", "lancer_tache_de_fond"}
+ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce", "lancer_tache_de_fond",
+                         "noter_publication"}
 # Ce qu'il te lit de ces outils avant de dire oui, et jusqu'où. Ce qui s'exécute est ce texte-là, mot pour mot :
 # au-delà de la limite, il ne coupe pas en douce, il refuse et redit plus court.
 A_MONTRER: dict[str, dict[str, int]] = {
@@ -847,6 +851,7 @@ A_MONTRER: dict[str, dict[str, int]] = {
     "noter_lecon": {"lecon": 200, "remplace": 80, "domaine": 40},
     "programmer_annonce": {"faire": 200, "dire": 200, "quand": 20},
     "lancer_tache_de_fond": {"titre": 60, "brief": 500},
+    "noter_publication": {"projet": 60, "site": 100, "lien": 300, "resume": 200},
 }
 
 
