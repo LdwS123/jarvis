@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import compteur, config, lecons
+from . import compteur, config, graphe, lecons
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -182,7 +182,13 @@ async def oublier(args: dict[str, Any]) -> dict[str, Any]:
     avant = sum(map(len, rubriques.values()))
     rubriques = {r: [l for l in lignes if cible not in _sans_accents(l)] for r, lignes in rubriques.items()}
     _ecrire_rubriques(rubriques)
-    return _texte(f"{avant - sum(map(len, rubriques.values()))} ligne(s) effacée(s).")
+    efface = f"{avant - sum(map(len, rubriques.values()))} ligne(s) effacée(s)"
+    try:
+        if liens := await graphe.oublier(args["texte"]):
+            efface += f", et {liens} lien(s) du graphe"
+    except Exception as e:  # la mémoire est déjà nettoyée : le graphe le sera à la prochaine fois
+        efface += f" (le graphe n'a pas pu être nettoyé : {repr(e)[:120]})"
+    return _texte(efface + ".")
 
 
 # --- Journal des conversations ---------------------------------------------------
@@ -763,9 +769,18 @@ async def effacer_memoire(args: dict[str, Any]) -> dict[str, Any]:
         if fichier.exists() and (erreur := await asyncio.to_thread(_jeter, fichier)):
             return _erreur(f"Je n'ai pas pu mettre {fichier.name} à la corbeille ({erreur}) : rien de plus n'est "
                            "effacé. Dis-lui exactement ça.")
+    graphe_vide = False
+    if quoi in ("memoire", "tout"):
+        try:
+            graphe_vide = await graphe.effacer()
+        except Exception as e:
+            return _erreur(f"La mémoire est à la corbeille, mais je n'ai pas pu vider le graphe ({repr(e)[:120]}). "
+                           "Dis-lui exactement ça.")
     a_oublier = quoi
     efface = {"memoire": "Ta mémoire est effacée", "conversations": "Le journal de vos conversations est effacé",
               "tout": "Ta mémoire, ton carnet de leçons et le journal de vos conversations sont effacés"}[quoi]
+    if graphe_vide:  # lui n'a pas de copie dans la corbeille (il ne contient que des faits de la mémoire)
+        efface += ", et le graphe qui reliait ce que tu savais est vidé"
     return _texte(f"{efface} (une copie est dans la corbeille du Mac). Dès la fin de cette réponse tu repars de "
                   "zéro, sans rien te rappeler de cette conversation. Dis-le-lui en une phrase.")
 
@@ -911,6 +926,8 @@ async def tableau_de_bord(_args: dict[str, Any]) -> dict[str, Any]:
 OUTILS.append(tableau_de_bord)
 OUTILS.extend([mettre_a_la_corbeille, effacer_memoire, memoire_du_mac, verifier_autorisations])
 OUTILS.append(lecons.outil_noter_lecon)  # son carnet de leçons (lecons.py)
+if graphe.ACTIF:
+    OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)
 
 
 def serveur_jervis(en_plus: list = ()) -> Any:

@@ -11,7 +11,7 @@ from typing import Awaitable, Callable
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, RateLimitEvent, ResultMessage,
                               StreamEvent, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
-from . import compteur, config, lecons, naturel, outils
+from . import compteur, config, graphe, lecons, naturel, outils
 from .permissions import Gardien, lit_dehors
 
 CONSIGNES = """\
@@ -94,7 +94,8 @@ Tes outils maison (mcp__jervis__…) :
   N'appelle retenir que s'il te le demande (« retiens que… »), avec categorie, et remplace = quelques mots de
   l'ancienne info si elle change. oublier s'il te demande d'oublier. Jamais de mot de passe, code ni carte.
   S'il parle d'une conversation passée (« le resto dont on a parlé », « je t'avais dit quoi sur… »),
-  chercher_souvenirs avec quelques mots-clés.
+  chercher_souvenirs avec quelques mots-clés. Pour une question qui relie des choses que tu sais (« où habite
+  ma sœur ? », « avec qui je bosse sur Oqro ? », « où je travaillais avant ? »), chercher_liens (si tu l'as).
 - Écran : s'il parle de ce qu'il a sous les yeux (« cette page », « cette erreur », « résume ça »), regarder_ecran.
 - iMessage : chercher_contact pour trouver le numéro, puis envoyer_imessage avec le prénom dans `nom`.
 - Rappels et notes : creer_rappel (« rappelle-moi de… » : il le verra aussi sur son iPhone), lister_rappels,
@@ -781,13 +782,27 @@ class Cerveau:
             if lecons.noter_lecon(l["lecon"], l.get("domaine"), l.get("remplace") or None).startswith("Noté"):
                 self._nouveautes.append(f"leçon : {l['lecon'].strip()}")
                 self._journal(f"   📒 Leçon : {l['lecon'].strip()}")
+        retenus = []
         for f in faits:
             if isinstance(f, dict) and isinstance(f.get("fait"), str) and f["fait"].strip():
                 resultat = outils.memoriser(f["fait"], f.get("categorie"), f.get("remplace") or None)
                 if resultat.startswith("Retenu"):
+                    retenus.append(f["fait"].strip())
                     self._nouveautes.append(f["fait"].strip())
                     self._appris.append(f["fait"].strip())
                     self._journal(f"   🧠 Retenu : {f['fait'].strip()}")
+        await self._relier(retenus)
+
+    async def _relier(self, faits: list[str]) -> None:
+        """Les faits tout juste retenus entrent aussi dans le graphe (graphe.py) : seulement eux, jamais la
+        conversation brute. Si Ollama est éteint, la mémoire est déjà écrite : on le note et on passe."""
+        if not (faits and graphe.disponible()):
+            return
+        try:
+            n = await graphe.ajouter(faits)
+            self._journal(f"   🕸️ Graphe : {n} lien(s) créé(s) ou mis à jour")
+        except Exception as e:
+            self._journal(f"   🕸️ Graphe : {graphe._panne or repr(e)[:200]}")
 
     def couper(self) -> None:
         """Tu lui as coupé la parole : il se tait et abandonne la réponse en cours.

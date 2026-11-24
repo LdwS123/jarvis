@@ -102,6 +102,19 @@ CIBLE_CURSOR = _env("CURSOR_CIBLE", "claude_code").strip().lower()
 MEMOIRE_AUTO = _env("MEMOIRE_AUTO", "oui").lower() not in {"non", "off", "0"}
 MODELE_MEMOIRE = _env("MODELE_MEMOIRE", "haiku")
 
+# --- Le graphe de ce qu'il sait (Graphiti, tout en local) ---------------------------
+# Les faits retenus sont aussi reliés dans un graphe : les gens, les lieux, les projets, les liens entre eux,
+# datés (ce qui n'est plus vrai reste, marqué « plus vrai depuis »). La base est un fichier dans espace/, les
+# empreintes des phrases sont calculées par Ollama sur le Mac (ollama pull embeddinggemma). Sans Ollama ou
+# sans Graphiti installé, il n'y a juste pas de graphe. JERVIS_GRAPHE=non pour le couper.
+GRAPHE = _env("GRAPHE", "oui").lower() not in {"non", "off", "0"}
+FICHIER_GRAPHE = DOSSIER / "espace" / "graphe.db"
+OLLAMA_URL = _env("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+GRAPHE_EMBED = _env("GRAPHE_EMBED", "embeddinggemma")   # le modèle d'empreintes, dans Ollama
+GRAPHE_DIM = int(_env("GRAPHE_DIM", "768"))             # leur taille (768 pour embeddinggemma)
+MODELE_GRAPHE = _env("MODELE_GRAPHE", MODELE_MEMOIRE)   # qui lit « qui est qui, quel lien »
+GRAPHE_PARALLELE = int(_env("GRAPHE_PARALLELE", "3"))   # lectures en même temps (chacune lance un petit Claude)
+
 # --- Briefing du matin et annonces programmées ------------------------------------
 # Le premier moment où tu es devant ton Mac après cette heure (et avant midi), il te fait le point.
 # Ce qu'il dit est dans briefing.md (modifie-le comme tu veux). JERVIS_BRIEFING=non pour le couper.

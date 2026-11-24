@@ -18,3 +18,5 @@ certifi==2026.11.20
 huggingface_hub==2.4.0
 cryptography==50.0.2
 rumps==0.4.0
+# Le graphe de ce qu’il sait (facultatif : sans lui, memoire.md suffit). Empreintes : ollama pull embeddinggemma
+graphiti-core[falkordblite]==0.32.1

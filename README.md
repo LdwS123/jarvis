@@ -35,7 +35,7 @@ Il lit ton Google Drive, agit dans des milliers d'apps via Zapier, et clique ou 
 Il fait les grosses tâches en arrière-plan pendant que tu continues à lui parler, te fait un point le matin,
 te prévient à l'heure dite, et se souvient de vos conversations (et, avec screenpipe, de ce qui est passé sur ton écran).
 Il travaille comme un bras droit : il fait sa ronde de lui-même (mails, agenda, rappels) et ne te dérange que si
-ça vaut le coup, il tient un carnet de ce qu'il apprend en travaillant pour toi, et tu peux aussi lui écrire au lieu
+ça vaut le coup, il tient un carnet de ce qu'il apprend en travaillant pour toi, relie ce qu'il sait de toi dans un graphe daté, et tu peux aussi lui écrire au lieu
 de lui parler, depuis son tableau de bord.
 Il tourne sur ton abonnement Claude, sans clé API.
 
@@ -264,6 +264,25 @@ Il le sait dès la conversation suivante ; demande-lui « qu'est-ce que tu sais 
 Chaque échange est aussi écrit dans `espace/conversations.jsonl`, où il cherche quand tu lui parles du passé.
 `memoire.md` est un simple fichier texte : tu peux le lire et le corriger toi-même. `JERVIS_MEMOIRE_AUTO=non`
 coupe la mémoire automatique, mais « retiens que… » marche toujours.
+
+### Il relie ce qu'il sait (son graphe, facultatif)
+
+La mémoire est une liste de phrases ; le graphe ([Graphiti](https://github.com/getzep/graphiti)) les relie. Chaque
+fait que la relecture vient de retenir y entre aussi : « ta sœur s'appelle Léa » et « Léa habite à Lyon » deviennent
+des personnes, des lieux et des liens. Il peut alors répondre à « où habite ma sœur ? » sans que la phrase existe
+telle quelle (outil `chercher_liens`), et il sait ce qui a changé : quand tu lui dis plus tard que Léa a déménagé à
+Bordeaux, l'ancien lien n'est pas effacé mais daté « plus vrai depuis le … », et il ne te le donnera pas comme actuel.
+Seuls les faits déjà retenus dans `memoire.md` y entrent, jamais une conversation brute ni un mail ou une page.
+Tout reste sur le Mac : la base est un fichier (`espace/graphe.db`, FalkorDB embarqué, rien à installer de plus), les
+empreintes des phrases sont calculées par Ollama en local, la télémétrie de Graphiti est coupée ; seul le travail de
+lecture (qui est qui, quel lien) passe par Claude, comme la relecture de la mémoire (compté « graphe » dans les
+dépenses). Pour l'activer, une fois :
+
+    ollama pull embeddinggemma
+
+Sans Ollama (ou s'il est éteint), il le note dans le journal (« 🕸️ Graphe : Ollama ne répond pas… ») et continue
+avec `memoire.md` seule. « Oublie que… » efface aussi les liens qui contiennent ce texte, « efface ta mémoire »
+vide le graphe. `JERVIS_GRAPHE=non` le coupe.
 
 ### Il apprend de son travail (son carnet de leçons)
 
@@ -506,6 +525,12 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_CONNECTEURS_FOND_S` | 10 | le temps qu'un agent attend ses connecteurs (Gmail, Agenda…) avant de démarrer sans eux |
 | `JERVIS_MEMOIRE_AUTO` | oui | `non` = il ne retient que ce que tu lui demandes |
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
+| `JERVIS_GRAPHE` | oui | relie ce qu'il retient dans un graphe (`espace/graphe.db`) ; `non` = mémoire seule |
+| `JERVIS_OLLAMA_URL` | http://127.0.0.1:11434 | où trouver Ollama, qui calcule les empreintes des phrases |
+| `JERVIS_GRAPHE_EMBED` | embeddinggemma | le modèle d'empreintes dans Ollama (un autre : change aussi `JERVIS_GRAPHE_DIM` et repars d'un graphe vide) |
+| `JERVIS_GRAPHE_DIM` | 768 | taille de ces empreintes |
+| `JERVIS_MODELE_GRAPHE` | (comme `JERVIS_MODELE_MEMOIRE`) | modèle qui lit « qui est qui, quel lien » pour le graphe |
+| `JERVIS_GRAPHE_PARALLELE` | 3 | lectures en même temps pour le graphe (chacune lance un petit Claude) |
 | `JERVIS_BRIEFING` | oui | `non` = pas de briefing du matin |
 | `JERVIS_BRIEFING_HEURE` | 07:30 | à partir de quelle heure il fait le briefing |
 | `JERVIS_INITIATIVE` | oui | `non` = pas de ronde : il ne te dit plus rien de lui-même (hors briefing et rappels) |
@@ -542,6 +567,7 @@ Internet : `PYTHONPATH=. .venv/bin/python tests/test_ligne.py`. Sa voix locale, 
 Cursor, la corbeille, effacer sa mémoire et les autorisations, sans rien ouvrir ni jeter : `tests/test_mac.py`.
 Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests/test_fond.py`.
 Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tests/test_bras_droit.py`.
+Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -554,7 +580,8 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   lit dans tes apps partent vers Claude pour qu'il réponde.
 - Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur
   ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
-- Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`) et les enregistrements de screenpipe (`~/.screenpipe`)
+- Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son graphe (`espace/graphe.db`,
+  dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question.
 - Sa voix est fabriquée sur le Mac : le texte de ses réponses ne part nulle part pour être lu. Si elle rate une
   phrase ou ne se charge pas, cette phrase-là passe par le service de synthèse de Microsoft Edge ; c'est aussi le cas

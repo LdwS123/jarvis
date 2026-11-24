@@ -670,7 +670,9 @@ LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^Tool
 _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublier|noter_lecon|effacer_memoire|"
                        r"creer_rappel|creer_note|lister_raccourcis|demander_accord|envoyer_imessage|"
                        r"mettre_a_la_corbeille|verifier_autorisations|memoire_du_mac|depenses|tableau_de_bord|"
-                       r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme)"
+                       r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme|"
+                       # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
+                       r"chercher_liens)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
 # Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre

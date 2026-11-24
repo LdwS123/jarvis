@@ -22,7 +22,7 @@ threading.Timer(60, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).sta
 from claude_agent_sdk import (AssistantMessage, ResultMessage, StreamEvent, TextBlock, ToolResultBlock,  # noqa: E402
                               ToolUseBlock, UserMessage)
 
-from jervis import brain, chat, compteur, config, fond, lecons, outils, tableau  # noqa: E402
+from jervis import brain, chat, compteur, config, fond, graphe, lecons, outils, tableau  # noqa: E402
 
 echecs: list[str] = []
 total = 0
@@ -38,6 +38,7 @@ def verifier(nom: str, obtenu, attendu) -> None:
 
 TMP = Path(tempfile.mkdtemp(prefix="jervis-test-bras-droit-"))
 lecons.FICHIER = TMP / "lecons.md"
+config.FICHIER_GRAPHE = TMP / "graphe.db"   # jamais le vrai graphe
 fond.ETAT_RONDE = TMP / "ronde.json"
 fond.ETAT_BRIEFING = TMP / "briefing_fait.txt"
 config.FICHIER_INITIATIVE = TMP / "initiative.md"
@@ -241,6 +242,12 @@ async def tester_memoriser():
             "faits": [{"fait": "Il bosse chez Oqro", "categorie": "Travail"}],
             "lecons": [{"lecon": "Ses factures sont dans Drive, dossier Compta", "domaine": "Drive"}]}))
     brain.query = fausse_relecture
+    relies = []
+
+    async def faux_ajouter(faits, quand=None):
+        relies.append(list(faits))
+        return 2
+    graphe.ajouter, graphe.disponible = faux_ajouter, lambda: True
 
     async def parler(_p): ...
     async def confirmer(_q): return True
@@ -254,6 +261,20 @@ async def tester_memoriser():
     verifier("relecture : la leçon va dans le carnet", "dossier Compta" in lecons.lire_lecons(), True)
     verifier("relecture : il saura qu'il a appris les deux",
              c._nouveautes, ["leçon : Ses factures sont dans Drive, dossier Compta", "Il bosse chez Oqro"])
+    verifier("relecture : seuls les faits retenus entrent dans le graphe, en un épisode", relies, [["Il bosse chez Oqro"]])
+    journal = []
+    c._journal = journal.append
+    await c._relier([])
+    verifier("graphe : rien de retenu, rien à relier", (relies, journal), ([["Il bosse chez Oqro"]], []))
+
+    async def ollama_eteint(faits, quand=None):
+        raise ConnectionError("connect refused")
+    graphe.ajouter = ollama_eteint
+    await c._relier(["Il aime le ski"])
+    verifier("graphe : une panne est notée, la relecture ne plante pas", len(journal) == 1 and "Graphe" in journal[0], True)
+    graphe.disponible = lambda: False
+    await c._relier(["Il aime le ski"])
+    verifier("graphe absent : on n'essaie même pas", len(journal), 1)
     lecons.effacer()
 
 asyncio.run(tester_ecrit())
@@ -406,7 +427,7 @@ for nom, dehors in [("mcp__claude_ai_Gmail__get_thread", True), ("mcp__claude_ai
                     ("mcp__claude_ai_Zapier__execute_zapier_read_action", True), ("mcp__nouveau__truc", True),
                     ("mcp__claude_ai_Gmail__send_message", False), ("mcp__claude_ai_Gmail__create_draft", False),
                     ("mcp__jervis__creer_rappel", False), ("mcp__jervis__retenir", False),
-                    ("mcp__jervis__depenses", False), ("ToolSearch", False)]:
+                    ("mcp__jervis__depenses", False), ("mcp__jervis__chercher_liens", False), ("ToolSearch", False)]:
     verifier(f"texte venu d'ailleurs : {nom.split('__')[-1]} {'oui' if dehors else 'non'}", permissions.lit_dehors(nom), dehors)
 
 

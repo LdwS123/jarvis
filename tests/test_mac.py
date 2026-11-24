@@ -222,6 +222,15 @@ panne = None
 
 # --- 5. Effacer sa mémoire : les fichiers, puis le cerveau repart de zéro ------------------------------------------
 outils.MEMOIRE, outils.JOURNAL = tmp / "memoire.md", tmp / "conversations.jsonl"
+config.FICHIER_GRAPHE = tmp / "graphe.db"   # jamais le vrai graphe
+outils.lecons.FICHIER = tmp / "lecons.md"   # ni le vrai carnet (sinon « tout » dépend de son existence)
+graphe_vide = []
+
+
+async def faux_vider():
+    graphe_vide.append(True)
+    return True
+outils.graphe.effacer = faux_vider
 
 
 def remplir():
@@ -235,13 +244,18 @@ remplir()
 resultat = appeler(outils.effacer_memoire, quoi="memoire")
 verifier("effacer « memoire » : seul le fichier mémoire part", (jetes, outils.JOURNAL.exists(), outils.a_oublier),
          ([outils.MEMOIRE], True, "memoire"))
+verifier("effacer « memoire » : le graphe est vidé aussi, et il le dit",
+         (graphe_vide, "graphe" in texte(resultat)), ([True], True))
 remplir()
+graphe_vide.clear()
 appeler(outils.effacer_memoire, quoi="conversations")
 verifier("effacer « conversations » : seul le journal part", (jetes, outils.MEMOIRE.exists(), outils.a_oublier),
          ([outils.JOURNAL], True, "conversations"))
+verifier("effacer « conversations » : le graphe reste", graphe_vide, [])
 remplir()
 appeler(outils.effacer_memoire, quoi="tout")
 verifier("effacer « tout » : les deux", (jetes, outils.a_oublier), ([outils.MEMOIRE, outils.JOURNAL], "tout"))
+verifier("effacer « tout » : le graphe aussi", graphe_vide, [True])
 remplir()
 verifier("effacer « nimporte » : refusé, rien ne bouge",
          (appeler(outils.effacer_memoire, quoi="nimporte").get("is_error"), jetes, outils.a_oublier), (True, [], None))
