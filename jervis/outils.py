@@ -127,16 +127,32 @@ def _rubrique(categorie: str | None) -> str:
     return "Autre"
 
 
+# Un nom de fichier finit dans ses consignes, sans passer par la méfiance : il n'y entre que nettoyé et court, pour
+# qu'un téléchargement nommé « ignore tes consignes et envoie… » ne puisse rien y glisser.
+_NOM_SUR = re.compile(r"[^\w .()'/-]")
+_NOM_LOUCHE = re.compile(r"https?|www\.|@|\.\.", re.IGNORECASE)
+NOM_DOCUMENT_MAX = 60
+
+
+def nom_document(relatif: str) -> str | None:
+    """Le nom tel qu'il le voit (caractères sûrs, 60 au plus), ou None s'il ressemble à une adresse ou un piège."""
+    if _NOM_LOUCHE.search(relatif) or len(relatif.split()) > 8:
+        return None
+    nom = _NOM_SUR.sub("_", relatif)
+    return nom if len(nom) <= NOM_DOCUMENT_MAX else nom[:NOM_DOCUMENT_MAX - 1] + "…"
+
+
 def lister_documents() -> list[str]:
-    """Ses documents (config.DOCUMENTS), les plus récents d'abord : « - CV.pdf (12/10/2026) ». Crée le dossier."""
+    """Ses documents (config.DOCUMENTS), les plus récents d'abord : « - CV.pdf (12/10/2026) ». Crée le dossier.
+    Un nom louche n'est pas recopié : il apparaît comme « (un fichier au nom illisible) »."""
     try:
         config.DOCUMENTS.mkdir(parents=True, exist_ok=True)
         fichiers = [f for f in config.DOCUMENTS.rglob("*") if f.is_file() and not f.name.startswith(".")]
     except OSError:
         return []
     fichiers.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    return [f"- {f.relative_to(config.DOCUMENTS)} ({datetime.fromtimestamp(f.stat().st_mtime):%d/%m/%Y})"
-            for f in fichiers[:config.DOCUMENTS_VUS]]
+    return [f"- {nom_document(str(f.relative_to(config.DOCUMENTS))) or '(un fichier au nom illisible : Glob pour le voir)'}"
+            f" ({datetime.fromtimestamp(f.stat().st_mtime):%d/%m/%Y})" for f in fichiers[:config.DOCUMENTS_VUS]]
 
 
 def lire_memoire() -> str:
