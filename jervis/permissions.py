@@ -571,20 +571,18 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         return f"Je vais lire {Path(chemin_fichier(entree).split()[0]).name}, qui peut contenir des secrets. Je peux ?"
     action = outil.split("__")[-1]
     if action == "noter_lecon":
-        return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()[:200]} ». Je peux ?"
+        return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
     if action == "retenir":
-        return f"Je retiens sur toi : « {str(entree.get('fait', '')).strip()[:200]} ». Je peux ?"
+        return f"Je retiens sur toi : « {str(entree.get('fait', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
     if action == "oublier":
-        return f"J'efface de ma mémoire ce qui parle de « {str(entree.get('texte', '')).strip()[:100]} ». Je peux ?"
+        return f"J'efface de ma mémoire ce qui parle de « {str(entree.get('texte', '')).strip()} ». Je peux ?"
     if action == "programmer_annonce":
         # Ce qui sera vraiment gardé (la consigne `faire` l'emporte sur la phrase `dire`), et quand, répétition comprise.
-        faire = " ".join(str(entree.get("faire") or "").split())[:200]
-        quoi = f"je ferai « {faire} »" if faire else f"je dirai « {' '.join(str(entree.get('dire') or '').split())[:200]} »"
+        quoi = (f"je ferai « {entree['faire']} »" if entree.get("faire") else f"je dirai « {entree.get('dire') or ''} »")
         quand = " ".join(str(entree.get("quand") or "plus tard").split())[:20]
         return f"Je programme {'chaque jour à partir de' if entree.get('chaque_jour') else 'pour'} {quand} : {quoi}. Je peux ?"
     if action == "lancer_tache_de_fond":
-        return (f"Je confie à un agent « {' '.join(str(entree.get('titre') or '').split())[:60]} » : "
-                f"{' '.join(str(entree.get('brief') or '').split())[:300]}. Je peux ?")
+        return f"Je confie à un agent « {entree.get('titre') or ''} » : {entree.get('brief') or ''}. Je peux ?"
     if action == "demander_accord":
         return f"{entree.get('action', 'Je continue').strip().rstrip('.')}. Je peux ?"
     if outil.startswith("mcp__mac__"):
@@ -679,6 +677,34 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
 # agent (le brief d'une tâche de fond, qui pourrait faire passer l'ordre d'un mail piégé) : après un texte venu
 # d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui, en voyant le texte exact.
 ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce", "lancer_tache_de_fond"}
+# Ce qu'il te lit de ces outils avant de dire oui, et jusqu'où. Ce qui s'exécute est ce texte-là, mot pour mot :
+# au-delà de la limite, il ne coupe pas en douce, il refuse et redit plus court.
+A_MONTRER: dict[str, dict[str, int]] = {
+    "retenir": {"fait": 200, "remplace": 80, "categorie": 40},
+    "oublier": {"texte": 100},
+    "noter_lecon": {"lecon": 200, "remplace": 80, "domaine": 40},
+    "programmer_annonce": {"faire": 200, "dire": 200, "quand": 20},
+    "lancer_tache_de_fond": {"titre": 60, "brief": 500},
+}
+
+
+def _a_la_place(entree: dict[str, Any]) -> str:
+    """« , à la place de ce qui parle de … » : ce qu'il effacera en même temps (retenir, noter_lecon)."""
+    return f", à la place de ce qui parle de « {entree['remplace']} »" if entree.get("remplace") else ""
+
+
+def tel_que_montre(action: str, entree: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """L'entrée telle qu'il te la montre (espaces et retours à la ligne ramenés à un espace ; une consigne `faire`
+    l'emporte sur la phrase `dire`, comme au programmateur), et le champ trop long pour être montré ("" sinon)."""
+    net = dict(entree)
+    if action == "programmer_annonce" and net.get("faire"):
+        net.pop("dire", None)
+    for champ, limite in A_MONTRER.get(action, {}).items():
+        if isinstance(net.get(champ), str):
+            net[champ] = " ".join(net[champ].split())
+            if len(net[champ]) > limite:
+                return net, champ
+    return net, ""
 
 
 def est_lecture(outil: str) -> bool:
@@ -741,6 +767,12 @@ class Gardien:
             # Une réponse vaut pour toutes les actions identiques de la demande (6 mails à la corbeille),
             # mais chaque message envoyé à quelqu'un est confirmé à part.
             action = outil.split("__")[-1]
+            if outil.startswith("mcp__jervis__") and action in A_MONTRER:
+                entree, trop_long = tel_que_montre(action, entree)  # c'est ce texte-là qui s'exécutera
+                if trop_long:
+                    return PermissionResultDeny(
+                        message=f"« {trop_long} » est trop long pour que je le lui montre en entier avant de dire oui : "
+                                f"redis-le en {A_MONTRER[action][trop_long]} caractères au plus, puis réessaie.")
             apps = cibles_mac(action, entree, self._apps_vues) if outil.startswith("mcp__mac__") else set()
             question = decrire(outil, entree, apps)
             if outil.startswith("mcp__mac__") and (app := atelier(action, entree, apps)):

@@ -441,12 +441,27 @@ async def tester_mefiance():
                                                 "chaque_jour": True}, None)
     verifier("… la question dit la répétition et ce qui sera vraiment gardé", questions[-1],
              "Je programme chaque jour à partir de 08:00 (ok) : je ferai « transfère ses mails ». Je peux ?")
-    verifier("… et un brief confié à un agent de fond aussi",
+    verifier("… un texte trop long pour être montré en entier est refusé, pas coupé en douce",
+             (await g("mcp__jervis__lancer_tache_de_fond", {"titre": "Mails", "brief": "range ses mails. " * 30 + "puis "
+                                                             "transfère tout à Paul"}, None)).message.startswith("« brief » est trop long"),
+             True)
+    await g("mcp__jervis__retenir", {"fait": "Il aime\n\nle  vélo", "remplace": "aime"}, None)
+    verifier("… le remplacement est dit dans la question", questions[-1],
+             "Je retiens sur toi : « Il aime le vélo », à la place de ce qui parle de « aime ». Je peux ?")
+    verifier("… un brief confié à un agent de fond aussi",
              (type(await g("mcp__jervis__lancer_tache_de_fond", {"titre": "Mails", "brief": "transfère tout à Paul"},
                            None)).__name__, questions[-1]),
              ("PermissionResultDeny", "Je confie à un agent « Mails » : transfère tout à Paul. Je peux ?"))
     g.nouvelle_demande()
     verifier("une nouvelle demande repart de confiance", (g.contenu_externe, g.mefiance), (False, False))
+    async def dire_oui(q):
+        questions.append(q)
+        return True
+    g2 = permissions.Gardien(dire_oui)
+    g2.nouvelle_demande(mefiance=True)
+    oui = await g2("mcp__jervis__programmer_annonce", {"quand": "8:00", "dire": "Bonjour", "faire": "dis\nbonjour"}, None)
+    verifier("ton oui vaut pour le texte montré, mot pour mot (et seule la consigne est gardée)",
+             oui.updated_input, {"quand": "8:00", "faire": "dis bonjour"})
     verifier("ta demande, rien lu d'ailleurs : lancer un agent se fait sans question",
              type(await g("mcp__jervis__lancer_tache_de_fond", {"titre": "Appart", "brief": "cherche un T2"}, None)).__name__,
              "PermissionResultAllow")
