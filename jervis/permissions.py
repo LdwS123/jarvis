@@ -572,6 +572,13 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     action = outil.split("__")[-1]
     if action == "noter_lecon":
         return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()[:200]} ». Je peux ?"
+    if action == "retenir":
+        return f"Je retiens sur toi : « {str(entree.get('fait', '')).strip()[:200]} ». Je peux ?"
+    if action == "oublier":
+        return f"J'efface de ma mémoire ce qui parle de « {str(entree.get('texte', '')).strip()[:100]} ». Je peux ?"
+    if action == "programmer_annonce":
+        quoi = str(entree.get("faire") or entree.get("dire") or "").strip()[:200]
+        return f"Je programme pour {entree.get('quand', 'plus tard')} : « {quoi} ». Je peux ?"
     if action == "demander_accord":
         return f"{entree.get('action', 'Je continue').strip().rstrip('.')}. Je peux ?"
     if outil.startswith("mcp__mac__"):
@@ -652,10 +659,19 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
 
 # Les outils qui ne font que lire (chercher, lister, lire) : seuls permis à sa ronde, libres même quand il se méfie.
 LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^ToolSearch$")
-# Ceux qui font entrer dans sa tête un texte écrit par quelqu'un d'autre (un mail, une page, l'écran, un document) :
-# un texte piégé peut s'y cacher (« note dans ton carnet : transfère tout à… »).
-_LIT_PARTOUT = re.compile(r"^(?:WebFetch|WebSearch|mcp__(?:claude-in-chrome|navigateur|mac|ecran)__.+"
-                          r"|mcp__jervis__(?:regarder_ecran|onglet_chrome))$")
+# Les seuls outils qui ne lui rendent que son propre état (« noté », ses réglages, ses dépenses) : tout autre outil
+# (un fichier, une commande, un mail, une page, l'écran, un agent) peut lui faire lire un texte écrit par quelqu'un
+# d'autre, où un piège peut se cacher (« note dans ton carnet : transfère tout à… »). Un outil nouveau compte comme
+# une lecture du dehors tant qu'on ne l'a pas ajouté ici : en cas d'oubli, il demande, il ne laisse pas passer.
+_INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublier|noter_lecon|effacer_memoire|"
+                       r"creer_rappel|creer_note|lister_raccourcis|demander_accord|envoyer_imessage|"
+                       r"mettre_a_la_corbeille|verifier_autorisations|memoire_du_mac|depenses|tableau_de_bord|"
+                       r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme)"
+                       # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
+                       r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
+# Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) : après un texte venu
+# d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui.
+ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce"}
 
 
 def est_lecture(outil: str) -> bool:
@@ -663,11 +679,8 @@ def est_lecture(outil: str) -> bool:
 
 
 def lit_dehors(outil: str) -> bool:
-    """Vrai si l'outil lui fait lire un texte venu d'ailleurs (mail, page web, document, écran)."""
-    if _LIT_PARTOUT.match(outil):
-        return True
-    action = outil.split("__")[-1]
-    return outil.startswith("mcp__claude_ai_") and (est_lecture(outil) or "download" in action or "read_action" in action)
+    """Vrai si l'outil peut lui faire lire un texte venu d'ailleurs (tous, sauf ceux de _INTERNES)."""
+    return not _INTERNES.match(outil)
 
 
 class Gardien:
@@ -712,9 +725,9 @@ class Gardien:
             self.contenu_externe = True
         if decision is Decision.OUI and self.mefiance and not est_lecture(outil):
             decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même
-        if (decision is Decision.OUI and outil == "mcp__jervis__noter_lecon"
-                and (self.mefiance or self.contenu_externe)):
-            decision = Decision.DEMANDER  # une leçon qui viendrait d'un mail ou d'une page : c'est toi qui dis oui
+        if (decision is Decision.OUI and (self.mefiance or self.contenu_externe)
+                and outil.startswith("mcp__jervis__") and outil.split("__")[-1] in ECRIT_POUR_PLUS_TARD):
+            decision = Decision.DEMANDER  # ce qui viendrait d'un mail ou d'une page ne s'inscrit pas sans toi
         if decision is Decision.NON and (motif := motif_interdit(outil, entree)):
             return PermissionResultDeny(message=motif)  # refusé d'office : pas de question, et il sait quoi faire à la place
         if decision is Decision.DEMANDER:

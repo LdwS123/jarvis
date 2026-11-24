@@ -189,12 +189,22 @@ async def oublier(args: dict[str, Any]) -> dict[str, Any]:
 JOURNAL = config.ESPACE / "conversations.jsonl"
 
 
-def noter_echange(toi: str, steve: str) -> None:
-    """Une ligne par échange : ce que tu as dit, ce qu'il a répondu."""
+CACHE_SOUVENIR = "(tiré de mails, pages ou comptes rendus lus : non montré)"
+
+
+def noter_echange(toi: str, steve: str, cache_toi: bool = False, cache_steve: bool = False) -> None:
+    """Une ligne par échange : ce que tu as dit, ce qu'il a répondu. Tout est écrit (tu peux tout relire), mais
+    ce qui vient d'un texte lu ailleurs est marqué « cache » : chercher_souvenirs ne le lui remontre pas."""
+    ligne: dict[str, Any] = {"quand": f"{datetime.now():%Y-%m-%dT%H:%M}", "toi": toi, "steve": steve}
+    if cache := [qui for qui, oui in (("toi", cache_toi), ("steve", cache_steve)) if oui]:
+        ligne["cache"] = cache
     JOURNAL.parent.mkdir(parents=True, exist_ok=True)
     with JOURNAL.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"quand": f"{datetime.now():%Y-%m-%dT%H:%M}", "toi": toi, "steve": steve},
-                           ensure_ascii=False) + "\n")
+        f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+
+
+def _montre(e: dict[str, Any], qui: str) -> str:
+    return CACHE_SOUVENIR if qui in (e.get("cache") or ()) else str(e.get(qui, ""))
 
 
 def souvenirs(mots: str, n: int = 8) -> list[dict[str, str]]:
@@ -208,7 +218,7 @@ def souvenirs(mots: str, n: int = 8) -> list[dict[str, str]]:
             e = json.loads(ligne)
         except ValueError:
             continue
-        texte = _sans_accents(f"{e.get('toi', '')} {e.get('steve', '')}")
+        texte = _sans_accents(f"{_montre(e, 'toi')} {_montre(e, 'steve')}")
         if score := sum(m in texte for m in cherches):
             trouves.append((score, i, e))
     trouves.sort(key=lambda t: (t[0], t[1]), reverse=True)
@@ -221,7 +231,8 @@ async def chercher_souvenirs(args: dict[str, Any]) -> dict[str, Any]:
     trouves = souvenirs(args["mots"])
     if not trouves:
         return _texte("Rien dans vos conversations passées avec ces mots.")
-    lignes = [f"{e['quand'].replace('T', ' ')} — lui : {e['toi'][:300]} / toi : {e['steve'][:300]}" for e in trouves]
+    lignes = [f"{e['quand'].replace('T', ' ')} — lui : {_montre(e, 'toi')[:300]} / toi : {_montre(e, 'steve')[:300]}"
+              for e in trouves]
     return _texte("\n".join(lignes))
 
 

@@ -666,11 +666,14 @@ class Cerveau:
         if outils.a_oublier:  # il vient d'effacer sa mémoire : cet échange-là ne doit pas y retourner
             await self._tout_oublier()
             return reponse
-        self._echanges.append(pour_relecture(texte, reponse, trace_outils(list(utilises.values()), echecs),
-                                             self._gardien.mefiance, self._gardien.contenu_externe))
-        self._recents = [*self._recents, (texte, reponse[:600])][-3:]
+        # Partout où l'échange est gardé (relecture, fil après une pause, journal), le même masque : un texte lu
+        # ailleurs ne revient jamais dans sa tête comme si c'était toi ou lui qui l'avait dit.
+        mefiance, dehors = self._gardien.mefiance, self._gardien.contenu_externe
+        vu = pour_relecture(texte, reponse, trace_outils(list(utilises.values()), echecs), mefiance, dehors)
+        self._echanges.append(vu)
+        self._recents = [*self._recents, (vu[0], vu[1][:600])][-3:]
         try:
-            outils.noter_echange(texte, reponse)
+            outils.noter_echange(texte, reponse, cache_toi=mefiance, cache_steve=mefiance or dehors)
         except OSError as e:
             self._journal(f"   ⚠️  Journal des conversations : {e}")
         return reponse

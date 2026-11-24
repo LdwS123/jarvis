@@ -278,9 +278,12 @@ bouton **Carnet** du tableau de bord, pour le lire et rayer ce que tu veux. « E
 Comme le carnet entre dans ses consignes, il est protégé contre les textes piégés : une leçon vient de ce que tu lui
 dis ou de ce qu'il constate, jamais du contenu d'un mail ou d'une page ; ses agents de fond et sa ronde (qui lisent
 seuls) ne peuvent pas y écrire, et une leçon qui contient un lien, une adresse mail ou un numéro est refusée.
-Quand il vient de lire un mail, une page ou un document, il te demande avant de noter une leçon (« Je note dans mon
-carnet : … Je peux ? »), et la relecture de fin de conversation ne voit pas ce qu'il a lu, seulement ce que tu as
-dit et quels outils ont marché. Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
+Quand il vient de lire un texte écrit par quelqu'un d'autre (un mail, une page, un document, un fichier, une commande,
+l'écran : tout outil qui n'est pas sur sa courte liste d'outils « internes »), il te demande avant d'écrire quoi que
+ce soit pour plus tard : une leçon (« Je note dans mon carnet : … Je peux ? »), un fait sur toi (« Je retiens sur
+toi : … »), un oubli, ou une consigne programmée (« Je programme pour 08:00 : … »). La relecture de fin de
+conversation, le fil qu'il reprend après une pause et ses recherches dans vos conversations passées ne lui remontent
+pas ce texte-là, seulement ce que tu as dit et quels outils ont marché (le journal, lui, garde tout pour toi). Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
 
 ### Sa ronde (il prend l'initiative)
 

@@ -167,7 +167,7 @@ async def reponse_dite(demande: str, morceaux: list[str]) -> list[str]:
     return dit
 
 
-outils.noter_echange = lambda *a: None
+outils.noter_echange = lambda *a, **_k: None
 CERVEAU = [
     ("mets Spotify", ["Bien sûr ! ", "Je lance ", "Spotify. ", "Tu veux que je fasse autre chose ?"], ["Je lance Spotify."]),
     ("ouvre Cursor", ["Bien sûr !"], ["OK."]),                               # tout était creux : il confirme quand même
