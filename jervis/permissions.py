@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
-from . import config
+from . import comptes, config
 
 
 class Decision(Enum):
@@ -599,11 +599,13 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         return f"Je confie à un agent « {entree.get('titre') or ''} » : {entree.get('brief') or ''}. Je peux ?"
     if action == "demander_accord":
         return f"{entree.get('action', 'Je continue').strip().rstrip('.')}. Je peux ?"
-    if action == "creer_mot_de_passe":
-        return (f"Je crée ton compte sur {entree.get('site') or 'ce site'} avec {entree.get('identifiant') or 'ton adresse'}, "
-                "et je range son mot de passe dans ton trousseau. Je peux ?")
-    if action == "copier_mot_de_passe":
-        return f"Je sors ton mot de passe de {entree.get('site') or 'ce site'} du trousseau pour me connecter. Je peux ?"
+    if action in {"creer_mot_de_passe", "copier_mot_de_passe"}:
+        # Le domaine que l'outil utilisera vraiment (« https://www.Canva.com/x » → « canva.com »), pas le texte brut.
+        site = comptes.domaine(entree.get("site")) or "une adresse qui n'est pas un site"
+        if action == "copier_mot_de_passe":
+            return f"Je sors ton mot de passe de {site} du trousseau pour me connecter. Je peux ?"
+        qui = comptes.identifiant_valide(entree.get("identifiant")) or "un identifiant invalide"
+        return f"Je crée ton compte sur {site} avec {qui}, et je range son mot de passe dans ton trousseau. Je peux ?"
     if action == "chercher_code_recu":
         return "Je regarde le code que tu viens de recevoir par SMS. Je peux ?"
     if outil.startswith("mcp__mac__"):
@@ -688,6 +690,20 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
         return ("Le gardien interdit de supprimer avec rm, rmdir, unlink ou find -delete. Utilise l'outil "
                 "mettre_a_la_corbeille avec les chemins complets : la corbeille se rattrape.")
     return ""
+
+
+# Lire le presse-papiers : pbpaste, AppleScript « the clipboard », un outil « clipboard », du code dans une page.
+# Refusé tant qu'un mot de passe de comptes.py peut y être : il le colle, il ne le voit pas.
+_PRESSE_PAPIERS = re.compile(r"pbpaste|clipboard|pasteboard", re.IGNORECASE)
+
+
+def lit_le_presse_papiers(outil: str, entree: dict[str, Any]) -> bool:
+    action = nom_action(outil)
+    if "clipboard" in outil.lower():
+        return True
+    if outil == "Bash" or action.startswith(("browser_evaluate", "browser_run_code")) or action == "javascript_tool":
+        return bool(_PRESSE_PAPIERS.search(str(entree)))
+    return False
 
 
 # Les outils qui ne font que lire (chercher, lister, lire) : seuls permis à sa ronde, libres même quand il se méfie.
@@ -784,6 +800,9 @@ class Gardien:
         self._apps_vues.add(nom_app(entree.get("app_target")))
 
     async def __call__(self, outil: str, entree: dict[str, Any], _ctx: ToolPermissionContext):
+        if comptes.secret_au_presse_papiers() and lit_le_presse_papiers(outil, entree):
+            return PermissionResultDeny(message="Un mot de passe est dans le presse-papiers : tu ne le lis pas, tu le "
+                                                "colles seulement (cmd+v) dans le champ. Réessaie dans deux minutes.")
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)

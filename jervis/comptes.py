@@ -150,19 +150,26 @@ async def ranger(site: str, identifiant: str, secret: str) -> str | None:
     return None if not code and "returned" not in sortie else (sortie[:200] or f"security a répondu {code}")
 
 
-async def retrouver(site: str, identifiant: str | None = None) -> str | None:
-    """Le mot de passe rangé pour ce site (et cet identifiant s'il est donné), ou None."""
-    code, sortie = await _lancer("security", "find-internet-password", "-s", site,
-                                 *(["-a", identifiant] if identifiant else []), "-w")
+async def retrouver(site: str, identifiant: str) -> str | None:
+    """Le mot de passe qu'il a rangé lui-même pour ce compte (étiquette « site (Steve) »), ou None : jamais un
+    autre mot de passe de ton Trousseau."""
+    code, sortie = await _lancer("security", "find-internet-password", "-s", site, "-a", identifiant,
+                                 "-l", f"{site} (Steve)", "-w")
     return sortie if not code and sortie else None
 
 
 _minuteur: asyncio.TimerHandle | None = None
+_copie_jusqua = 0.0   # tant qu'un mot de passe peut être dans le presse-papiers, personne ne le lit (permissions.py)
+
+
+def secret_au_presse_papiers() -> bool:
+    return time.monotonic() < _copie_jusqua
 
 
 async def copier(secret: str) -> str | None:
     """Met le secret dans le presse-papiers, et l'en retire après PRESSE_PAPIERS_S secondes s'il y est encore."""
-    global _minuteur
+    global _minuteur, _copie_jusqua
+    _copie_jusqua = time.monotonic() + config.PRESSE_PAPIERS_S + 5
     code, sortie = await _lancer("pbcopy", entree=secret)
     if code:
         return sortie or "le presse-papiers ne répond pas"
@@ -265,7 +272,8 @@ async def creer_mot_de_passe(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool("copier_mot_de_passe", "Pour se reconnecter à un compte que tu as créé (voir lister_comptes) : ressort son "
-      "mot de passe du Trousseau et le met dans le presse-papiers, sans que tu le voies. Colle-le ensuite avec "
+      "mot de passe du Trousseau et le met dans le presse-papiers, sans que tu le voies (et sans que tu puisses le "
+      "lire : le presse-papiers t'est fermé tant qu'il y est). Colle-le ensuite avec "
       "cmd+v dans le champ, et seulement sur une page dont l'adresse est bien ce site.",
       {"type": "object", "properties": {"site": {"type": "string"}, "identifiant": {"type": "string"}},
        "required": ["site"]})
@@ -273,7 +281,14 @@ async def copier_mot_de_passe(args: dict[str, Any]) -> dict[str, Any]:
     site = domaine(args.get("site"))
     if not site:
         return _erreur("`site` doit être le domaine du site (par exemple netflix.com).")
-    secret = await retrouver(site, identifiant_valide(args.get("identifiant")))
+    qui = identifiant_valide(args.get("identifiant"))
+    siens = [c["identifiant"] for c in comptes() if c["site"] == site and (qui is None or c["identifiant"] == qui)]
+    if not siens:
+        return _erreur(f"Ce n'est pas un compte que tu as créé (voir lister_comptes) : demande-lui de se connecter "
+                       f"lui-même à {site}, ou d'utiliser son gestionnaire de mots de passe.")
+    if len(siens) > 1:
+        return _erreur(f"Tu as créé plusieurs comptes sur {site} ({', '.join(siens)}) : précise `identifiant`.")
+    secret = await retrouver(site, siens[0])
     if not secret:
         return _erreur(f"Aucun mot de passe pour {site} dans son Trousseau : demande-lui de se connecter lui-même.")
     if probleme := await copier(secret):

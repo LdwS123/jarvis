@@ -18,7 +18,7 @@ from pathlib import Path
 threading.Timer(40, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).start()
 
 from jervis import brain, comptes, config, outils  # noqa: E402
-from jervis.permissions import Decision, decrire, est_lecture, lit_dehors, politique  # noqa: E402
+from jervis.permissions import Decision, Gardien, decrire, est_lecture, lit_dehors, politique  # noqa: E402
 
 echecs: list[str] = []
 total = 0
@@ -120,6 +120,20 @@ verifier("copier : site inconnu → il te demande de te connecter",
          "connecter lui-même" in texte(asyncio.run(comptes.copier_mot_de_passe.handler({"site": "inconnu.fr"}))), True)
 verifier("lister : site et identifiant", texte(asyncio.run(comptes.lister_comptes.handler({}))).startswith(
     "- netflix.com : ines@mail.fr"), True)
+
+# Il ne sort que ce qu'il a rangé lui-même : un mot de passe du Trousseau qu'il n'a pas créé reste fermé.
+trousseau[("gmail.com", "ines@mail.fr")] = "le-vrai-de-gmail"
+presse_papiers.clear()
+r = asyncio.run(comptes.copier_mot_de_passe.handler({"site": "gmail.com", "identifiant": "ines@mail.fr"}))
+verifier("copier : un compte qu'il n'a pas créé → refusé, rien copié",
+         (r.get("is_error"), presse_papiers, "pas un compte que tu as créé" in texte(r)), (True, [], True))
+asyncio.run(comptes.creer_mot_de_passe.handler({"site": "netflix.com", "identifiant": "lea@mail.fr"}))
+presse_papiers.clear()
+r = asyncio.run(comptes.copier_mot_de_passe.handler({"site": "netflix.com"}))
+verifier("copier : deux comptes sur le site → il demande lequel",
+         (r.get("is_error"), "lea@mail.fr" in texte(r), presse_papiers), (True, True, []))
+asyncio.run(comptes.copier_mot_de_passe.handler({"site": "netflix.com", "identifiant": "ines@mail.fr"}))
+verifier("copier : avec l'identifiant, le bon", presse_papiers, [secret])
 comptes.ranger, comptes.retrouver, comptes.copier = vrais
 
 # Le vrai rangement : le secret part par l'entrée standard de `security`, jamais dans sa ligne de commande.
@@ -136,6 +150,11 @@ asyncio.run(comptes.ranger("netflix.com", "ines@mail.fr", "Secret-123"))
 verifier("trousseau : par l'entrée standard, pas en argument",
          (appels[0][0], "Secret-123" not in " ".join(appels[0][0]), '-w "Secret-123"' in appels[0][1],
           '-s "netflix.com"' in appels[0][1]), (("security", "-i"), True, True, True))
+
+appels.clear()
+asyncio.run(comptes.retrouver("netflix.com", "ines@mail.fr"))
+verifier("trousseau : il ne cherche que ses propres entrées (étiquette « (Steve) »)",
+         appels[0][0][-3:], ("-l", "netflix.com (Steve)", "-w"))
 
 # Le presse-papiers se vide tout seul, mais seulement si le mot de passe y est encore.
 appels.clear()
@@ -156,6 +175,35 @@ presse_papiers[:] = ["autre chose copié depuis"]
 asyncio.run(coller_puis_attendre())
 verifier("presse-papiers : il ne vide pas ce que tu as copié entre-temps",
          [e for c, e in appels if c[0] == "pbcopy"], ["Secret-123"])
+verifier("presse-papiers : fermé à la lecture le temps du collage", comptes.secret_au_presse_papiers(), True)
+
+
+class FauxContexte:
+    pass
+
+
+async def jamais(_question):
+    raise AssertionError("il n'aurait pas dû demander")
+
+
+def lu(outil, entree):
+    r = asyncio.run(Gardien(jamais)(outil, entree, FauxContexte()))
+    return type(r).__name__
+
+
+verifier("gardien : pbpaste refusé tant que le mot de passe y est", lu("Bash", {"command": "pbpaste"}),
+         "PermissionResultDeny")
+verifier("gardien : AppleScript « the clipboard » refusé",
+         lu("Bash", {"command": "osascript -e 'get the clipboard'"}), "PermissionResultDeny")
+verifier("gardien : un outil « clipboard » refusé", lu("mcp__mac__clipboard", {"action": "get"}), "PermissionResultDeny")
+verifier("gardien : du code dans la page qui lit le presse-papiers, refusé",
+         lu("mcp__navigateur__browser_evaluate", {"function": "() => navigator.clipboard.readText()"}),
+         "PermissionResultDeny")
+verifier("gardien : coller avec cmd+v, permis", lu("mcp__navigateur__browser_press_key", {"key": "Meta+v"}),
+         "PermissionResultAllow")
+comptes._copie_jusqua = 0.0
+verifier("presse-papiers : après le délai, rouvert", comptes.secret_au_presse_papiers(), False)
+verifier("gardien : pbpaste ensuite, permis", lu("Bash", {"command": "pbpaste"}), "PermissionResultAllow")
 config.PRESSE_PAPIERS_S = ancien
 comptes._lancer = vrai_lancer
 
@@ -235,6 +283,12 @@ verifier("question : tu entends le site et l'identifiant",
 verifier("question : sortir un mot de passe",
          decrire(J + "copier_mot_de_passe", {"site": "netflix.com"}),
          "Je sors ton mot de passe de netflix.com du trousseau pour me connecter. Je peux ?")
+verifier("question : le domaine qu'il utilisera vraiment, pas le texte brut",
+         decrire(J + "copier_mot_de_passe", {"site": "https://www.Netflix.com/login"}),
+         "Je sors ton mot de passe de netflix.com du trousseau pour me connecter. Je peux ?")
+verifier("question : une adresse invalide est dite telle quelle",
+         "une adresse qui n'est pas un site" in decrire(J + "creer_mot_de_passe", {"site": "netflix", "identifiant": "a"}),
+         True)
 verifier("question : le code SMS", decrire(J + "chercher_code_recu", {}),
          "Je regarde le code que tu viens de recevoir par SMS. Je peux ?")
 verifier("dehors : un SMS peut contenir un piège ; « c'est rangé » non",
