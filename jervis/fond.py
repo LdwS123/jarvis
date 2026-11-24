@@ -27,7 +27,7 @@ from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
 from . import compteur, config, outils
 from .brain import EXPERT, _maintenant, carnet, preparer_connecteurs
-from .permissions import Gardien
+from .permissions import Gardien, est_lecture
 
 
 @dataclass
@@ -330,12 +330,11 @@ Regarde, sans rien envoyer ni modifier :
 """
 
 ETAT_RONDE = config.ESPACE / "ronde.json"
-_LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^ToolSearch$")
 
 
 def outil_de_lecture(outil: str) -> bool:
     """mcp__claude_ai_Gmail__search_threads, mcp__jervis__lister_rappels : oui. send_message, Bash, WebFetch : non."""
-    return bool(_LECTURES.search(outil.split("__")[-1]))
+    return est_lecture(outil)
 
 
 async def lecture_seule(outil: str, entree: dict[str, Any], _ctx: Any):

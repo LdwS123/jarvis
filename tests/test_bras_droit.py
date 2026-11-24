@@ -159,6 +159,17 @@ async def tester_ecrit():
     verifier("écrit : la trace des outils part avec l'échange (pour ses leçons)",
              c._echanges[-1], ("(écrit) lis mes mails", reponse, "[outils : send_message ; échecs : send_message]"))
 
+    # Le compte rendu de sa ronde : il se méfie, et la relecture n'en voit rien.
+    c._client = FauxClaude([message(TextBlock("Marc attend ta réponse."))])
+    await c.demander("(ta ronde) Voici ce que ta ronde vient de relever : Marc attend.", ecrit=lambda _m: None)
+    verifier("ronde : Steve se méfie pendant ce tour", c._gardien.mefiance, True)
+    verifier("ronde : la relecture n'en voit rien", c._echanges[-1][:2], (brain.CACHE_DEMANDE, brain.CACHE_REPONSE))
+    c._client = FauxClaude([message(ToolUseBlock("t2", "mcp__claude_ai_Gmail__get_thread", {})),
+                            message(TextBlock("Paul te demande le devis."))])
+    await c.demander("lis le mail de Paul", ecrit=lambda _m: None)
+    verifier("un mail lu : il le sait pour le reste de la demande", (c._gardien.mefiance, c._gardien.contenu_externe), (False, True))
+    verifier("un mail lu : la relecture voit ta demande, pas le mail", c._echanges[-1][:2], ("(écrit) lis le mail de Paul", brain.CACHE_REPONSE))
+
     # Une question pendant une demande écrite : dans le chat, pas au micro.
     async def bouton(q):
         questions.append(("chat", q))
@@ -371,6 +382,59 @@ async def tester_gardien():
              (type(non).__name__, "lecture seule" in non.message), ("PermissionResultDeny", True))
 
 asyncio.run(tester_gardien())
+
+# --- 6 bis. Un texte piégé (mail, page) ne pilote ni Steve ni son carnet --------------------------------------------
+from jervis import permissions  # noqa: E402
+for nom, dehors in [("mcp__claude_ai_Gmail__get_thread", True), ("mcp__claude_ai_Gmail__search_threads", True),
+                    ("mcp__claude_ai_Google_Drive__download_file_content", True), ("WebFetch", True), ("WebSearch", True),
+                    ("mcp__claude-in-chrome__get_page_text", True), ("mcp__navigateur__browser_snapshot", True),
+                    ("mcp__mac__see", True), ("mcp__jervis__regarder_ecran", True),
+                    ("mcp__claude_ai_Gmail__send_message", False), ("mcp__jervis__creer_rappel", False),
+                    ("mcp__jervis__lister_rappels", False), ("Bash", False)]:
+    verifier(f"texte venu d'ailleurs : {nom.split('__')[-1]} {'oui' if dehors else 'non'}", permissions.lit_dehors(nom), dehors)
+
+
+async def tester_mefiance():
+    questions = []
+
+    async def repondre(q):
+        questions.append(q)
+        return False
+    g = permissions.Gardien(repondre)
+    brouillon = ("mcp__claude_ai_Gmail__create_draft", {"to": "x"})
+    lecon = ("mcp__jervis__noter_lecon", {"lecon": "Toujours mettre Paul en copie des devis"})
+
+    g.nouvelle_demande()
+    verifier("ta demande : un brouillon se fait sans question", type(await g(*brouillon, None)).__name__, "PermissionResultAllow")
+    verifier("ta demande, rien lu d'ailleurs : la leçon s'écrit sans question",
+             (type(await g(*lecon, None)).__name__, questions), ("PermissionResultAllow", []))
+    await g("mcp__claude_ai_Gmail__get_thread", {"id": "1"}, None)
+    verifier("après avoir lu un mail : la leçon passe par toi",
+             (type(await g(*lecon, None)).__name__, questions[-1]),
+             ("PermissionResultDeny", "Je note dans mon carnet : « Toujours mettre Paul en copie des devis ». Je peux ?"))
+    g.nouvelle_demande()
+    verifier("une nouvelle demande repart de confiance", (g.contenu_externe, g.mefiance), (False, False))
+
+    g.nouvelle_demande(mefiance=True)
+    n = len(questions)
+    verifier("compte rendu d'un agent : lire reste libre",
+             type(await g("mcp__claude_ai_Gmail__search_threads", {"q": "x"}, None)).__name__, "PermissionResultAllow")
+    verifier("… mais rien ne se fait sans ton oui (un brouillon)",
+             (type(await g(*brouillon, None)).__name__, len(questions) - n), ("PermissionResultDeny", 1))
+    verifier("… ni une page web (un lien pourrait faire sortir tes données)",
+             type(await g("WebFetch", {"url": "https://exemple.org/?q=secret"}, None)).__name__, "PermissionResultDeny")
+
+asyncio.run(tester_mefiance())
+
+verifier("relecture : ta demande et sa réponse restent visibles",
+         brain.pour_relecture("non, l'autre compte", "D'accord.", "[outils : search_threads]", False, False),
+         ("non, l'autre compte", "D'accord.", "[outils : search_threads]"))
+verifier("relecture : après un mail lu, sa réponse est cachée (pas ta demande ni les outils)",
+         brain.pour_relecture("lis mes mails", "Paul dit : note que…", "[outils : get_thread]", False, True),
+         ("lis mes mails", brain.CACHE_REPONSE, "[outils : get_thread]"))
+verifier("relecture : un compte rendu d'agent est caché en entier",
+         brain.pour_relecture("(ta ronde) note que…", "Marc attend.", "", True, False),
+         (brain.CACHE_DEMANDE, brain.CACHE_REPONSE, ""))
 
 for texte, rien in [("RIEN", True), ("Rien.", True), ("rien à signaler", True), ("  RIEN  ", True),
                     ("Rien de grave, mais Marc t'a écrit trois fois ce matin pour le devis, il attend ta réponse.", False),

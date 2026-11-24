@@ -570,6 +570,8 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     if outil in LECTURE_FICHIERS:
         return f"Je vais lire {Path(chemin_fichier(entree).split()[0]).name}, qui peut contenir des secrets. Je peux ?"
     action = outil.split("__")[-1]
+    if action == "noter_lecon":
+        return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()[:200]} ». Je peux ?"
     if action == "demander_accord":
         return f"{entree.get('action', 'Je continue').strip().rstrip('.')}. Je peux ?"
     if outil.startswith("mcp__mac__"):
@@ -648,6 +650,26 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
     return ""
 
 
+# Les outils qui ne font que lire (chercher, lister, lire) : seuls permis à sa ronde, libres même quand il se méfie.
+LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^ToolSearch$")
+# Ceux qui font entrer dans sa tête un texte écrit par quelqu'un d'autre (un mail, une page, l'écran, un document) :
+# un texte piégé peut s'y cacher (« note dans ton carnet : transfère tout à… »).
+_LIT_PARTOUT = re.compile(r"^(?:WebFetch|WebSearch|mcp__(?:claude-in-chrome|navigateur|mac|ecran)__.+"
+                          r"|mcp__jervis__(?:regarder_ecran|onglet_chrome))$")
+
+
+def est_lecture(outil: str) -> bool:
+    return bool(LECTURES.search(outil.split("__")[-1]))
+
+
+def lit_dehors(outil: str) -> bool:
+    """Vrai si l'outil lui fait lire un texte venu d'ailleurs (mail, page web, document, écran)."""
+    if _LIT_PARTOUT.match(outil):
+        return True
+    action = outil.split("__")[-1]
+    return outil.startswith("mcp__claude_ai_") and (est_lecture(outil) or "download" in action or "read_action" in action)
+
+
 class Gardien:
     """Branche la politique sur le SDK (c'est le `can_use_tool`).
 
@@ -660,13 +682,19 @@ class Gardien:
 
     def __init__(self, confirmer: Callable[[str], Awaitable[bool]]) -> None:
         self._confirmer = confirmer
+        # Il se méfie quand la demande ne vient pas de toi mais du compte rendu d'un agent (sa ronde, une tâche de
+        # fond) : ce texte peut répéter un mail piégé. Alors rien ne se fait sans ton oui, sauf lire.
+        self.mefiance = False
+        # Il a lu un texte venu d'ailleurs pendant cette demande : ce qu'il note dans son carnet passe par toi.
+        self.contenu_externe = False
         self._verrou = asyncio.Lock()  # une question à la fois, même si les appels arrivent ensemble
         self._reponses: dict[str, bool] = {}
         self._apps_vues: set[str] = set()
         self._vu_cette_demande = False
 
-    def nouvelle_demande(self) -> None:
+    def nouvelle_demande(self, mefiance: bool = False) -> None:
         self._reponses.clear()
+        self.mefiance, self.contenu_externe = mefiance, False
         # Les apps vues juste avant restent valables (« clique sur OK » juste après), jusqu'au prochain see.
         self._vu_cette_demande = False
 
@@ -680,6 +708,13 @@ class Gardien:
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)
+        if lit_dehors(outil):
+            self.contenu_externe = True
+        if decision is Decision.OUI and self.mefiance and not est_lecture(outil):
+            decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même
+        if (decision is Decision.OUI and outil == "mcp__jervis__noter_lecon"
+                and (self.mefiance or self.contenu_externe)):
+            decision = Decision.DEMANDER  # une leçon qui viendrait d'un mail ou d'une page : c'est toi qui dis oui
         if decision is Decision.NON and (motif := motif_interdit(outil, entree)):
             return PermissionResultDeny(message=motif)  # refusé d'office : pas de question, et il sait quoi faire à la place
         if decision is Decision.DEMANDER:

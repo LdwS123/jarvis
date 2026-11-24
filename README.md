@@ -278,7 +278,9 @@ bouton **Carnet** du tableau de bord, pour le lire et rayer ce que tu veux. « E
 Comme le carnet entre dans ses consignes, il est protégé contre les textes piégés : une leçon vient de ce que tu lui
 dis ou de ce qu'il constate, jamais du contenu d'un mail ou d'une page ; ses agents de fond et sa ronde (qui lisent
 seuls) ne peuvent pas y écrire, et une leçon qui contient un lien, une adresse mail ou un numéro est refusée.
-Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
+Quand il vient de lire un mail, une page ou un document, il te demande avant de noter une leçon (« Je note dans mon
+carnet : … Je peux ? »), et la relecture de fin de conversation ne voit pas ce qu'il a lu, seulement ce que tu as
+dit et quels outils ont marché. Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
 
 ### Sa ronde (il prend l'initiative)
 
@@ -292,7 +294,9 @@ le répéter.
 La ronde ne fait que **regarder** : elle peut chercher, lister et lire, mais tout envoi, suppression, création ou
 commande du terminal lui est refusé, et elle n'a pas accès au web (un mail piégé ne peut donc pas lui faire ouvrir un
 lien pour faire sortir tes données). Agir reste ta décision : c'est lui, après t'avoir parlé, qui fait la suite si tu
-dis oui. Elle ne prend jamais la dernière place d'agent de fond : il en reste toujours une pour toi.
+dis oui. Elle ne prend jamais la dernière place d'agent de fond : il en reste toujours une pour toi. Quand il te rapporte ce
+qu'elle (ou une tâche de fond) a trouvé, il se méfie : ce compte rendu peut répéter un mail piégé, alors pendant ce
+tour-là il ne fait que lire et te parler, et toute action (même un brouillon) attend ton « oui ».
 
 Ce qu'elle surveille est écrit dans `initiative.md` (menu → « Ce qu'il surveille pour moi (sa ronde) », ou le
 bouton **Ronde**) : « regarde aussi les mails de l'URSSAF », « ignore les newsletters »… `JERVIS_INITIATIVE=non` la
