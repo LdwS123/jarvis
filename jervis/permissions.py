@@ -692,17 +692,23 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
     return ""
 
 
-# Tant qu'un mot de passe de comptes.py peut être dans le presse-papiers, il le colle et ne le lit pas : pas de
-# commande ni de code (un pbpaste se déguise trop bien pour qu'on le repère au texte), pas d'outil « clipboard ».
-# Cela dure au plus PRESSE_PAPIERS_S, et quinze secondes après le dernier collage (cmd+v).
-_CODE = ("browser_evaluate", "browser_run_code", "javascript_tool", "run_script", "applescript")
+# Tant qu'un mot de passe de comptes.py peut être dans le presse-papiers, il ne peut que cliquer, taper et coller :
+# tout le reste attend (commande, code, capture, photo de la page, raccourci…). Une liste de ce qui est permis, pas
+# de ce qui est interdit : un nouvel outil qui lirait le presse-papiers est fermé d'office. Cela dure au plus
+# PRESSE_PAPIERS_S, et quinze secondes après le dernier collage (cmd+v).
+GESTES_PENDANT_COLLAGE = {"browser_click", "browser_press_key", "browser_type", "browser_hover", "browser_wait_for",
+                          "click", "type", "press", "hotkey", "scroll", "form_input",
+                          "creer_mot_de_passe", "copier_mot_de_passe", "demander_accord"}
+GESTES_CHROME = {"left_click", "double_click", "triple_click", "key", "type", "scroll", "wait", "hover"}
 _COLLER = re.compile(r"\b(meta|cmd|command|control|ctrl)\s*\+\s*v\b", re.IGNORECASE)
 
 
 def lit_le_presse_papiers(outil: str, entree: dict[str, Any]) -> bool:
+    """Vrai pour tout ce qui n'est pas un geste : ce qui pourrait voir le presse-papiers, ou la page où il est collé."""
     action = nom_action(outil)
-    return outil == "Bash" or "clipboard" in outil.lower() or "pasteboard" in outil.lower() \
-        or action.startswith(_CODE)
+    if action == "computer":   # l'outil de son Chrome : ses gestes oui, sa capture d'écran non
+        return entree.get("action") not in GESTES_CHROME
+    return action not in GESTES_PENDANT_COLLAGE
 
 
 def colle(outil: str, entree: dict[str, Any]) -> bool:
@@ -806,9 +812,9 @@ class Gardien:
     async def __call__(self, outil: str, entree: dict[str, Any], _ctx: ToolPermissionContext):
         if comptes.secret_au_presse_papiers():
             if lit_le_presse_papiers(outil, entree):
-                return PermissionResultDeny(message="Un mot de passe est dans le presse-papiers : pas de commande ni de "
-                                                    "code tant qu'il y est. Colle-le (cmd+v) dans le champ mot de passe "
-                                                    "(et sa confirmation) : ça se rouvre peu après.")
+                return PermissionResultDeny(message="Un mot de passe est dans le presse-papiers : tant qu'il y est, tu "
+                                                    "ne peux que cliquer, taper et coller (cmd+v). Colle-le dans le champ "
+                                                    "mot de passe (et sa confirmation) : le reste se rouvre peu après.")
             if colle(outil, entree):
                 comptes.apres_collage()
         if outil == "mcp__mac__see":

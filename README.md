@@ -322,8 +322,8 @@ fait de bout en bout, dans son Chrome ou dans le tien.
    rangé dans ton **Trousseau macOS** au nom du site (app Mots de passe ou Trousseau d'accès → cherche « Steve »),
    puis mis dans le presse-papiers le temps qu'il le colle (cmd+v). Il en part 15 secondes après le dernier
    collage (le temps de remplir aussi la confirmation), 90 secondes au plus, sauf si tu as copié autre chose
-   entre-temps. Tant qu'il y est, Steve n'a droit à aucune commande ni aucun code (Bash, code dans une page,
-   outil « presse-papiers ») : il ne peut que coller. Il ne ressort d'ailleurs que les mots de passe qu'il a rangés
+   entre-temps. Tant qu'il y est, Steve ne peut que cliquer, taper et coller : ni commande, ni code, ni capture
+   ou lecture de la page (et si macOS ne répond pas pour le retirer, ça reste fermé jusqu'à ce qu'il soit parti). Il ne ressort d'ailleurs que les mots de passe qu'il a rangés
    lui-même (étiquette « site (Steve) »), jamais les autres de ton Trousseau. Steve ne reçoit que « c'est rangé » : rien ne part chez
    Claude, rien n'est dit à voix haute, rien n'est écrit dans ses conversations. La liste des comptes créés
    (`espace/comptes.jsonl`) n'a que le site, l'identifiant et la date.
@@ -679,7 +679,7 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents
   (`documents/`) : seule leur liste est dans ses consignes, et il n'en lit un que quand ta demande le demande.
 - Les mots de passe qu'il crée ne partent jamais chez Claude : tirés et rangés sur le Mac (Trousseau), ils passent
-  par le presse-papiers 90 secondes au plus (et aucune commande ne peut l'y lire pendant ce temps). Si tu as un historique du presse-papiers (Raycast, Paste, Maccy),
+  par le presse-papiers 90 secondes au plus (et rien ne peut l'y lire pendant ce temps). Si tu as un historique du presse-papiers (Raycast, Paste, Maccy),
   exclus-en Jervis ou les mots de passe. D'un SMS, seul le code (et l'expéditeur) part chez Claude, pas le message.
 - Sa voix est fabriquée sur le Mac : le texte de ses réponses ne part nulle part pour être lu. Si elle rate une
   phrase ou ne se charge pas, cette phrase-là passe par le service de synthèse de Microsoft Edge ; c'est aussi le cas

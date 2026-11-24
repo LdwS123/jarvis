@@ -140,8 +140,15 @@ comptes.ranger, comptes.retrouver, comptes.copier = vrais
 appels: list[tuple[tuple, str | None]] = []
 
 
+macos_repond = [True]
+
+
 async def faux_lancer(*cmd, entree=None, delai=15):
     appels.append((cmd, entree))
+    if not macos_repond[0] and cmd[0] in ("pbpaste", "pbcopy"):
+        return 1, "pasteboard indisponible"
+    if cmd == ("pbcopy",):
+        presse_papiers[:] = [entree]
     return (0, presse_papiers[-1]) if cmd == ("pbpaste",) else (0, "")
 
 
@@ -171,8 +178,15 @@ asyncio.run(coller_puis_attendre())
 verifier("presse-papiers : vidé après le délai", [(c, e) for c, e in appels if c[0] == "pbcopy"],
          [(("pbcopy",), "Secret-123"), (("pbcopy",), "")])
 appels.clear()
-presse_papiers[:] = ["autre chose copié depuis"]
-asyncio.run(coller_puis_attendre())
+
+
+async def copier_puis_tu_copies_autre_chose():
+    await comptes.copier("Secret-123")
+    presse_papiers[:] = ["autre chose copié depuis"]
+    await asyncio.sleep(0.3)
+
+
+asyncio.run(copier_puis_tu_copies_autre_chose())
 verifier("presse-papiers : il ne vide pas ce que tu as copié entre-temps",
          [e for c, e in appels if c[0] == "pbcopy"], ["Secret-123"])
 verifier("presse-papiers : vidé → rouvert", comptes.secret_au_presse_papiers(), False)
@@ -202,7 +216,13 @@ async def gardien_pendant_le_collage():
             ("un simple ls", "Bash", {"command": "ls"}),
             ("un outil clipboard", "mcp__mac__clipboard", {"action": "get"}),
             ("du code dans la page", "mcp__navigateur__browser_evaluate", {"function": "() => 1"}),
-            ("du code dans Chrome", "mcp__claude-in-chrome__javascript_tool", {"text": "1"})]:
+            ("du code dans Chrome", "mcp__claude-in-chrome__javascript_tool", {"text": "1"}),
+            ("une photo de la page", "mcp__navigateur__browser_take_screenshot", {}),
+            ("lire la page", "mcp__navigateur__browser_snapshot", {}),
+            ("la capture de son Chrome", "mcp__claude-in-chrome__computer", {"action": "screenshot"}),
+            ("un raccourci", "mcp__jervis__lancer_raccourci", {"nom": "Presse-papiers"}),
+            ("cliquer dans le champ", "mcp__navigateur__browser_click", {"ref": "e12"}),
+            ("cliquer dans son Chrome", "mcp__claude-in-chrome__computer", {"action": "left_click"})]:
         vu[nom] = await lu(outil, entree)
     vu["coller"] = await lu("mcp__navigateur__browser_press_key", {"key": "Meta+v"})
     vu["encore fermé juste après"] = comptes.secret_au_presse_papiers()
@@ -219,8 +239,27 @@ D, A = "PermissionResultDeny", "PermissionResultAllow"
 verifier("gardien : tant que le mot de passe y est, ni commande ni code ; coller, oui ; puis tout se rouvre",
          asyncio.run(gardien_pendant_le_collage()),
          {"ouvert": True, "pbpaste": D, "une commande déguisée": D, "un simple ls": D, "un outil clipboard": D,
-          "du code dans la page": D, "du code dans Chrome": D, "coller": A, "encore fermé juste après": True,
+          "du code dans la page": D, "du code dans Chrome": D, "une photo de la page": D, "lire la page": D,
+          "la capture de son Chrome": D, "un raccourci": D, "cliquer dans le champ": A, "cliquer dans son Chrome": A,
+          "coller": A, "encore fermé juste après": True,
           "rouvert après le collage": False, "vidé": "", "pbpaste ensuite": A})
+
+
+async def macos_muet():
+    config.PRESSE_PAPIERS_S = 0.05
+    await comptes.copier("Secret-456")
+    macos_repond[0] = False
+    await asyncio.sleep(0.3)
+    reste_ferme = comptes.secret_au_presse_papiers()
+    macos_repond[0] = True
+    comptes._vider_dans(0.05)
+    await asyncio.sleep(0.3)
+    return reste_ferme, comptes.secret_au_presse_papiers(), presse_papiers[-1]
+
+
+comptes.REESSAI_S = 30
+verifier("presse-papiers : macOS ne répond pas → il reste fermé ; puis vidé et rouvert",
+         asyncio.run(macos_muet()), (True, False, ""))
 config.PRESSE_PAPIERS_S = ancien
 comptes._lancer = vrai_lancer
 

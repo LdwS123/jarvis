@@ -162,6 +162,7 @@ _minuteur: asyncio.TimerHandle | None = None
 _copie_jusqua = 0.0   # tant qu'un mot de passe peut être dans le presse-papiers, rien ne le lit (permissions.py)
 _secret: str | None = None
 COLLAGE_S = 15.0      # une fois collé, il part vite : le temps de coller aussi dans le champ de confirmation
+REESSAI_S = 5.0       # macOS n'a pas répondu : on réessaie de le retirer
 
 
 def secret_au_presse_papiers() -> bool:
@@ -196,12 +197,20 @@ def apres_collage() -> None:
 
 
 async def _vider_si(secret: str | None) -> None:
+    """Retire le secret s'il y est encore. Le presse-papiers ne se rouvre qu'une fois sûr qu'il n'y est plus :
+    si macOS ne répond pas, il reste fermé et on réessaie dans quelques secondes."""
     global _secret, _copie_jusqua
+    if secret is not _secret:   # un autre mot de passe l'a remplacé : c'est son minuteur qui décide
+        return
     code, actuel = await _lancer("pbpaste")
     if not code and secret is not None and actuel == secret:
-        await _lancer("pbcopy", entree="")
-    if secret is _secret:   # c'est bien le dernier copié : le presse-papiers est rouvert
-        _secret, _copie_jusqua = None, 0.0
+        code, _ = await _lancer("pbcopy", entree="")
+        if not code:
+            code, actuel = await _lancer("pbpaste")
+    if code or (secret is not None and actuel == secret):
+        _vider_dans(REESSAI_S)
+        return
+    _secret, _copie_jusqua = None, 0.0
 
 
 # --- Les codes reçus par SMS ------------------------------------------------------------------------------------
