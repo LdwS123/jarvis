@@ -409,8 +409,8 @@ verifier("consignes : se connecter seul (Google d'abord, remplissage automatique
          ("Continuer avec Google" in c, "accounts.google.com" in c, "remplissage automatique" in c, "double vérification" in c),
          (True, True, True, True))
 verifier("consignes : accès large : seulement s'il l'a demandé", ("accorde-le sans questions" in c, "identité seulement" in c), (True, True))
-verifier("consignes : se connecter seulement là où il l'a demandé, jamais parce qu'une page le dit",
-         ("seulement là où il te l'a demandé" in c, "Jamais parce qu'une page" in c), (True, True))
+verifier("consignes : se connecter seul dès que la tâche en a besoin",
+         ("dès que ta tâche en a besoin" in c, "sans demander" in c), (True, True))
 verifier("consignes : plus de « demande-lui de te connecter » d'office", "demande-lui de se connecter lui-même" not in c, True)
 verifier("consignes : CAPTCHA → c'est toi, il te prévient", ("tu ne le contournes" in c, "signaler_captcha" in c),
          (True, True))

@@ -332,7 +332,7 @@ fait de bout en bout, dans son Chrome ou dans le tien.
    Messages, sur le Mac, et ne rend que le code. Pour ça : sur l'iPhone, Réglages → Apps → Messages → **Transfert
    de SMS** → ton Mac, et sur le Mac, **Accès complet au disque** pour Jervis (Réglages → Confidentialité et
    sécurité).
-4. **Se connecter, il le fait seul.** « Continuer avec Google » (ou Apple, GitHub, Microsoft…) d'abord : il choisit le
+4. **Se connecter, il le fait seul** dès que sa tâche en a besoin, sans te demander (sauf pour payer). « Continuer avec Google » (ou Apple, GitHub, Microsoft…) d'abord : il choisit le
    compte déjà connecté dans ton Chrome, vérifie que la page est bien `accounts.google.com` (jamais une copie) et
    accorde l'accès que tu lui as demandé de donner (« connecte Oko à mon Gmail ») ; sans demande de ta part, seulement ton nom, ton mail et ta photo. Sinon le mot de passe qu'il a rangé dans
    le Trousseau, puis le remplissage automatique du navigateur. Il ne te demande de le faire toi-même que pour une
