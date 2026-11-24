@@ -1,0 +1,261 @@
+"""Créer des comptes à ta place : ta fiche, des mots de passe que Claude ne voit jamais, les codes reçus par SMS.
+
+    cd ~/Jervis && PYTHONPATH=. .venv/bin/python tests/test_comptes.py
+
+Rien ne sort du Mac, et rien ne touche à ton vrai Trousseau ni à ton presse-papiers : ils sont remplacés par
+des faux, et la base de Messages est une copie fabriquée dans un dossier temporaire.
+"""
+
+import asyncio
+import os
+import re
+import sqlite3
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+threading.Timer(40, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).start()
+
+from jervis import brain, comptes, config, outils  # noqa: E402
+from jervis.permissions import Decision, decrire, est_lecture, lit_dehors, politique  # noqa: E402
+
+echecs: list[str] = []
+total = 0
+
+
+def verifier(nom: str, obtenu, attendu) -> None:
+    global total
+    total += 1
+    if obtenu != attendu:
+        echecs.append(nom)
+        print(f"❌ {nom}\n     obtenu  : {obtenu!r}\n     attendu : {attendu!r}")
+
+
+def texte(r: dict) -> str:
+    return r["content"][0]["text"]
+
+
+TMP = Path(tempfile.mkdtemp())
+config.DOCUMENTS = TMP / "documents"
+config.FICHE = config.DOCUMENTS / "fiche.md"
+comptes.REGISTRE = TMP / "espace" / "comptes.jsonl"
+
+# --- Le site et l'identifiant ------------------------------------------------------------------------------
+verifier("domaine : une adresse complète", comptes.domaine("https://www.Netflix.com/fr/signup?x=1"), "netflix.com")
+verifier("domaine : un nom de site", comptes.domaine("accounts.google.com"), "accounts.google.com")
+verifier("domaine : un faux site reste ce qu'il est (tu l'entends)", comptes.domaine("netflix-connexion.xyz"),
+         "netflix-connexion.xyz")
+verifier("domaine : pas un site → refusé",
+         [comptes.domaine(s) for s in ("netflix", "net flix.com", "", None, "javascript:alert(1)", "a\"b.com")],
+         [None] * 6)
+verifier("identifiant : une adresse mail", comptes.identifiant_valide(" ines@mail.fr "), "ines@mail.fr")
+verifier("identifiant : espace ou guillemet → refusé",
+         [comptes.identifiant_valide(s) for s in ("ines dupont", 'a"b', "", "x" * 121)], [None] * 4)
+
+# --- Le mot de passe ---------------------------------------------------------------------------------------
+mdp = comptes.mot_de_passe()
+verifier("mot de passe : la longueur réglée", len(mdp), config.MOT_DE_PASSE_LONGUEUR)
+verifier("mot de passe : minuscule, majuscule, chiffre, symbole",
+         [bool(re.search(r, mdp)) for r in ("[a-z]", "[A-Z]", "[0-9]", f"[{re.escape(comptes.SYMBOLES)}]")], [True] * 4)
+verifier("mot de passe : jamais de guillemet, d'espace ni de barre oblique inverse",
+         any(c in mdp for c in "\"' \\"), False)
+verifier("mot de passe : bornes 12 et 64", (len(comptes.mot_de_passe(4)), len(comptes.mot_de_passe(500))), (12, 64))
+verifier("mot de passe : sans symboles si le site les refuse", comptes.mot_de_passe(30, symboles=False).isalnum(), True)
+verifier("mot de passe : jamais deux fois le même", len({comptes.mot_de_passe() for _ in range(50)}), 50)
+
+# --- Trousseau, presse-papiers : des faux --------------------------------------------------------------------
+trousseau: dict[tuple[str, str], str] = {}
+presse_papiers: list[str] = []
+
+
+async def faux_ranger(site, qui, secret):
+    trousseau[(site, qui)] = secret
+
+
+async def faux_retrouver(site, qui=None):
+    return next((v for (s, q), v in trousseau.items() if s == site and (qui is None or q == qui)), None)
+
+
+async def faux_copier(secret):
+    presse_papiers.append(secret)
+
+
+vrais = comptes.ranger, comptes.retrouver, comptes.copier
+comptes.ranger, comptes.retrouver, comptes.copier = faux_ranger, faux_retrouver, faux_copier
+
+dit = texte(asyncio.run(comptes.creer_mot_de_passe.handler({"site": "https://www.netflix.com/signup",
+                                                            "identifiant": "ines@mail.fr"})))
+secret = trousseau.get(("netflix.com", "ines@mail.fr"), "")
+verifier("créer : rangé dans le Trousseau sous le domaine", len(secret), config.MOT_DE_PASSE_LONGUEUR)
+verifier("créer : mis dans le presse-papiers", presse_papiers[-1:], [secret])
+verifier("créer : Claude ne le voit jamais", secret in dit, False)
+verifier("créer : il sait coller et se taire", ("cmd+v" in dit, "voix haute" in dit), (True, True))
+verifier("registre : le compte est noté, sans mot de passe",
+         (comptes.comptes()[0]["site"], comptes.comptes()[0]["identifiant"], secret in comptes.REGISTRE.read_text()),
+         ("netflix.com", "ines@mail.fr", False))
+asyncio.run(comptes.creer_mot_de_passe.handler({"site": "netflix.com", "identifiant": "ines@mail.fr"}))
+verifier("registre : recréé → une seule ligne dans la liste", len(comptes.comptes()), 1)
+secret = trousseau[("netflix.com", "ines@mail.fr")]  # recréé : le nouveau remplace l'ancien
+verifier("créer : site invalide → erreur, rien de rangé",
+         (asyncio.run(comptes.creer_mot_de_passe.handler({"site": "netflix", "identifiant": "a"})).get("is_error"),
+          len(trousseau)), (True, 1))
+
+
+async def trousseau_ferme(site, qui, secret):
+    return "trousseau verrouillé"
+
+
+comptes.ranger = trousseau_ferme
+r = asyncio.run(comptes.creer_mot_de_passe.handler({"site": "canva.com", "identifiant": "ines@mail.fr"}))
+verifier("créer : Trousseau en panne → il ne crée pas le compte",
+         (r.get("is_error"), "ne crée pas le compte" in texte(r), len(comptes.comptes())), (True, True, 1))
+comptes.ranger = faux_ranger
+
+presse_papiers.clear()
+dit = texte(asyncio.run(comptes.copier_mot_de_passe.handler({"site": "www.netflix.com"})))
+verifier("copier : le bon mot de passe va au presse-papiers, pas à Claude",
+         (presse_papiers, secret in dit), ([secret], False))
+verifier("copier : site inconnu → il te demande de te connecter",
+         "connecter lui-même" in texte(asyncio.run(comptes.copier_mot_de_passe.handler({"site": "inconnu.fr"}))), True)
+verifier("lister : site et identifiant", texte(asyncio.run(comptes.lister_comptes.handler({}))).startswith(
+    "- netflix.com : ines@mail.fr"), True)
+comptes.ranger, comptes.retrouver, comptes.copier = vrais
+
+# Le vrai rangement : le secret part par l'entrée standard de `security`, jamais dans sa ligne de commande.
+appels: list[tuple[tuple, str | None]] = []
+
+
+async def faux_lancer(*cmd, entree=None, delai=15):
+    appels.append((cmd, entree))
+    return (0, presse_papiers[-1]) if cmd == ("pbpaste",) else (0, "")
+
+
+vrai_lancer, comptes._lancer = comptes._lancer, faux_lancer
+asyncio.run(comptes.ranger("netflix.com", "ines@mail.fr", "Secret-123"))
+verifier("trousseau : par l'entrée standard, pas en argument",
+         (appels[0][0], "Secret-123" not in " ".join(appels[0][0]), '-w "Secret-123"' in appels[0][1],
+          '-s "netflix.com"' in appels[0][1]), (("security", "-i"), True, True, True))
+
+# Le presse-papiers se vide tout seul, mais seulement si le mot de passe y est encore.
+appels.clear()
+presse_papiers[:] = ["Secret-123"]
+ancien, config.PRESSE_PAPIERS_S = config.PRESSE_PAPIERS_S, 0.05
+
+
+async def coller_puis_attendre():
+    await comptes.copier("Secret-123")
+    await asyncio.sleep(0.3)
+
+
+asyncio.run(coller_puis_attendre())
+verifier("presse-papiers : vidé après le délai", [(c, e) for c, e in appels if c[0] == "pbcopy"],
+         [(("pbcopy",), "Secret-123"), (("pbcopy",), "")])
+appels.clear()
+presse_papiers[:] = ["autre chose copié depuis"]
+asyncio.run(coller_puis_attendre())
+verifier("presse-papiers : il ne vide pas ce que tu as copié entre-temps",
+         [e for c, e in appels if c[0] == "pbcopy"], ["Secret-123"])
+config.PRESSE_PAPIERS_S = ancien
+comptes._lancer = vrai_lancer
+
+# --- Les codes reçus par SMS ---------------------------------------------------------------------------------
+verifier("code : « Votre code G-482913 »", comptes.code_dans("Votre code de vérification G-482913"), "482913")
+verifier("code : en anglais", comptes.code_dans("Your Instagram code is 123456. Don't share it."), "123456")
+verifier("code : un message sans code → rien", comptes.code_dans("On se voit à 1930 ?"), None)
+verifier("code : un montant n'est pas un code", comptes.code_dans("Code promo : 2500 € offerts"), None)
+verifier("code : ni un prix à virgule", comptes.code_dans("Code commande : total 1250,50"), None)
+
+
+def corps_archive(t: str) -> bytes:
+    """Ce que range Messages dans attributedBody (un NSAttributedString archivé), réduit à l'essentiel."""
+    b = t.encode()
+    taille = bytes([len(b)]) if len(b) < 0x81 else b"\x81" + len(b).to_bytes(2, "little")
+    return b"\x04\x0bstreamtyped\x81\xe8\x03\x84\x01@\x84\x84\x84\x12NSAttributedString\x00\x84\x84\x08NSObject" \
+           b"\x00\x85\x92\x84\x84\x84\x08NSString\x01\x94\x84\x01+" + taille + b + b"\x86\x84\x02iI\x01"
+
+
+verifier("message : le texte rangé dans attributedBody", comptes.texte_message(None, corps_archive("Code : 774411")),
+         "Code : 774411")
+long = "Votre code de connexion est 908172. " + "x" * 200
+verifier("message : un long texte (taille sur deux octets)", comptes.texte_message(None, corps_archive(long)), long)
+verifier("message : la colonne text d'abord", comptes.texte_message("code 1111", b"rien"), "code 1111")
+
+base = TMP / "chat.db"
+lien = sqlite3.connect(base)
+lien.executescript("CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);"
+                   "CREATE TABLE message (ROWID INTEGER PRIMARY KEY, text TEXT, attributedBody BLOB, date INTEGER, "
+                   "is_from_me INTEGER, handle_id INTEGER);"
+                   "INSERT INTO handle VALUES (1, '38100'), (2, '+33612345678');")
+
+
+def date_apple(il_y_a_s: float) -> int:
+    return int((time.time() - il_y_a_s - comptes._EPOQUE_APPLE) * 1e9)
+
+
+lien.executemany("INSERT INTO message (text, attributedBody, date, is_from_me, handle_id) VALUES (?, ?, ?, ?, ?)", [
+    (None, corps_archive("Votre code Netflix : 552019"), date_apple(60), 0, 1),
+    ("Ton code c'est 123456 lol", None, date_apple(30), 1, 2),             # envoyé par toi : ignoré
+    ("Code de vérification : 000111", None, date_apple(3600), 0, 1),        # trop vieux
+    ("On mange où ?", None, date_apple(10), 0, 2),
+])
+lien.commit()
+lien.close()
+verifier("sms : le code récent, son expéditeur", [(c, q) for c, q, _ in comptes.codes_recus(10, base)], [("552019", "38100")])
+verifier("sms : il y a combien de temps", 50 <= comptes.codes_recus(10, base)[0][2] <= 75, True)
+verifier("sms : base inaccessible → il dit quelle autorisation donner",
+         "Accès complet au disque" in comptes.codes_recus(10, TMP / "absente" / "chat.db"), True)
+comptes.CHAT_DB = base
+dit = texte(asyncio.run(comptes.chercher_code_recu.handler({"minutes": 10})))
+verifier("sms : l'outil ne rend que le code, pas le message", ("552019" in dit, "Netflix" in dit), (True, False))
+
+# --- Ta fiche ------------------------------------------------------------------------------------------------
+fiche = comptes.preparer_fiche()
+verifier("fiche : créée avec ses rubriques", ("- Prénom :" in fiche.read_text(), fiche.parent == config.DOCUMENTS),
+         (True, True))
+fiche.write_text("- Prénom : Inès\n")
+comptes.preparer_fiche()
+verifier("fiche : jamais écrasée", fiche.read_text(), "- Prénom : Inès\n")
+verifier("fiche : elle est dans ses documents (et donc pas sur GitHub)",
+         any("fiche.md" in l for l in outils.lister_documents()), True)
+verifier("fiche : pas de carte ni de mot de passe dedans", "Pas de numéro de carte" in comptes.FICHE_MODELE, True)
+
+# --- Ce qu'il demande avant ----------------------------------------------------------------------------------
+J = "mcp__jervis__"
+for mode in ("confiance", "essentielles", "toutes"):
+    verifier(f"{mode} : créer un compte, demandé",
+             politique(J + "creer_mot_de_passe", {"site": "netflix.com"}, mode=mode), Decision.DEMANDER)
+    verifier(f"{mode} : sortir un mot de passe, demandé", politique(J + "copier_mot_de_passe", {}, mode=mode),
+             Decision.DEMANDER)
+    verifier(f"{mode} : lire un code SMS, demandé", politique(J + "chercher_code_recu", {}, mode=mode), Decision.DEMANDER)
+    verifier(f"{mode} : lister les comptes, seul", politique(J + "lister_comptes", {}, mode=mode), Decision.OUI)
+verifier("question : tu entends le site et l'identifiant",
+         decrire(J + "creer_mot_de_passe", {"site": "netflix.com", "identifiant": "ines@mail.fr"}),
+         "Je crée ton compte sur netflix.com avec ines@mail.fr, et je range son mot de passe dans ton trousseau. Je peux ?")
+verifier("question : sortir un mot de passe",
+         decrire(J + "copier_mot_de_passe", {"site": "netflix.com"}),
+         "Je sors ton mot de passe de netflix.com du trousseau pour me connecter. Je peux ?")
+verifier("question : le code SMS", decrire(J + "chercher_code_recu", {}),
+         "Je regarde le code que tu viens de recevoir par SMS. Je peux ?")
+verifier("dehors : un SMS peut contenir un piège ; « c'est rangé » non",
+         (lit_dehors(J + "chercher_code_recu"), lit_dehors(J + "creer_mot_de_passe"), lit_dehors(J + "lister_comptes")),
+         (True, False, False))
+verifier("lecture : chercher un code et lister, oui ; créer, non",
+         (est_lecture(J + "chercher_code_recu"), est_lecture(J + "lister_comptes"), est_lecture(J + "creer_mot_de_passe")),
+         (True, True, False))
+
+# --- Ses consignes -------------------------------------------------------------------------------------------
+c = brain._consignes(ecran=False)
+verifier("consignes : il sait créer un compte avec ta fiche", ("creer_mot_de_passe" in c, str(config.FICHE) in c),
+         (True, True))
+verifier("consignes : CAPTCHA → c'est toi", "ne le contourne jamais" in c, True)
+verifier("consignes : payer → demander_accord avec le montant, carte jamais dans un fichier",
+         ("montant exact" in c, "jamais dans un fichier" in c), (True, True))
+verifier("consignes : plus de « jamais de mot de passe » qui bloquerait l'inscription",
+         "Tu ne tapes jamais\nde mot de passe" in c, False)
+verifier("consignes : aucun repère oublié", "{comptes}" in c or "{fiche}" in c, False)
+verifier("outils : les quatre sont à lui", {"creer_mot_de_passe", "copier_mot_de_passe", "lister_comptes",
+                                            "chercher_code_recu"} <= {t.name for t in outils.OUTILS}, True)
+
+print(f"\n{'✅' if not echecs else '❌'} comptes : {total - len(echecs)}/{total} vérifications OK", flush=True)
+os._exit(0 if not echecs else 1)

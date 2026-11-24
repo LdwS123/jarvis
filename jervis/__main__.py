@@ -1007,7 +1007,7 @@ def mode_barre() -> None:
     import rumps
     from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 
-    from . import fond, lecons, outils, tableau
+    from . import comptes, fond, lecons, outils, tableau
 
     etat = Etat()
 
@@ -1073,6 +1073,7 @@ def mode_barre() -> None:
         rumps.MenuItem("Ce qu'il a appris (son carnet)", callback=lambda _: ouvrir(lecons.preparer())),
         rumps.MenuItem("Mes documents (CV, papiers…)", callback=lambda _: (
             config.DOCUMENTS.mkdir(parents=True, exist_ok=True), subprocess.Popen(["open", str(config.DOCUMENTS)]))),
+        rumps.MenuItem("Ma fiche (pour les inscriptions)", callback=lambda _: ouvrir(comptes.preparer_fiche())),
         rumps.MenuItem("Voir le journal technique", callback=lambda _: ouvrir(config.DOSSIER / "jervis.log")),
         rumps.MenuItem("Autorisations…", callback=lambda _: subprocess.Popen(
             ["open", str(config.DOSSIER / "outils" / "autorisations.command")])),  # le guide, dans le Terminal

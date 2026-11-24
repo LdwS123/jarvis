@@ -124,6 +124,12 @@ BRIEFING_HEURE = _env("BRIEFING_HEURE", "07:30")
 # un formulaire). Ils restent sur le Mac ; seul le passage qu'il lit part chez Claude, comme un fichier ouvert.
 DOCUMENTS = Path(_env("DOCUMENTS", str(DOSSIER / "documents"))).expanduser()
 DOCUMENTS_VUS = int(_env("DOCUMENTS_VUS", "30"))   # combien il en liste dans ses consignes, les plus récents d'abord
+# Créer des comptes à ta place (comptes.py) : tes infos sont dans documents/fiche.md ; chaque mot de passe est
+# tiré au hasard, rangé dans ton Trousseau macOS et passe par le presse-papiers, jamais par Claude.
+FICHE = DOCUMENTS / "fiche.md"
+PRESSE_PAPIERS_S = int(_env("PRESSE_PAPIERS_S", "90"))   # après ce délai, le mot de passe quitte le presse-papiers
+MOT_DE_PASSE_LONGUEUR = int(_env("MOT_DE_PASSE_LONGUEUR", "20"))
+CODE_SMS_MINUTES = int(_env("CODE_SMS_MINUTES", "10"))   # jusqu'où il remonte pour trouver un code reçu par SMS
 
 FICHIER_BRIEFING = DOSSIER / "briefing.md"
 PRESENT_S = float(_env("PRESENT_S", "120"))   # tu es « devant le Mac » si tu as touché clavier ou souris depuis ça

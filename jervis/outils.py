@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import compteur, config, graphe, lecons
+from . import comptes, compteur, config, graphe, lecons
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -957,6 +957,7 @@ async def tableau_de_bord(_args: dict[str, Any]) -> dict[str, Any]:
 OUTILS.append(tableau_de_bord)
 OUTILS.extend([mettre_a_la_corbeille, effacer_memoire, memoire_du_mac, verifier_autorisations])
 OUTILS.append(lecons.outil_noter_lecon)  # son carnet de leçons (lecons.py)
+OUTILS.extend(comptes.OUTILS_COMPTES)  # créer des comptes à ta place (comptes.py)
 if graphe.ACTIF:
     OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)
 

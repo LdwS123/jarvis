@@ -247,6 +247,8 @@ Ce qu'il faut savoir :
 | « Dans Notes, crée une liste de courses avec du pain et du lait » | il pilote l'app elle-même : il regarde ses boutons, clique et tape, **en arrière-plan** (ta souris et ton clavier restent à toi). Marche avec Finder, Spotify, Pages, Réglages… |
 | « Trouve mon CV dans le Drive et résume-le » | il cherche dans ton Google Drive et lit le document |
 | « Garde mon CV » (avec le chemin du fichier), puis « aide-moi à postuler chez Mistral » | il le copie dans ses documents (`documents/`) et s'en sert ensuite tout seul : candidature, formulaire, lettre (voir plus bas) |
+| « Inscris-moi sur Canva avec mon adresse perso » | il prend tes infos dans ta fiche (`documents/fiche.md`), remplit le formulaire, **tire un mot de passe solide sur le Mac, le range dans ton Trousseau et le colle sans jamais le voir**, puis va chercher le code de vérification dans Gmail ou dans tes SMS. Il te demande « Je crée ton compte sur canva.com avec … ? » avant, et te passe la main pour un CAPTCHA (voir plus bas) |
+| « Connecte-toi à mon compte Canva » | pour un compte qu'il a créé, il ressort le mot de passe du Trousseau et le colle (« Je sors ton mot de passe de canva.com… ? ») ; « quels comptes tu m'as créés ? » |
 | « Ajoute ça à ma page Notion "Idées" » | avec Notion branché sur claude.ai, il cherche la page, la lit et l'écrit directement (sans Zapier) |
 | « Ajoute une carte "Facture EDF" dans mon Trello » | il passe par Zapier, qui relie des milliers d'apps (Notion, Slack, Trello, Sheets…). Les actions s'activent sur zapier.com |
 | « Mets un prompt dans Claude Code sur Jervis pour ajouter un mode silencieux » | il lit d'abord ton code, **rédige lui-même un vrai prompt** (contexte, fichiers, contraintes, comment vérifier), le colle dans **l'onglet Claude Code déjà ouvert** dans Cursor (palette de commandes → « Claude Code: Focus input », puis cmd+v) et appuie sur Entrée. Un nouvel onglet ou une nouvelle fenêtre Claude Code seulement si tu le demandes (« dans un nouvel onglet Claude Code », « dans une nouvelle fenêtre »). Le prompt passe par le presse-papiers. « Écris-le sans l'envoyer » : il le laisse dans le champ. « Dans l'agent de Cursor » (ou « Composer ») : il le met dans le chat de Cursor, qui te montre toujours une fenêtre de confirmation. Si tu dis juste « dans Cursor », c'est `JERVIS_CURSOR_CIBLE` qui décide. Pour un nouvel onglet ou l'agent, la première fois, Cursor peut demander « Ouvrir ce lien ? » : coche « ne plus demander » |
@@ -299,6 +301,49 @@ celui qui sert quand c'est utile : « aide-moi à remplir cette candidature », 
 - Envoyer un de ces fichiers sur un site (déposer ton CV dans un formulaire) te demande toujours « Je peux ? ».
 - Le dossier n'est pas suivi par git : tes papiers ne partent pas sur GitHub. Mettre un vieux CV à la corbeille se
   fait comme pour tes autres fichiers.
+
+### Créer des comptes à ta place
+
+« Inscris-moi sur Canva », « crée-moi un compte Doctolib », « ouvre un compte Vinted avec mon adresse Gmail » : il le
+fait de bout en bout, dans son Chrome ou dans le tien.
+
+1. **Ta fiche.** Menu de Steve → « Ma fiche (pour les inscriptions) » ouvre `documents/fiche.md` : prénom, nom, date
+   de naissance, adresse mail et téléphone à utiliser, adresse postale, pseudo. Remplis ce que tu veux : ce qui
+   manque, il te le demande. Comme tes autres documents, elle reste sur le Mac (pas sur GitHub).
+2. **Le mot de passe, Claude ne le voit jamais.** Il est tiré au hasard sur ton Mac (`secrets`, 20 caractères),
+   rangé dans ton **Trousseau macOS** au nom du site (app Mots de passe ou Trousseau d'accès → cherche « Steve »),
+   puis mis dans le presse-papiers le temps qu'il le colle (cmd+v). Il quitte le presse-papiers au bout de 90
+   secondes, sauf si tu as copié autre chose entre-temps. Steve ne reçoit que « c'est rangé » : rien ne part chez
+   Claude, rien n'est dit à voix haute, rien n'est écrit dans ses conversations. La liste des comptes créés
+   (`espace/comptes.jsonl`) n'a que le site, l'identifiant et la date.
+3. **Le code de vérification.** Par mail : il le lit dans Gmail. Par SMS : `chercher_code_recu` le lit dans
+   Messages, sur le Mac, et ne rend que le code. Pour ça : sur l'iPhone, Réglages → Apps → Messages → **Transfert
+   de SMS** → ton Mac, et sur le Mac, **Accès complet au disque** pour Jervis (Réglages → Confidentialité et
+   sécurité).
+4. **Ce qui reste à toi.** Il te demande « Je peux ? » en te disant le site exact (« canva.com », pas
+   « canva-connexion.xyz ») avant de créer le compte, avant de sortir un mot de passe du Trousseau et avant de lire
+   un SMS : une page piégée ne peut pas lui faire voler un de tes comptes en le réinitialisant. Un **CAPTCHA** (« je
+   ne suis pas un robot », images à cocher), c'est toi : il ne le contourne jamais, il te le dit et reprend ensuite.
+
+**Payer** (un abonnement à l'inscription, une commande) : ta carte n'est jamais dans un fichier ni dans ses
+messages. Range-la une fois dans Chrome (Paramètres → Saisie automatique → Modes de paiement) : dans **ton Chrome**
+(voir « Ton Chrome à toi »), le remplissage automatique la propose, il te demande « Je paie 12,99 € à Canva, je
+peux ? » avant le bouton, et la validation de ta banque (3-D Secure) reste dans ton app bancaire. Pour aller plus
+loin : une **carte virtuelle** (Revolut, ta banque) que tu peux bloquer à tout moment.
+
+Pour tes comptes existants (ceux qu'il n'a pas créés) : il te demande de te connecter, ou laisse ton gestionnaire
+de mots de passe remplir la page. **1Password for Claude** (1password.com/blog/1password-for-claude) fait
+exactement ça avec l'extension Claude in Chrome : il remplit après ton Touch ID, sans que Claude voie le mot de passe.
+
+<details><summary>Pourquoi pas browser-use, Skyvern ou Stagehand ?</summary>
+
+Ces projets GitHub font un agent navigateur complet, avec sa propre boucle d'IA. Steve a déjà Claude pour réfléchir,
+et deux navigateurs pour agir (le sien via Playwright, le tien via Claude in Chrome) : en ajouter un troisième
+doublerait les coûts et les pannes. Ce qu'ils apportent vraiment, c'est de **ne jamais montrer les mots de passe au
+modèle** (browser-use `sensitive_data`, Skyvern et ses coffres Bitwarden/1Password, Stagehand qui remplit par le
+code) : c'est ce que font le Trousseau et le presse-papiers ici. Skyvern (AGPL, serveur + Postgres) vaut le coup si
+tu veux un jour confier des centaines d'inscriptions d'un coup ; pour ton usage, Steve suffit.
+</details>
 
 ### Notion, branché directement
 
@@ -378,6 +423,7 @@ redemander, et il en prend la responsabilité. Il ne demande « Je peux ? » que
 | Ce qui reste confirmé | Exemples |
 |---|---|
 | L'argent | payer, acheter, commander, réserver ou s'abonner (Steve ne paie jamais lui-même) |
+| Tes comptes | créer un compte (il te dit le site et l'identifiant), sortir un mot de passe du Trousseau, lire un code reçu par SMS |
 | Ce qui détruit pour de bon | `kill`, `git push`, vider la corbeille, supprimer un rendez-vous ou un brouillon, un menu « Supprimer » ou « Vider » (mettre à la corbeille se rattrape : il le fait seul, y compris pour sa propre mémoire) |
 | Ce qui part chez tout le monde | publier, partager un fichier « à tous ceux qui ont le lien » |
 | Les secrets et le système | lire, écrire ou jeter `.ssh`, `.env`, clés, trousseau, 1Password, toucher au Terminal, lancer du code dans ton Chrome connecté |
@@ -550,6 +596,9 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_CONNECTEURS_FACULTATIFS` | Notion | connecteurs claude.ai gardés s'ils sont branchés, sans les attendre au démarrage |
 | `JERVIS_DOCUMENTS` | `documents/` | le dossier de tes documents (CV, papiers) qu'il connaît et lit quand ça sert |
 | `JERVIS_DOCUMENTS_VUS` | 30 | combien de documents il liste dans ses consignes (les plus récents d'abord) |
+| `JERVIS_PRESSE_PAPIERS_S` | 90 | au bout de combien de secondes un mot de passe qu'il a collé quitte le presse-papiers |
+| `JERVIS_MOT_DE_PASSE_LONGUEUR` | 20 | la longueur des mots de passe qu'il crée (de 12 à 64 ; il s'adapte si un site impose moins) |
+| `JERVIS_CODE_SMS_MINUTES` | 10 | jusqu'où il remonte dans tes SMS pour trouver un code de vérification |
 | `JERVIS_CONNECTEURS_FOND_S` | 10 | le temps qu'un agent attend ses connecteurs (Gmail, Agenda…) avant de démarrer sans eux |
 | `JERVIS_MEMOIRE_AUTO` | oui | `non` = il ne retient que ce que tu lui demandes |
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
@@ -597,6 +646,7 @@ Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests
 Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tests/test_bras_droit.py`.
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
+Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -613,6 +663,9 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents
   (`documents/`) : seule leur liste est dans ses consignes, et il n'en lit un que quand ta demande le demande.
+- Les mots de passe qu'il crée ne partent jamais chez Claude : tirés et rangés sur le Mac (Trousseau), ils passent
+  par le presse-papiers 90 secondes au plus. Si tu as un historique du presse-papiers (Raycast, Paste, Maccy),
+  exclus-en Jervis ou les mots de passe. D'un SMS, seul le code (et l'expéditeur) part chez Claude, pas le message.
 - Sa voix est fabriquée sur le Mac : le texte de ses réponses ne part nulle part pour être lu. Si elle rate une
   phrase ou ne se charge pas, cette phrase-là passe par le service de synthèse de Microsoft Edge ; c'est aussi le cas
   de toutes ses phrases si tu choisis Rémy. Mets `JERVIS_VOIX_NEURONALE=non` pour que rien n'y parte jamais.

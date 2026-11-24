@@ -574,6 +574,8 @@ async def tester_ronde():
         verifier("ronde : coupée par JERVIS_INITIATIVE=non", prog.ronde_due(dix), False)
         config.INITIATIVE = True
 
+        # _initiative regarde l'heure qu'il est vraiment : le test ne doit pas dépendre de l'heure où on le lance.
+        config.INITIATIVE_DEBUT, config.INITIATIVE_FIN = "00:00", "24:00"
         present["oui"] = False
         await prog._initiative()
         verifier("ronde : pas devant le Mac, il ne lance rien", taches.lancees, [])

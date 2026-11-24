@@ -98,7 +98,7 @@ def nom_action(outil: str) -> str:
 def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> Decision:
     action = nom_action(outil)
     if outil.startswith("mcp__jervis__"):  # iMessage : envoyé direct ; demander_accord : c'est lui qui veut demander
-        return _maison(action, entree, {"demander_accord"})
+        return _maison(action, entree, {"demander_accord", *COMPTES_A_CONFIRMER})
     if outil.startswith(CHROME_PERSO):  # du code dans ton Chrome connecté (banque, mails…) : toujours demandé
         return _chrome_perso(action, entree)
     if outil.startswith("mcp__navigateur__"):
@@ -331,7 +331,12 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
 
 # Outils maison confirmés hors du mode « confiance » : ceux qui parlent à quelqu'un d'autre que toi, et ceux
 # qui effacent (la corbeille se rattrape, donc en mode « confiance » ils passent sans question).
-JERVIS_A_CONFIRMER = {"envoyer_imessage", "demander_accord", "mettre_a_la_corbeille", "effacer_memoire"}
+# Créer un compte, sortir un mot de passe du Trousseau, lire un code reçu par SMS : demandé dans tous les modes. Tu
+# entends le site exact (« netflix.com », pas « netflix-connexion.xyz »), et un code ne part pas sur la demande d'une
+# page piégée qui essaierait de te voler un compte en le réinitialisant.
+COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu"}
+JERVIS_A_CONFIRMER = {"envoyer_imessage", "demander_accord", "mettre_a_la_corbeille", "effacer_memoire",
+                      *COMPTES_A_CONFIRMER}
 
 
 def chemins_a_jeter(entree: dict[str, Any]) -> list[str]:
@@ -594,6 +599,13 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         return f"Je confie à un agent « {entree.get('titre') or ''} » : {entree.get('brief') or ''}. Je peux ?"
     if action == "demander_accord":
         return f"{entree.get('action', 'Je continue').strip().rstrip('.')}. Je peux ?"
+    if action == "creer_mot_de_passe":
+        return (f"Je crée ton compte sur {entree.get('site') or 'ce site'} avec {entree.get('identifiant') or 'ton adresse'}, "
+                "et je range son mot de passe dans ton trousseau. Je peux ?")
+    if action == "copier_mot_de_passe":
+        return f"Je sors ton mot de passe de {entree.get('site') or 'ce site'} du trousseau pour me connecter. Je peux ?"
+    if action == "chercher_code_recu":
+        return "Je regarde le code que tu viens de recevoir par SMS. Je peux ?"
     if outil.startswith("mcp__mac__"):
         return _decrire_mac(action, entree, set(apps))
     if outil.startswith(CHROME_PERSO):
@@ -689,7 +701,9 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        r"mettre_a_la_corbeille|verifier_autorisations|memoire_du_mac|depenses|tableau_de_bord|"
                        r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme|"
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
-                       r"chercher_liens)"
+                       r"chercher_liens|"
+                       # Les comptes : « c'est rangé », et la liste qu'il a écrite lui-même (jamais un mot de passe).
+                       r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
 # Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre
