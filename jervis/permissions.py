@@ -692,18 +692,22 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
     return ""
 
 
-# Lire le presse-papiers : pbpaste, AppleScript « the clipboard », un outil « clipboard », du code dans une page.
-# Refusé tant qu'un mot de passe de comptes.py peut y être : il le colle, il ne le voit pas.
-_PRESSE_PAPIERS = re.compile(r"pbpaste|clipboard|pasteboard", re.IGNORECASE)
+# Tant qu'un mot de passe de comptes.py peut être dans le presse-papiers, il le colle et ne le lit pas : pas de
+# commande ni de code (un pbpaste se déguise trop bien pour qu'on le repère au texte), pas d'outil « clipboard ».
+# Cela dure au plus PRESSE_PAPIERS_S, et quinze secondes après le dernier collage (cmd+v).
+_CODE = ("browser_evaluate", "browser_run_code", "javascript_tool", "run_script", "applescript")
+_COLLER = re.compile(r"\b(meta|cmd|command|control|ctrl)\s*\+\s*v\b", re.IGNORECASE)
 
 
 def lit_le_presse_papiers(outil: str, entree: dict[str, Any]) -> bool:
     action = nom_action(outil)
-    if "clipboard" in outil.lower():
-        return True
-    if outil == "Bash" or action.startswith(("browser_evaluate", "browser_run_code")) or action == "javascript_tool":
-        return bool(_PRESSE_PAPIERS.search(str(entree)))
-    return False
+    return outil == "Bash" or "clipboard" in outil.lower() or "pasteboard" in outil.lower() \
+        or action.startswith(_CODE)
+
+
+def colle(outil: str, entree: dict[str, Any]) -> bool:
+    return any(m in nom_action(outil) for m in ("press_key", "key", "hotkey", "computer")) \
+        and bool(_COLLER.search(str(entree)))
 
 
 # Les outils qui ne font que lire (chercher, lister, lire) : seuls permis à sa ronde, libres même quand il se méfie.
@@ -800,9 +804,13 @@ class Gardien:
         self._apps_vues.add(nom_app(entree.get("app_target")))
 
     async def __call__(self, outil: str, entree: dict[str, Any], _ctx: ToolPermissionContext):
-        if comptes.secret_au_presse_papiers() and lit_le_presse_papiers(outil, entree):
-            return PermissionResultDeny(message="Un mot de passe est dans le presse-papiers : tu ne le lis pas, tu le "
-                                                "colles seulement (cmd+v) dans le champ. Réessaie dans deux minutes.")
+        if comptes.secret_au_presse_papiers():
+            if lit_le_presse_papiers(outil, entree):
+                return PermissionResultDeny(message="Un mot de passe est dans le presse-papiers : pas de commande ni de "
+                                                    "code tant qu'il y est. Colle-le (cmd+v) dans le champ mot de passe "
+                                                    "(et sa confirmation) : ça se rouvre peu après.")
+            if colle(outil, entree):
+                comptes.apres_collage()
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)

@@ -175,7 +175,7 @@ presse_papiers[:] = ["autre chose copié depuis"]
 asyncio.run(coller_puis_attendre())
 verifier("presse-papiers : il ne vide pas ce que tu as copié entre-temps",
          [e for c, e in appels if c[0] == "pbcopy"], ["Secret-123"])
-verifier("presse-papiers : fermé à la lecture le temps du collage", comptes.secret_au_presse_papiers(), True)
+verifier("presse-papiers : vidé → rouvert", comptes.secret_au_presse_papiers(), False)
 
 
 class FauxContexte:
@@ -186,24 +186,41 @@ async def jamais(_question):
     raise AssertionError("il n'aurait pas dû demander")
 
 
-def lu(outil, entree):
-    r = asyncio.run(Gardien(jamais)(outil, entree, FauxContexte()))
-    return type(r).__name__
+async def gardien_pendant_le_collage():
+    g = Gardien(jamais)
+
+    async def lu(outil, entree):
+        return type(await g(outil, entree, FauxContexte())).__name__
+
+    config.PRESSE_PAPIERS_S = 30
+    presse_papiers[:] = ["Secret-123"]
+    await comptes.copier("Secret-123")
+    vu = {"ouvert": comptes.secret_au_presse_papiers()}
+    for nom, outil, entree in [
+            ("pbpaste", "Bash", {"command": "pbpaste"}),
+            ("une commande déguisée", "Bash", {"command": "$(echo cGJwYXN0ZQ== | base64 -D)"}),
+            ("un simple ls", "Bash", {"command": "ls"}),
+            ("un outil clipboard", "mcp__mac__clipboard", {"action": "get"}),
+            ("du code dans la page", "mcp__navigateur__browser_evaluate", {"function": "() => 1"}),
+            ("du code dans Chrome", "mcp__claude-in-chrome__javascript_tool", {"text": "1"})]:
+        vu[nom] = await lu(outil, entree)
+    vu["coller"] = await lu("mcp__navigateur__browser_press_key", {"key": "Meta+v"})
+    vu["encore fermé juste après"] = comptes.secret_au_presse_papiers()
+    await asyncio.sleep(comptes.COLLAGE_S + 0.3)
+    vu["rouvert après le collage"] = comptes.secret_au_presse_papiers()
+    vu["vidé"] = [e for c, e in appels if c[0] == "pbcopy"][-1]
+    vu["pbpaste ensuite"] = await lu("Bash", {"command": "pbpaste"})
+    return vu
 
 
-verifier("gardien : pbpaste refusé tant que le mot de passe y est", lu("Bash", {"command": "pbpaste"}),
-         "PermissionResultDeny")
-verifier("gardien : AppleScript « the clipboard » refusé",
-         lu("Bash", {"command": "osascript -e 'get the clipboard'"}), "PermissionResultDeny")
-verifier("gardien : un outil « clipboard » refusé", lu("mcp__mac__clipboard", {"action": "get"}), "PermissionResultDeny")
-verifier("gardien : du code dans la page qui lit le presse-papiers, refusé",
-         lu("mcp__navigateur__browser_evaluate", {"function": "() => navigator.clipboard.readText()"}),
-         "PermissionResultDeny")
-verifier("gardien : coller avec cmd+v, permis", lu("mcp__navigateur__browser_press_key", {"key": "Meta+v"}),
-         "PermissionResultAllow")
-comptes._copie_jusqua = 0.0
-verifier("presse-papiers : après le délai, rouvert", comptes.secret_au_presse_papiers(), False)
-verifier("gardien : pbpaste ensuite, permis", lu("Bash", {"command": "pbpaste"}), "PermissionResultAllow")
+appels.clear()
+comptes.COLLAGE_S = 0.1
+D, A = "PermissionResultDeny", "PermissionResultAllow"
+verifier("gardien : tant que le mot de passe y est, ni commande ni code ; coller, oui ; puis tout se rouvre",
+         asyncio.run(gardien_pendant_le_collage()),
+         {"ouvert": True, "pbpaste": D, "une commande déguisée": D, "un simple ls": D, "un outil clipboard": D,
+          "du code dans la page": D, "du code dans Chrome": D, "coller": A, "encore fermé juste après": True,
+          "rouvert après le collage": False, "vidé": "", "pbpaste ensuite": A})
 config.PRESSE_PAPIERS_S = ancien
 comptes._lancer = vrai_lancer
 

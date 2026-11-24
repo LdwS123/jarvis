@@ -159,31 +159,49 @@ async def retrouver(site: str, identifiant: str) -> str | None:
 
 
 _minuteur: asyncio.TimerHandle | None = None
-_copie_jusqua = 0.0   # tant qu'un mot de passe peut être dans le presse-papiers, personne ne le lit (permissions.py)
+_copie_jusqua = 0.0   # tant qu'un mot de passe peut être dans le presse-papiers, rien ne le lit (permissions.py)
+_secret: str | None = None
+COLLAGE_S = 15.0      # une fois collé, il part vite : le temps de coller aussi dans le champ de confirmation
 
 
 def secret_au_presse_papiers() -> bool:
     return time.monotonic() < _copie_jusqua
 
 
+def _vider_dans(delai: float) -> None:
+    global _minuteur, _copie_jusqua
+    if _minuteur:
+        _minuteur.cancel()
+    _copie_jusqua = time.monotonic() + delai + 5
+    secret = _secret
+    _minuteur = asyncio.get_running_loop().call_later(delai, lambda: asyncio.ensure_future(_vider_si(secret)))
+
+
 async def copier(secret: str) -> str | None:
     """Met le secret dans le presse-papiers, et l'en retire après PRESSE_PAPIERS_S secondes s'il y est encore."""
-    global _minuteur, _copie_jusqua
-    _copie_jusqua = time.monotonic() + config.PRESSE_PAPIERS_S + 5
+    global _secret, _copie_jusqua
+    _copie_jusqua = time.monotonic() + config.PRESSE_PAPIERS_S + 5   # fermé avant même d'y être
     code, sortie = await _lancer("pbcopy", entree=secret)
     if code:
         return sortie or "le presse-papiers ne répond pas"
-    if _minuteur:
-        _minuteur.cancel()
-    _minuteur = asyncio.get_running_loop().call_later(
-        config.PRESSE_PAPIERS_S, lambda: asyncio.ensure_future(_vider_si(secret)))
+    _secret = secret
+    _vider_dans(config.PRESSE_PAPIERS_S)
     return None
 
 
-async def _vider_si(secret: str) -> None:
+def apres_collage() -> None:
+    """Il vient de coller (cmd+v) : inutile de l'y laisser 90 secondes, il part COLLAGE_S après le dernier collage."""
+    if _secret is not None and secret_au_presse_papiers():
+        _vider_dans(COLLAGE_S)
+
+
+async def _vider_si(secret: str | None) -> None:
+    global _secret, _copie_jusqua
     code, actuel = await _lancer("pbpaste")
-    if not code and actuel == secret:
+    if not code and secret is not None and actuel == secret:
         await _lancer("pbcopy", entree="")
+    if secret is _secret:   # c'est bien le dernier copié : le presse-papiers est rouvert
+        _secret, _copie_jusqua = None, 0.0
 
 
 # --- Les codes reçus par SMS ------------------------------------------------------------------------------------
@@ -245,7 +263,8 @@ def codes_recus(minutes: int | None = None, base: Path | None = None) -> list[tu
 @tool("creer_mot_de_passe", "Pour créer un compte à sa place : tire un mot de passe solide sur le Mac, le range "
       "dans son Trousseau macOS (au nom du site) et le met dans le presse-papiers. TU NE LE VOIS PAS : tu cliques "
       "dans le champ mot de passe, puis tu colles avec cmd+v (Playwright : browser_press_key « Meta+v » ; son "
-      "Chrome : la touche cmd+v), et pareil dans le champ de confirmation. `site` = le domaine exact de la page "
+      "Chrome : la touche cmd+v), et pareil dans le champ de confirmation ; tant qu'il est dans le presse-papiers, "
+      "pas de Bash ni de code (refusés) : colle d'abord. `site` = le domaine exact de la page "
       "où tu es (netflix.com), `identifiant` = l'adresse mail ou le pseudo du compte. `longueur` (12 à 64) et "
       "`symboles` (false si le site refuse les caractères spéciaux) seulement si le site l'impose.",
       {"type": "object",
@@ -273,7 +292,7 @@ async def creer_mot_de_passe(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool("copier_mot_de_passe", "Pour se reconnecter à un compte que tu as créé (voir lister_comptes) : ressort son "
       "mot de passe du Trousseau et le met dans le presse-papiers, sans que tu le voies (et sans que tu puisses le "
-      "lire : le presse-papiers t'est fermé tant qu'il y est). Colle-le ensuite avec "
+      "lire : tant qu'il y est, pas de Bash ni de code, ils sont refusés). Colle-le aussitôt avec "
       "cmd+v dans le champ, et seulement sur une page dont l'adresse est bien ce site.",
       {"type": "object", "properties": {"site": {"type": "string"}, "identifiant": {"type": "string"}},
        "required": ["site"]})
