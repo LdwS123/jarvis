@@ -336,6 +336,9 @@ async def tester_glisser():
              c.pas_lus(), f"{brain.MARQUE_PAS_LU} non, sur DEV plutôt")
     verifier("pas lue : une seule fois", c.pas_lus(), "")
     verifier("crochet : rien à lire, il ne touche à rien", await crochet(), {})
+    verifier("crochet : la marque porte le code secret de ce lancement",
+             (brain.MARQUE_GLISSE.startswith(f"[voix {brain.JETON_VOIX}]"), len(brain.JETON_VOIX)), (True, 12))
+    verifier("… et seules ses consignes le connaissent", f"[voix {brain.JETON_VOIX}]" in brain._consignes(False), True)
 
 asyncio.run(tester_glisser())
 
