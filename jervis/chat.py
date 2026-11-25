@@ -15,7 +15,7 @@ import asyncio
 import threading
 import time
 from collections import deque
-from typing import Any
+from typing import Any, Callable
 
 from . import config
 
@@ -31,6 +31,9 @@ class Messagerie:
         self._boucle: asyncio.AbstractEventLoop | None = None
         self._arrivees: asyncio.Queue[tuple[int, str]] | None = None
         self._questions: dict[int, asyncio.Future] = {}
+        # Appelé dans la boucle de Steve dès qu'un message arrive, avant la file : un « stop » tapé le fait taire
+        # tout de suite, même s'il est en train de parler ou de finir autre chose. Faux = le message s'arrête là.
+        self.urgence: Callable[[str], bool] | None = None
 
     # --- côté Steve (la boucle asyncio) ---------------------------------------------------------------
 
@@ -116,8 +119,20 @@ class Messagerie:
         if not texte or boucle is None or arrivees is None:
             return False
         n = self.ajouter("toi", texte, fini=False)  # pas encore lu : il finit peut-être autre chose
-        boucle.call_soon_threadsafe(arrivees.put_nowait, (n, texte))
+        boucle.call_soon_threadsafe(self._arrivee, arrivees, n, texte)
         return True
+
+    def _arrivee(self, arrivees: asyncio.Queue, n: int, texte: str) -> None:
+        """Dans la boucle de Steve : l'urgence d'abord (un « stop »), puis la file."""
+        try:
+            suite = self.urgence is None or self.urgence(texte)
+        except Exception:
+            suite = True  # une urgence qui plante ne doit pas perdre ton message
+        if not suite:
+            self.fermer(n)
+            self.ajouter("info", "Arrêté.")
+            return
+        arrivees.put_nowait((n, texte))
 
     def repondre(self, n: int, oui: bool) -> bool:
         """Un clic sur Oui ou Non. Faux si la question n'attend plus."""

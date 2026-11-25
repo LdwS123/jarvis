@@ -43,6 +43,7 @@ class Phrase:
     seuil_voix: float | None = None      # le score qu'il fallait pour être toi (selon sa longueur, le mot-clé)
     voix_stricte: float | None = None    # sa ressemblance avec ta voix principale seule (les « oui » sensibles)
     coupee: bool = False    # arrêtée par la durée maximale : tu parlais encore
+    inconnue: bool = False  # pas ta voix (gardée seulement si on l'a demandé : un « stop » compte quand même)
 
 
 class _Decimateur:
@@ -363,6 +364,7 @@ class Oreilles:
         verifier_voix: bool = True,
         laisser_finir: bool = False,
         quand_tu_parles=None,
+        garder_inconnue: bool = False,
     ) -> Phrase | None:
         """Attend que tu parles, puis enregistre jusqu'à la fin de ta phrase.
         Renvoie None si personne n'a parlé pendant `attente_max` secondes (None = attendre sans fin)
@@ -370,7 +372,9 @@ class Oreilles:
         `veille=True` : écoute aussi le mot-clé (et, en mode motcle, ignore les phrases sans lui).
         `laisser_finir=True` : `arret` n'agit qu'entre deux phrases, jamais au milieu de la tienne.
         `quand_tu_parles(True)` est appelé dès qu'on est sûr que quelqu'un parle (pas un simple bruit),
-        `quand_tu_parles(False)` si ça n'était finalement qu'un bruit."""
+        `quand_tu_parles(False)` si ça n'était finalement qu'un bruit.
+        `garder_inconnue=True` : une voix qui n'est pas la tienne est quand même rendue (marquée `inconnue`) :
+        pendant qu'il parle, sa voix mêlée à la tienne fait baisser ton score, et un « stop » doit passer."""
         if repartir_a_zero:
             self.vider()
         duree_bloc = config.FRAME / config.SAMPLE_RATE
@@ -430,6 +434,9 @@ class Oreilles:
             phrase = Phrase(np.concatenate(morceaux), reveil, parole, silence, coupee=coupee)
             self._signer(phrase)
             if verifier_voix and self._voix_inconnue(phrase):
+                if garder_inconnue:
+                    phrase.inconnue = True
+                    return phrase
                 if quand_tu_parles:
                     quand_tu_parles(False)  # quelqu'un d'autre : on remet le volume
                 continue

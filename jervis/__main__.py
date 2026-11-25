@@ -9,6 +9,7 @@
 import argparse
 import asyncio
 import difflib
+import math
 import re
 import threading
 import time
@@ -70,8 +71,15 @@ DEMANDES_PHRASE = [
 REFUS_VOIX_COURTE = "Je n'arrive pas à reconnaître ta voix sur un oui si court, donc je n'y vais pas."
 
 
-# Ce qui te permet de lui couper la parole (en plus de son nom).
-STOP = re.compile(r"\b(stop|arrête|tais-toi|chut|silence|attends|laisse tomber|ça suffit|c'est bon)\b", re.IGNORECASE)
+# Ce qui te permet de lui couper la parole (en plus de son nom), avec ce que la transcription en fait
+# (« Stoppe », « Arrêtes », « Chuuut »). Les formes longues d'abord : « arrête-toi » ne doit pas laisser « -toi ».
+STOP = re.compile(r"\b(?:stop+(?:pe[sz]?|per)?|ar+[eêè]te[sz]?(?:[- ]toi|[- ]vous)?|tais[- ]toi|taisez[- ]vous"
+                  r"|ferme[- ]la|ta gueule|chu+t+|ch+ut|shh+|silence|attends|laisse tomber|ça suffit|c'est bon)(?!\w)",
+                  re.IGNORECASE)
+# Ce qu'on dit autour d'un « stop » sans rien demander d'autre : « stop stop », « non, arrête, s'il te plaît ».
+AUTOUR_DU_STOP = re.compile(r"(?<!\w)(?:non|nan|ok|okay|bon|bah|ben|eh|oh|hé|hey|là|ça|maintenant|juste|net"
+                            r"|s'il te pla[iî]t|stp|tout de suite|de parler|deux secondes|une seconde|vas-y)(?!\w)",
+                            re.IGNORECASE)
 # Phrases que la transcription invente quand il n'entend que du bruit.
 HALLUCINATIONS = re.compile(r"amara\.org|sous-titr|merci d'avoir regardé|abonnez-vous", re.IGNORECASE)
 # « Mm-hmm », « euh », « hein » : tu l'écoutes ou tu réfléchis, ce n'est pas une demande. Il ne répond pas
@@ -248,6 +256,26 @@ def bout_en_l_air(ajout: str) -> bool:
 def fin_de_conversation(texte: str) -> bool:
     sans_nom = NOM.sub(" ", texte)
     return bool(FIN_DE_CONVERSATION.match(re.sub(r"\s+", " ", SALUTATION.sub("", sans_nom.strip(" ,.!?"))).strip()))
+
+
+def reste_apres_stop(texte: str) -> str:
+    """« Steve, stop, mets du jazz » → « mets du jazz ». « Stop stop », « non arrête s'il te plaît » → « »."""
+    reste = STOP.sub(" ", extraire_commande(texte) or texte)
+    if not re.sub(r"[\W_]+", "", AUTOUR_DU_STOP.sub(" ", reste)):
+        return ""
+    return re.sub(r"\s+", " ", reste).strip(" ,.!?")
+
+
+def stop_net(texte: str) -> bool:
+    """Un « stop » et rien d'autre : de n'importe quelle voix, il se tait (se taire ne fait jamais de mal)."""
+    return bool(STOP.search(texte)) and not reste_apres_stop(texte)
+
+
+def commence_par_stop(texte: str) -> bool:
+    """« Stop », « arrête tout », « Steve, attends » tapés dans le chat : il se tait avant de lire la suite.
+    Il faut qu'il ouvre le message : « envoie-le, c'est bon » ou « c'est bon pour moi, envoie » ne l'arrêtent pas."""
+    debut = AUTOUR_DU_STOP.sub(" ", extraire_commande(texte) or texte).lstrip(" ,.!?")
+    return bool(STOP.match(debut)) or stop_net(texte)
 
 
 def est_interruption(entendu: str, dit: str) -> bool:
@@ -457,7 +485,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             try:
                 while not arret.is_set():
                     phrase = await asyncio.to_thread(oreilles.ecouter_phrase, None, arret, 2.5, premier,
-                                                     quand_tu_parles=baisser)
+                                                     quand_tu_parles=baisser,
+                                                     garder_inconnue=config.STOP_TOUTE_VOIX)
                     premier = False
                     if phrase is None:
                         return
@@ -468,8 +497,20 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                         await asyncio.to_thread(stt.transcrire, phrase.audio, oreilles.anti_echo) or "")
                     if hors_alphabet(entendu):
                         entendu = ""  # le bruit d'une vidéo dans une autre écriture : pas toi
+                    if getattr(phrase, "inconnue", False):
+                        # Pas ta voix, ou ta voix couverte par la sienne (le score baisse quand vous parlez en
+                        # même temps) : seul un « stop » net compte. Le reste, il l'ignore comme avant.
+                        if (config.STOP_TOUTE_VOIX and entendu and not arret.is_set() and stop_net(entendu)
+                                and est_interruption(entendu, dit_recemment(debut))):
+                            print(f"✋ Toi : {entendu}  \033[2m(voix mal reconnue, mais un stop se respecte)\033[0m")
+                            tts.taire()
+                            cerveau.couper()
+                            coupure["texte"] = entendu
+                            return
+                        baisser(False)
+                        continue
                     pour_lui = False
-                    if entendu and not arret.is_set() and est_interruption(entendu, guet["dit"]):
+                    if entendu and not arret.is_set() and est_interruption(entendu, dit_recemment(debut)):
                         print(f"✋ Toi : {entendu}")
                         tts.taire()
                         cerveau.couper()
@@ -505,8 +546,19 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     # "retiens" : jusqu'à quand il se retient de parler (tu parles). "fin_voix" : quand il s'est tu pour la
     # dernière fois. "vrai" : il a déjà vraiment répondu (pas juste « Voyons… »). "depart" : début de la demande.
     # "fusion" : ce que tu dis avant sa réponse peut être la suite de ta demande (pas pour une tâche de fond).
-    guet: dict = {"tache": None, "arret": None, "dit": "", "ajout": [], "parle": None,
+    # "recents" : ses dernières phrases [fin, texte] (fin = inf tant qu'il la dit), pour reconnaître son écho.
+    guet: dict = {"tache": None, "arret": None, "dit": "", "ajout": [], "parle": None, "recents": [],
                   "retiens": 0.0, "fin_voix": 0.0, "vrai": False, "depart": 0.0, "fusion": False}
+
+    def dit_recemment(debut: float) -> str:
+        """Ce qu'il a dit pendant que tu parlais (ou juste avant) : le seul écho possible de sa voix. Un « stop »
+        n'est pas ignoré parce qu'il a dit « j'arrête » trois phrases plus tôt dans la même réponse."""
+        return " ".join(texte for fin, texte in guet["recents"] if fin >= debut - config.ECHO_MARGE_S)
+
+    def noter_sa_phrase(texte: str) -> list:
+        recente = [math.inf, texte]
+        guet["recents"] = [*guet["recents"][-5:], recente]
+        return recente
 
     def coupe_la_parole(entendu: str) -> bool:
         """Ce que tu dis par-dessus sa voix le fait taire ? Pas un « hm », ni pendant un « Voyons… »
@@ -593,6 +645,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 return  # entre-temps tu as dit autre chose : cette phrase-là ne sert plus
         print(f"🤖 {config.PRENOM} : {texte}")
         etat("parle")
+        recente = noter_sa_phrase(texte)
         if guet["tache"] is not None or not interruptible:  # déjà guetté par la demande (ou à ne pas couper)
             guet["dit"] += " " + texte  # sa propre voix, pour ne pas la prendre pour la tienne
             guet["parle"] = texte if interruptible else None
@@ -601,7 +654,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 await tts.parler(texte)
             finally:
                 guet["parle"] = None
-                guet["fin_voix"] = time.monotonic()
+                guet["fin_voix"] = recente[0] = time.monotonic()
             if guet["tache"] is not None:
                 etat("reflechit")  # il continue peut-être à travailler
             return
@@ -613,7 +666,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             await tts.parler(texte)
         finally:
             guet["parle"] = None
-            guet["fin_voix"] = time.monotonic()
+            guet["fin_voix"] = recente[0] = time.monotonic()
             await suspendre_guet()  # libère le micro avant qu'on l'écoute à nouveau
 
     async def confirmer(question: str) -> bool:
@@ -659,7 +712,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         `ajout` : ce que tu avais dit juste avant de le couper (« en fait non »… « Steve, mets du jazz »)."""
         if not coupure["texte"]:
             return None
-        reste = STOP.sub("", extraire_commande(coupure["texte"]) or coupure["texte"]).strip(" ,.!?")
+        reste = reste_apres_stop(coupure["texte"])
         coupure["texte"] = None
         if len(reste) < 3:
             return ""  # juste « stop » : il oublie aussi le reste
@@ -870,6 +923,19 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             messagerie.fermer(n, reponse)
             a_relire = True
 
+    def stop_ecrit(texte: str) -> bool:
+        """Un « stop » tapé dans le chat : il se tait tout de suite, sans attendre la fin de ce qu'il dit ou
+        écrit. Renvoie vrai s'il reste une demande à lire (« arrête tout et relance »), faux si c'était juste stop."""
+        if not commence_par_stop(texte):
+            return True
+        print(f"✋ Toi (écrit) : {texte}", flush=True)
+        tts.taire()
+        cerveau.couper(tout=True)
+        if guet["tache"] is not None:
+            coupure["texte"] = "stop"  # la réponse à voix en cours s'arrête comme si tu l'avais dit ; la suite
+            # éventuelle (« arrête tout ») passe par le chat, une seule fois
+        return bool(reste_apres_stop(texte))
+
     standard, taches, programmateur, outils_en_plus = _equipe()
     etat.taches = taches
     cerveau = Cerveau(parler, confirmer, outils_en_plus=outils_en_plus,
@@ -884,6 +950,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         print(f"   ⚠️  Voix locale indisponible ({voix_locale.erreur or 'trop longue à charger'}) : "
               "il parle avec la voix Microsoft.", flush=True)
     horloge = asyncio.create_task(programmateur.tourner())
+    chat.MESSAGERIE.urgence = stop_ecrit
     chat.MESSAGERIE.brancher(asyncio.get_running_loop())
     par_ecrit = asyncio.create_task(repondre_par_ecrit())
     n = config.PRENOM
@@ -944,6 +1011,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
               "(sur ton abonnement, ça compte dans tes limites, tu ne le paies pas en plus).")
         horloge.cancel()
         chat.MESSAGERIE.debrancher()
+        chat.MESSAGERIE.urgence = None
         par_ecrit.cancel()
         await taches.arreter()
         await cerveau.arreter()

@@ -16,7 +16,7 @@ threading.Timer(80, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).sta
 
 from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock  # noqa: E402
 
-from jervis import audio, brain, config, fond, outils, stt, tts  # noqa: E402
+from jervis import audio, brain, chat, config, fond, outils, stt, tts  # noqa: E402
 from jervis import __main__ as m  # noqa: E402
 from jervis.naturel import (avis_limite, corriger_transcription, decoder_epellation, epellation_en_cours,  # noqa: E402
                             hesite, hors_alphabet, nettoyer, recoller)
@@ -274,6 +274,35 @@ verifier("pas de « Voyons… » quand sa phrase arrive", dit, ["Bon, en fait c'
 dit = asyncio.run(avec_patience(["C'est fait."], avant=0.6))
 verifier("« Voyons… » quand il travaille en silence", dit[0] in config.PHRASES_PATIENCE and dit[1:], ["C'est fait."])
 
+# --- 5 bis. « Stop » : tout ce qui veut dire stop, et seulement ça -------------------------------------------------
+STOPS = [  # (ce que tu dis, un stop et rien d'autre ?, ce qui reste à faire après)
+    ("Stop.", True, ""),
+    ("Stop, stop, stop !", True, ""),
+    ("Steve, stop", True, ""),
+    ("Stoppe !", True, ""),
+    ("Arrête-toi.", True, ""),
+    ("Arrêtes s'il te plaît", True, ""),
+    ("non non arrête", True, ""),
+    ("Chuuut", True, ""),
+    ("Tais-toi deux secondes", True, ""),
+    ("Ok, ça suffit maintenant.", True, ""),
+    ("Stop, mets du jazz", False, "mets du jazz"),
+    ("Arrête tout", False, "tout"),
+    ("Attends, envoie plutôt à Paul", False, "envoie plutôt à Paul"),
+    ("mets de la musique", False, "mets de la musique"),
+    ("je vais m'arrêter là", False, "je vais m'arrêter là"),     # « arrêter » n'est pas « arrête »
+]
+for dit, net, reste in STOPS:
+    verifier(f"stop net ? « {dit} »", m.stop_net(dit), net)
+    verifier(f"reste après stop : « {dit} »", m.reste_apres_stop(dit), reste)
+for tape, stop in [("stop", True), ("Stop stop", True), ("arrête tout et relance", True), ("Steve, attends", True),
+                   ("ok stop", True), ("c'est bon pour moi, envoie", False), ("envoie-le, c'est bon", False),
+                   ("lis mes mails", False), ("comment je l'arrête ?", False)]:
+    verifier(f"tapé, commence par stop ? « {tape} »", m.commence_par_stop(tape), stop)
+verifier("écho : « stop » qu'il vient de dire lui-même", m.est_interruption("stop", "Je mets stop au minuteur."), False)
+verifier("écho : un « arrête » qu'il n'a pas dit", m.est_interruption("arrête", "Je regarde tes mails."), True)
+
+
 # --- 6. En vrai : phrase coupée → « Oui ? » sans Claude, et lui couper la parole -----------------------------------
 T0 = time.monotonic()
 FIN = threading.Event()
@@ -306,7 +335,12 @@ class FauxOreilles:
                 tu_parles(True)   # le micro entend ta voix : il doit se retenir de parler
                 tu_parles = None
             if SCRIPT and SCRIPT[0][0] <= t():
-                return types.SimpleNamespace(audio=SCRIPT.pop(0)[1], reveil=False, silence=0.3)
+                audio = SCRIPT.pop(0)[1]  # « (autre voix) … » : une voix que l'empreinte ne reconnaît pas
+                inconnue = audio.startswith("(autre voix) ") and kw.get("garder_inconnue", False)
+                if audio.startswith("(autre voix) ") and not inconnue:
+                    continue  # sans garder_inconnue, Oreilles l'aurait ignorée
+                return types.SimpleNamespace(audio=audio.removeprefix("(autre voix) "), reveil=False,
+                                             silence=0.3, inconnue=inconnue)
             if attente is not None and t() - debut > attente:
                 return None
             time.sleep(0.02)
@@ -338,7 +372,7 @@ class FauxCerveau:
     async def demarrer(self): pass
     async def arreter(self): pass
     def fin_de_conversation(self): pass
-    def couper(self): self._interrompu = True
+    def couper(self, tout=False): self._interrompu = True
 
     async def demander(self, texte):
         self._interrompu = False
@@ -378,9 +412,10 @@ config.SUITE_SANS_POINT_S = 0.2    # une phrase sans point final : il attend un 
 config.FOLLOW_UP_S = config.FOLLOW_UP_QUESTION_S = 1.5
 
 
-def jouer(script, duree, evenements=()):
+def jouer(script, duree, evenements=(), tape=()):
     """Joue une conversation : ce que tu dis (le script), puis ce qu'il a reçu et ce qu'il a dit.
-    `evenements` : (quand, genre, texte) que ses tâches de fond lui postent pendant ce temps."""
+    `evenements` : (quand, genre, texte) que ses tâches de fond lui postent pendant ce temps.
+    `tape` : (quand, texte) que tu tapes dans le chat du tableau de bord."""
     global T0
     PARTIE[0] += 1
     SCRIPT[:] = script
@@ -395,6 +430,9 @@ def jouer(script, duree, evenements=()):
         for quand, genre, texte in evenements:
             await asyncio.sleep(max(0.0, quand - t()))
             STANDARDS[-1].poster(fond.Evenement(genre, texte))
+
+    for quand, texte in tape:
+        threading.Timer(quand, chat.MESSAGERIE.recevoir, [texte]).start()  # depuis le fil du serveur
 
     async def scenario():
         envoi = asyncio.ensure_future(poster())
@@ -488,6 +526,24 @@ jouer([
 verifier("hésitation : il a attendu la suite, et pris ta correction",
          recu[:1], ["envoie un mail à Pierre pour lui dire que j'arrive"])
 verifier("hésitation : une seule réponse", dit_par_steve[1:], ["C'est fait.", "À plus tard."])
+
+print("\n✋ « Stop » pendant qu'il parle, même quand ta voix est mal reconnue (sa voix couvre la tienne)")
+jouer([
+    (0.2, "Steve, raconte-moi une histoire"),
+    (0.6, "(autre voix) le match était nul"),          # une autre voix qui parle d'autre chose : ignorée
+    (0.8, "(autre voix) Stop, stop !"),                # toi, couvert par sa voix : un stop net passe quand même
+    (2.6, "merci"),
+], 4)
+verifier("stop d'une voix mal reconnue : il se tait", "Fin de l'histoire." in dit_par_steve, False)
+verifier("stop : rien n'est renvoyé à Claude, et l'autre voix est ignorée", recu, ["raconte-moi une histoire"])
+
+print("\n⌨️  « stop » tapé dans le chat pendant qu'il parle : il se tait tout de suite")
+jouer([
+    (0.2, "Steve, raconte-moi une histoire"),
+    (2.6, "merci"),
+], 4, tape=[(1.0, "stop")])
+verifier("stop tapé : il se tait sans finir son histoire", "Fin de l'histoire." in dit_par_steve, False)
+verifier("stop tapé : il ne le renvoie pas à Claude", recu, ["raconte-moi une histoire"])
 FIN.set()
 
 print("\n🔊 La voix : longues phrases dites par bouts, le premier fabriqué seul")

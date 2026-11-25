@@ -324,6 +324,22 @@ async def tester_messagerie():
     verifier("débranché pendant une question : non", await question, False)
     verifier("et plus rien n'entre", m.recevoir("encore là ?"), False)
 
+    # Un « stop » tapé passe avant la file (il ne doit pas attendre la fin de ce qu'il dit ou écrit).
+    m = chat.Messagerie()
+    vus: list[str] = []
+    m.urgence = lambda texte: (vus.append(texte), texte != "stop")[1]
+    m.brancher(asyncio.get_running_loop())
+    await asyncio.to_thread(m.recevoir, "stop")
+    await asyncio.to_thread(m.recevoir, "arrête tout")
+    await asyncio.sleep(0.01)
+    verifier("urgence : vue dès l'arrivée, dans l'ordre", vus, ["stop", "arrête tout"])
+    verifier("urgence : « stop » seul ne va pas jusqu'à Claude, « arrête tout » si", await m.prochain(), "arrête tout")
+    verifier("urgence : « stop » est montré comme traité", [x["texte"] for x in m.depuis(0)["messages"]
+                                                          if x["qui"] == "info"], ["Arrêté."])
+    m.urgence = lambda texte: 1 / 0
+    m.recevoir("lis mes mails")
+    verifier("urgence qui plante : le message n'est pas perdu", await m.prochain(), "lis mes mails")
+
 asyncio.run(tester_messagerie())
 
 

@@ -695,7 +695,7 @@ class Cerveau:
             await lecteur          # il finit de dire ce qui est déjà dans la file (ou s'arrête si on l'a coupé)
             self._parole = None
         if par_ecrit:
-            reponse = "".join(morceaux).strip()
+            reponse = "".join(morceaux).strip() + ("\n\n(arrêté)" if self._interrompu else "")
         else:
             reponse = " ".join(dit) + (" (interrompu)" if self._interrompu else "")
             self.derniere_reponse = "" if self._interrompu else " ".join(dit)
@@ -839,11 +839,12 @@ class Cerveau:
         except Exception as e:
             self._journal(f"   🕸️ Graphe : {graphe._panne or repr(e)[:200]}")
 
-    def couper(self) -> None:
+    def couper(self, tout: bool = False) -> None:
         """Tu lui as coupé la parole : il se tait et abandonne la réponse en cours.
-        Une demande écrite, elle, continue : ta voix ne l'a pas interrompue (elle attend son tour)."""
-        if self._par_ecrit:
-            return
+        Une demande écrite, elle, continue : ta voix ne l'a pas interrompue (elle attend son tour).
+        `tout` : un « stop » tapé dans le chat arrête aussi bien la réponse dite que la réponse écrite."""
+        if (self._par_ecrit and not tout) or (tout and not self._verrou.locked()):
+            return  # (rien en cours : un stop tapé n'a rien à interrompre)
         if self._client and not self._interrompu:
             self._interrompu = True
             asyncio.get_running_loop().create_task(self._client.interrupt())

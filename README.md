@@ -128,8 +128,17 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
     pour qu'une télé allumée ne le rende pas muet).
   - Ce qui aide le plus : qu'il connaisse ta voix (voir « Apprendre ta voix » plus bas). Sans ça, la télé ou
     quelqu'un d'autre peut finir ta phrase à ta place.
-- **Lui couper la parole** : pendant qu'il parle, dis « Steve », « stop », « tais-toi » ou « attends ».
+- **Lui couper la parole** : pendant qu'il parle, dis « Steve », « stop », « tais-toi » ou « attends »
+  (« stoppe », « arrête-toi », « chut », « ça suffit » marchent aussi).
   Si tu enchaînes avec une demande (« Steve, plutôt la météo »), il y répond tout de suite.
+  - Un « stop » net passe même quand ta voix est mal reconnue : quand vous parlez en même temps, sa voix mêlée
+    à la tienne fait baisser ton score, et avant il t'ignorait (« une voix qui n'est pas la tienne »).
+    Le reste (une phrase d'une autre voix) est toujours ignoré.
+  - Un « stop » qu'il a dit lui-même trois phrases plus tôt (« j'arrête… ») ne fait plus ignorer le tien :
+    seul ce qu'il vient de dire (1,5 s) compte comme écho.
+  - **Dans le chat du tableau de bord**, un message qui commence par « stop » (« stop », « arrête tout et
+    relance ») le fait taire tout de suite, qu'il parle ou qu'il écrive : il n'attend plus la fin de sa réponse.
+    « stop » seul s'arrête là ; avec une suite, la suite lui est envoyée.
   Tu peux aussi simplement parler par-dessus lui (« en fait mets plutôt du jazz ») : à partir de 3 mots, il se tait
   et répond à ta nouvelle phrase, sans s'excuser. Un « ouais » ou « hmm » ne le coupe pas.
   Dès que tu commences à parler, il baisse sa voix (comme quelqu'un qui t'entend) ; si ce n'était pas pour lui,
@@ -596,6 +605,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_RETENUE_MAX_S` | 6 | et jamais plus que ça en tout (une télé allumée ne doit pas le rendre muet) |
 | `JERVIS_COUPER_SI_TU_PARLES` | oui | `non` = parler par-dessus lui ne le coupe plus (seulement son nom ou « stop ») |
 | `JERVIS_MOTS_POUR_COUPER` | 3 | nombre de mots qu'il te faut dire par-dessus lui pour qu'il se taise |
+| `JERVIS_STOP_TOUTE_VOIX` | oui | `non` = seul un « stop » de ta voix reconnue le fait taire (une télé ne pourra plus) |
+| `JERVIS_ECHO_MARGE_S` | 1.5 | un « stop » n'est pris pour l'écho de sa voix que s'il l'a dit dans ces secondes-là |
 | `JERVIS_STT` | parakeet | `whisper` pour l'ancien moteur de transcription |
 | `JERVIS_DEUXIEME_AVIS` | oui | `non` = il ne réécoute plus en français les deux ou trois mots sortis en anglais (0,4 s de gagné sur ces phrases-là) |
 | `JERVIS_ANTI_ECHO` | oui | `non` pour le couper (par ex. si ton micro a déjà le sien) |

@@ -309,6 +309,11 @@ RETENUE_MAX_S = float(_env("RETENUE_MAX_S", "6"))
 # Tu parles par-dessus sa réponse (au moins ce nombre de mots, pas juste « hm ») : il se tait et te répond.
 COUPER_SI_TU_PARLES = _env("COUPER_SI_TU_PARLES", "oui").lower() not in {"non", "off", "0"}
 MOTS_POUR_COUPER = int(_env("MOTS_POUR_COUPER", "3"))
+# Un « stop » entendu n'est pris pour l'écho de sa voix que s'il a dit ce mot dans les ECHO_MARGE_S secondes
+# d'avant (pas trois phrases plus tôt). Un « stop » net passe même quand ta voix est mal reconnue
+# (STOP_TOUTE_VOIX=non pour l'interdire : seule ta voix pourra alors le faire taire).
+ECHO_MARGE_S = float(_env("ECHO_MARGE_S", "1.5"))
+STOP_TOUTE_VOIX = _env("STOP_TOUTE_VOIX", "oui").lower() not in {"non", "off", "0"}
 # Transcription : parakeet (NVIDIA Parakeet v3, très rapide) ou whisper.
 STT = _env("STT", "parakeet").lower()
 PARAKEET_MODEL = _env("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
