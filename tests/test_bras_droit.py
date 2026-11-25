@@ -281,6 +281,65 @@ asyncio.run(tester_ecrit())
 asyncio.run(tester_memoriser())
 
 
+# --- 3 bis. Ce que tu dis par-dessus pendant qu'il travaille : lu à la fin de l'outil, sans tout arrêter ------------
+class ClaudeQuiTravaille(FauxClaude):
+    """Une réponse avec un outil ; `etapes` : des messages, ou des fonctions jouées à ce moment-là (toi qui parles,
+    la CLI qui appelle le crochet PostToolUse après l'outil)."""
+    def __init__(self, etapes):
+        super().__init__([])
+        self.etapes, self.contexte = etapes, None
+
+    async def receive_response(self):
+        for etape in self.etapes:
+            if callable(etape):
+                await asyncio.sleep(0.05)   # le temps de dire les phrases déjà arrivées
+                if (sortie := etape()) is not None and asyncio.iscoroutine(sortie):
+                    self.contexte = await sortie
+            else:
+                yield etape
+
+
+async def tester_glisser():
+    dit = []
+
+    async def parler(p): dit.append(p)
+    async def confirmer(_q): return True
+    c = brain.Cerveau(parler, confirmer, journal=lambda *_: None, patience=False)
+    verifier("glisser : rien en cours, rien à glisser", c.glisser("et demain ?"), False)
+    crochet = lambda: c._apres_outil({"hook_event_name": "PostToolUse", "tool_name": "navigate"}, "t1", None)
+    pris = []
+    c._client = ClaudeQuiTravaille([
+        message(TextBlock("J'ouvre Medium.")), message(ToolUseBlock("t1", "navigate", {})),
+        lambda: pris.append(c.glisser("pas de soucis, je vais reset")),   # tu parles pendant l'outil
+        message(TextBlock("Je clique sur ton compte.")),                  # … il se tait : Claude ne t'a pas lu
+        crochet,                                                          # l'outil suivant finit : Claude te lit
+        message(TextBlock("Noté, je continue.")),
+    ])
+    await c.demander("publie l'article sur Medium")
+    sortie = (c._client.contexte or {}).get("hookSpecificOutput", {})
+    verifier("glisser : pendant son travail, ta phrase est prise", pris, [True])
+    verifier("glisser : Claude la reçoit à la fin de l'outil", sortie.get("additionalContext", "").startswith(
+        brain.MARQUE_GLISSE) and sortie["additionalContext"].endswith("« pas de soucis, je vais reset »"), True)
+    verifier("glisser : il ne dit rien entre ta phrase et le moment où Claude l'a lue",
+             dit, ["J'ouvre Medium.", "Noté, je continue."])
+    verifier("glisser : lue, rien ne reste pour après", c.pas_lus(), "")
+    verifier("glisser : la réponse n'est pas interrompue", c._interrompu, False)
+
+    # Plus aucun outil après ta phrase : elle n'est pas perdue, elle devient la demande suivante.
+    dit.clear()
+    c._client = ClaudeQuiTravaille([message(ToolUseBlock("t1", "navigate", {})),
+                                    lambda: c.glisser("non, sur DEV plutôt"),
+                                    message(TextBlock("C'est publié sur Medium."))])
+    await c.demander("publie l'article")
+    verifier("pas lue : il ne dit pas la fin, tu parlais", dit, [])
+    verifier("pas lue : ta phrase revient pour la suite, avec la fin qu'il n'a pas entendue",
+             c.pas_lus(), f"{brain.MARQUE_PAS_LU} non, sur DEV plutôt")
+    verifier("pas lue : une seule fois", c.pas_lus(), "")
+    verifier("crochet : rien à lire, il ne touche à rien", await crochet(), {})
+
+asyncio.run(tester_glisser())
+
+
 # --- 4. La messagerie du chat (deux fils : la page et la boucle de Steve) --------------------------------------------
 async def tester_messagerie():
     m = chat.Messagerie()

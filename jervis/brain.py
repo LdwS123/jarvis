@@ -8,11 +8,18 @@ import time
 from datetime import datetime
 from typing import Awaitable, Callable
 
-from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, RateLimitEvent, ResultMessage,
-                              StreamEvent, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, query)
+from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, RateLimitEvent,
+                              ResultMessage, StreamEvent, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
 from . import comptes, compteur, config, graphe, lecons, naturel, outils
 from .permissions import Gardien, lit_dehors
+
+# Ce que tu lui dis à voix haute pendant qu'il travaille : il le lit à la fin de l'outil en cours, sans s'arrêter.
+MARQUE_GLISSE = ("(Il vient de te dire ça à voix haute, par-dessus toi, pendant que tu travaillais. Si c'est une "
+                 "correction ou une nouvelle consigne, change de cap tout de suite ; si c'est un simple commentaire, "
+                 "continue ton travail sans t'arrêter, sans le lui répéter et sans t'excuser :)")
+# Ce qu'il a dit par-dessus ta fin de réponse sans que tu l'aies lu (plus aucun outil après) : la suite de la conversation.
+MARQUE_PAS_LU = "(Il a parlé par-dessus la fin de ta réponse, qu'il n'a pas entendue.)"
 
 CONSIGNES = """\
 Tu t'appelles {prenom} : tu es l'assistant personnel vocal de l'utilisateur, sur son Mac, dans l'esprit
@@ -199,6 +206,9 @@ Tu travailles pour lui comme un vrai bras droit, pas comme un outil qui attend l
 Messages spéciaux :
 - « (interrompu) … » : il t'a coupé la parole ; abandonne ce que tu disais et réponds à sa nouvelle phrase,
   sans t'excuser, sans répéter ni finir ta réponse d'avant (sauf s'il te le demande).
+- « (Il vient de te dire ça à voix haute, par-dessus toi, pendant que tu travaillais. …) », collé au résultat
+  d'un outil : c'est lui, pas l'outil. Ça passe avant ton plan : une correction, tu changes de cap tout de suite ;
+  un commentaire (« ok », « pas de souci »), tu continues sans t'arrêter ni lui demander s'il faut reprendre.
 - « (Il a continué sa phrase pendant que tu commençais. …) » : il n'avait pas fini de parler quand tu as
   démarré ; ce message contient sa demande entière. Oublie ta réponse au début, ne refais pas une action déjà
   faite, et réponds à la demande complète sans dire qu'il a été coupé. Si la demande complète est la même qu'une
@@ -497,6 +507,8 @@ class Cerveau:
             include_partial_messages=True,  # le texte arrive mot à mot : il parle dès la première phrase finie
             extra_args={"chrome": None} if config.CHROME_PERSO else {},  # ton Chrome, via l'extension Claude
             max_buffer_size=config.TAMPON_MAX,  # une capture d'écran dépasse le 1 Mo par défaut (et le faisait planter)
+            # Après chaque outil, ce que tu lui as dit entre-temps (glisser) : il en tient compte sans tout arrêter.
+            hooks={"PostToolUse": [HookMatcher(hooks=[self._apres_outil])]},
         )
         self._client: ClaudeSDKClient | None = None
         self._interrompu = False
@@ -514,6 +526,12 @@ class Cerveau:
         self._verrou = asyncio.Lock()                # une demande à la fois (ta voix et le chat écrit se relaient)
         self._par_ecrit = False                      # la demande en cours vient du chat écrit
         self._confirmer_ecrit: Callable[[str], Awaitable[bool]] | None = None  # ses boutons Oui / Non
+        self._au_travail = False                     # la réponse dite en cours a déjà lancé un outil
+        self._glisses: list[str] = []                # ce que tu as dit par-dessus, pas encore lu par Claude
+        self._muet = False                           # tu lui parles : il ne dit plus rien avant de t'avoir lu
+        self._non_dit = False                        # … et des phrases sont restées non dites
+        self._pas_lus = ""                           # glissés jamais lus (plus d'outil ensuite) : pour la suite
+        self._derniere_patience = ""
 
     async def demarrer(self, attente_max: float = 15.0) -> None:
         config.ESPACE.mkdir(exist_ok=True)
@@ -541,6 +559,7 @@ class Cerveau:
         par_ecrit = ecrit is not None
         self._gardien.nouvelle_demande(mefiance=bool(_RAPPORT.match(texte)))
         self._interrompu = False
+        self._au_travail, self._glisses, self._muet, self._non_dit = False, [], False, False
         await couper_intrus(self._client)  # au cas où un connecteur serait arrivé en retard
         nouveau = ""
         if (self._derniere_demande is not None and self._recents
@@ -598,6 +617,10 @@ class Cerveau:
                     if not propre:
                         ecarte.append(phrase)
                 phrase = propre
+            if phrase and self._muet:  # tu lui parles par-dessus : il se tait jusqu'à ce qu'il t'ait lu
+                self._journal(f"   \033[2m(pas dit, tu parlais : « {phrase} »)\033[0m")
+                self._non_dit = True
+                phrase = ""
             if phrase and not self._interrompu:
                 if self.premiere_phrase is None:
                     self.premiere_phrase = time.monotonic()
@@ -610,7 +633,9 @@ class Cerveau:
             """Dit les phrases une par une, pendant que la suite de la réponse continue d'arriver."""
             while (phrase := await parole.get()) is not None:
                 try:
-                    if not self._interrompu:
+                    if self._muet:  # déjà dans la file quand tu as commencé à lui parler
+                        self._non_dit = True
+                    elif not self._interrompu:
                         await self._parler(phrase)
                 finally:
                     parole.task_done()
@@ -622,8 +647,11 @@ class Cerveau:
             await asyncio.sleep(config.PATIENCE_S)
             if commence:  # sa vraie phrase est en train de s'écrire : un « Voyons… » la retarderait
                 await asyncio.sleep(1.0)
-            if not dit and not self._interrompu and config.PHRASES_PATIENCE:
-                parole.put_nowait(random.choice(config.PHRASES_PATIENCE))
+            if not dit and not self._interrompu and not self._muet and config.PHRASES_PATIENCE:
+                # Jamais deux fois de suite le même « Je regarde. » : on dirait un disque rayé.
+                choix = [p for p in config.PHRASES_PATIENCE if p != self._derniere_patience] or config.PHRASES_PATIENCE
+                self._derniere_patience = random.choice(choix)
+                parole.put_nowait(self._derniere_patience)
 
         lecteur = asyncio.create_task(voix())
         attente = asyncio.create_task(patienter()) if self._patience and config.PATIENCE and not par_ecrit else None
@@ -660,6 +688,7 @@ class Cerveau:
                             tampon, mot_a_mot = "", False
                         elif isinstance(bloc, ToolUseBlock):
                             self._journal(f"   ⚙️  {bloc.name} {bloc.input}")
+                            self._au_travail = not par_ecrit
                             utilises[bloc.id] = bloc.name.split("__")[-1]
                             if lit_dehors(bloc.name):
                                 self._gardien.contenu_externe = True
@@ -694,6 +723,9 @@ class Cerveau:
             parole.put_nowait(None)
             await lecteur          # il finit de dire ce qui est déjà dans la file (ou s'arrête si on l'a coupé)
             self._parole = None
+            if self._glisses and not self._interrompu:  # plus aucun outil après ce que tu as dit : pour la suite
+                self._pas_lus = (f"{MARQUE_PAS_LU} " if self._non_dit else "") + " ".join(self._glisses)
+            self._au_travail, self._glisses, self._muet = False, [], False
         if par_ecrit:
             reponse = "".join(morceaux).strip() + ("\n\n(arrêté)" if self._interrompu else "")
         else:
@@ -838,6 +870,31 @@ class Cerveau:
             self._journal(f"   🕸️ Graphe : {n} lien(s) créé(s) ou mis à jour")
         except Exception as e:
             self._journal(f"   🕸️ Graphe : {graphe._panne or repr(e)[:200]}")
+
+    def glisser(self, texte: str) -> bool:
+        """Tu lui parles par-dessus pendant qu'il travaille (outils lancés) : au lieu de tout abandonner, il se
+        tait et Claude lit ta phrase à la fin de l'outil en cours. Renvoie faux s'il ne travaille pas (une simple
+        réponse) : là, on lui coupe la parole comme avant."""
+        if not (self._au_travail and self._verrou.locked() and not self._par_ecrit and not self._interrompu):
+            return False
+        self._glisses.append(texte.strip())
+        self._muet = True
+        return True
+
+    def pas_lus(self) -> str:
+        """Ce que tu as dit par-dessus et que Claude n'a pas pu lire avant la fin de sa réponse (« » sinon)."""
+        texte, self._pas_lus = self._pas_lus, ""
+        return texte
+
+    async def _apres_outil(self, entree: dict, _id: str | None, _contexte) -> dict:
+        """(Crochet PostToolUse) Un outil vient de finir : on lui passe ce que tu as dit entre-temps."""
+        if not self._glisses or entree.get("agent_id"):
+            return {}
+        texte = " ".join(self._glisses)
+        self._glisses, self._muet = [], False
+        self._journal(f"   \033[2m(lu pendant son travail : {texte})\033[0m")
+        return {"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                                       "additionalContext": f"{MARQUE_GLISSE} « {texte} »"}}
 
     def couper(self, tout: bool = False) -> None:
         """Tu lui as coupé la parole : il se tait et abandonne la réponse en cours.

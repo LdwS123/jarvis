@@ -299,6 +299,12 @@ for tape, stop in [("stop", True), ("Stop stop", True), ("arrête tout et relanc
                    ("ok stop", True), ("c'est bon pour moi, envoie", False), ("envoie-le, c'est bon", False),
                    ("lis mes mails", False), ("comment je l'arrête ?", False)]:
     verifier(f"tapé, commence par stop ? « {tape} »", m.commence_par_stop(tape), stop)
+INF = float("inf")
+verifier("par-dessus un « Je regarde. » qu'il vient de finir : pas une coupure",
+         m.sur_un_voyons([[10.0, "Je regarde."]], 10.2), True)
+verifier("par-dessus un « Voyons… » qu'il dit encore", m.sur_un_voyons([[INF, "Voyons…"]], 3.0), True)
+verifier("par-dessus une vraie phrase : coupure", m.sur_un_voyons([[INF, "Ton vol part à 9 h."]], 3.0), False)
+verifier("un « Voyons… » fini depuis longtemps ne compte plus", m.sur_un_voyons([[5.0, "Voyons…"]], 9.0), False)
 verifier("écho : « stop » qu'il vient de dire lui-même", m.est_interruption("stop", "Je mets stop au minuteur."), False)
 verifier("écho : un « arrête » qu'il n'a pas dit", m.est_interruption("arrête", "Je regarde tes mails."), True)
 
@@ -362,8 +368,13 @@ async def rien(self): await asyncio.sleep(3600)
 async def rien_a_precharger(phrases): pass
 
 
+GLISSES: list[str] = []      # ce que tu lui as dit par-dessus pendant son travail
+TRAVAUX_FINIS: list[str] = []
+
+
 class FauxCerveau:
     def __init__(self, parler, confirmer, **kw):
+        self.au_travail = False
         self.parler = parler
         self._interrompu = False
         self.derniere_reponse = ""
@@ -373,11 +384,30 @@ class FauxCerveau:
     async def arreter(self): pass
     def fin_de_conversation(self): pass
     def couper(self, tout=False): self._interrompu = True
+    def pas_lus(self): return ""
+
+    def glisser(self, texte):
+        if not self.au_travail or self._interrompu:
+            return False
+        GLISSES.append(texte)
+        return True
 
     async def demander(self, texte):
         self._interrompu = False
         tts._tais_toi = False
         recu.append(texte)
+        if "site" in texte:  # un vrai travail : des outils, et il raconte entre deux
+            self.au_travail = True
+            for p in ["J'ouvre le site.", "Je me connecte.", "Je remplis le formulaire.", "C'est publié."]:
+                if self._interrompu:
+                    break
+                if not GLISSES:  # (le vrai cerveau se tait aussi jusqu'à t'avoir lu)
+                    await self.parler(p)
+                await asyncio.sleep(0.4)   # un outil
+            else:
+                TRAVAUX_FINIS.append(texte)
+            self.au_travail = False
+            return
         await asyncio.sleep(1.0 if "logs" in texte else 0.1)   # « logs » : une demande qui le fait travailler
         phrases = (["Il était une fois un dragon.", "Il vivait dans une grotte.", "Un jour il sortit.",
                     "Il vit un chevalier.", "Fin de l'histoire."] if "histoire" in texte else ["C'est fait."])
@@ -544,6 +574,18 @@ jouer([
 ], 4, tape=[(1.0, "stop")])
 verifier("stop tapé : il se tait sans finir son histoire", "Fin de l'histoire." in dit_par_steve, False)
 verifier("stop tapé : il ne le renvoie pas à Claude", recu, ["raconte-moi une histoire"])
+
+print("\n🛠  Tu lui parles par-dessus pendant qu'il travaille : il se tait mais n'abandonne pas le travail")
+jouer([
+    (0.2, "Steve, publie l'article sur le site."),
+    (1.2, "pas de soucis pour ça je vais attendre"),    # un commentaire pendant « Je me connecte. »
+    (3.4, "merci"),
+], 5)
+verifier("par-dessus pendant le travail : le travail va jusqu'au bout", TRAVAUX_FINIS, ["publie l'article sur le site"])
+verifier("par-dessus pendant le travail : ta phrase lui est glissée", GLISSES, ["pas de soucis pour ça je vais attendre"])
+verifier("par-dessus pendant le travail : pas de « (interrompu) » qui le ferait tout lâcher",
+         [r for r in recu if "interrompu" in r], [])
+verifier("par-dessus pendant le travail : il ne raconte plus rien après", "Je remplis le formulaire." in dit_par_steve, False)
 FIN.set()
 
 print("\n🔊 La voix : longues phrases dites par bouts, le premier fabriqué seul")

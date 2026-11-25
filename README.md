@@ -141,6 +141,15 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
     « stop » seul s'arrête là ; avec une suite, la suite lui est envoyée.
   Tu peux aussi simplement parler par-dessus lui (« en fait mets plutôt du jazz ») : à partir de 3 mots, il se tait
   et répond à ta nouvelle phrase, sans s'excuser. Un « ouais » ou « hmm » ne le coupe pas.
+  - **S'il est en plein travail** (navigateur, mails, fichiers…), parler par-dessus lui ne jette plus tout :
+    il se tait et Claude lit ta phrase à la fin de l'outil en cours. Une correction (« non, sur DEV plutôt »)
+    change son cap tout de suite ; un commentaire (« pas de souci, je vais reset ») le laisse continuer. Avant,
+    il lâchait la tâche et répondait « OK, j'arrête ». Pour vraiment l'arrêter : « stop » ou son nom.
+    Si plus aucun outil ne vient après ta phrase, elle devient ta demande suivante (il sait que tu n'as pas
+    entendu la fin de sa réponse).
+  - Parler juste après un « Voyons… » ou un « Je regarde. » ne le coupe plus : avant, le temps que ta phrase
+    soit transcrite, son « Je regarde. » était fini, et il recommençait sa réponse (« Je regarde. » deux fois).
+    Il ne dit d'ailleurs plus deux fois de suite la même phrase d'attente.
   Dès que tu commences à parler, il baisse sa voix (comme quelqu'un qui t'entend) ; si ce n'était pas pour lui,
   il reprend normalement. Il retire sa propre voix du micro (anti-écho), mais avec un casque ou des AirPods ça
   reste encore plus fiable.

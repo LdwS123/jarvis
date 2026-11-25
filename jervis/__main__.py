@@ -278,6 +278,13 @@ def commence_par_stop(texte: str) -> bool:
     return bool(STOP.match(debut)) or stop_net(texte)
 
 
+def sur_un_voyons(recents: list, debut: float) -> bool:
+    """Tu as commencé à parler pendant (ou juste après) un « Voyons… », et rien d'autre : il travaille encore,
+    ta phrase ne lui coupe pas la parole. `recents` : ses dernières phrases [fin, texte] (fin = inf s'il la dit)."""
+    disait = [texte for fin, texte in recents if fin >= debut - 0.3]
+    return bool(disait) and all(texte in config.PHRASES_PATIENCE for texte in disait)
+
+
 def est_interruption(entendu: str, dit: str) -> bool:
     """Le micro entend aussi sa propre voix : un mot ne compte que s'il n'est pas dans sa phrase à lui."""
     dit = dit.casefold()
@@ -518,7 +525,14 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                         return
                     if entendu and not arret.is_set() and ajout_probable(entendu, guet["dit"]):
                         toi = a_toi(phrase)
-                        if par_dessus and coupe_la_parole(entendu) and toi is not False:
+                        if par_dessus and coupe_la_parole(entendu, debut) and toi is not False:
+                            if cerveau.glisser(entendu):
+                                # Il était en plein travail (navigateur, mails…) : il se tait, mais ne jette pas
+                                # tout. Claude lit ta phrase à la fin de l'outil en cours et change de cap s'il faut.
+                                print(f"✋ Toi (par-dessus, il continue son travail) : {entendu}")
+                                tts.taire()
+                                baisser(False)
+                                continue
                             # Tu parles par-dessus sa réponse : comme une vraie personne, il se tait et t'écoute.
                             print(f"✋ Toi (par-dessus) : {entendu}")
                             tts.taire()
@@ -560,10 +574,11 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         guet["recents"] = [*guet["recents"][-5:], recente]
         return recente
 
-    def coupe_la_parole(entendu: str) -> bool:
-        """Ce que tu dis par-dessus sa voix le fait taire ? Pas un « hm », ni pendant un « Voyons… »
-        (là il travaille encore : ce que tu ajoutes sera traité juste après)."""
-        return (config.COUPER_SI_TU_PARLES and guet["parle"] not in config.PHRASES_PATIENCE
+    def coupe_la_parole(entendu: str, debut: float) -> bool:
+        """Ce que tu dis par-dessus sa voix le fait taire ? Pas un « hm », ni par-dessus un « Voyons… »
+        (là il travaille encore : ce que tu ajoutes sera traité juste après). On regarde ce qu'il disait quand tu
+        as commencé à parler : le temps que ta phrase soit transcrite, son « Je regarde. » est souvent fini."""
+        return (config.COUPER_SI_TU_PARLES and not sur_un_voyons(guet["recents"], debut)
                 and len(re.findall(r"\w+", entendu)) >= config.MOTS_POUR_COUPER)
 
     def prendre_ajout() -> str:
@@ -614,6 +629,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             await cerveau.demander(texte)
         finally:
             await suspendre_guet()
+        if pas_lu := cerveau.pas_lus():  # dit par-dessus sa fin de réponse : sa prochaine demande
+            guet["ajout"].insert(0, pas_lu)
         afficher_chrono(depart, mesure)
 
     def afficher_chrono(depart: float, chrono: dict) -> None:
