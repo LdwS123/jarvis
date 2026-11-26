@@ -1055,6 +1055,8 @@ def nouveau_depot(commande: str) -> Path | None:
     for c in (*_se_lance_chemins()[0], *_se_lance_chemins()[1]):
         if str(c).casefold() == ici or str(c).casefold().startswith(ici.rstrip("/") + "/"):
             return None  # ni ~ ni ~/Jervis : ils contiennent du protégé
+    if ou.is_symlink() or (ou.exists() and (not ou.is_dir() or any(ou.iterdir()))):
+        return None  # un dossier neuf ou vide : le dossier ouvert ne couvre jamais ce qui était déjà là
     return ou
 
 
@@ -1263,6 +1265,8 @@ class Gardien:
         decision = politique(outil, entree, self._apps_vues)
         # Avant cet outil-ci (une commande lit aussi le dehors), dans cette demande ou plus tôt dans la conversation.
         deja_dehors = self.contenu_externe or self.mefiance or self.dehors_dans_le_fil
+        # Le dossier d'un git clone / init, trouvé une seule fois : c'est lui qu'on te montre et lui seul qui s'ouvre
+        depot = nouveau_depot(str(entree.get("command") or "")) if outil == "Bash" and deja_dehors else None
         if lit_dehors(outil):
             self.a_lu_dehors()
         if outil == "mcp__jervis__noter_mot" and (self.contenu_externe or self.mefiance):
@@ -1283,7 +1287,7 @@ class Gardien:
                 decision = Decision.DEMANDER
         if decision is Decision.OUI and deja_dehors and (
                 pilote_des_apps(outil, entree) or ecrit_ce_qui_se_lance(outil, entree)
-                or (outil == "Bash" and nouveau_depot(str(entree.get("command") or "")))):
+                or depot):
             # Des frappes, un script d'app, un « open » de fichier, ou un fichier qui se lancera tout seul plus tard
             # (LaunchAgents, ton shell, le code de Steve) après une page lue : même en autonome.
             decision = Decision.DEMANDER
@@ -1320,7 +1324,6 @@ class Gardien:
                         message=f"Cette commande est trop longue pour que je la lui montre en entier avant de dire oui : "
                                 f"découpe-la en commandes de {COMMANDE_MONTREE_MAX} caractères au plus, puis réessaie.")
                 # rien du modèle, que la commande ; ses « » deviennent des " pour qu'elle ne ferme pas la citation
-                depot = nouveau_depot(commande)
                 question = (f"Je vais lancer cette commande, qui n'écrira que dans {depot} : " if depot else
                             "Je vais lancer cette commande hors de la cage : ")
                 question += f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?"
@@ -1332,14 +1335,13 @@ class Gardien:
             elif outil.startswith("mcp__claude_ai") and action not in PAR_APPEL:
                 cle = outil
             else:
-                cle = f"{outil}:{sorted(entree.items(), key=str)}"
+                cle = f"{outil}:{sorted(entree.items(), key=str)}:{depot}"  # un autre dossier : une autre question
             async with self._verrou:
                 if cle not in self._reponses:
                     self._reponses[cle] = await self._confirmer(question)
             decision = Decision.OUI if self._reponses[cle] else Decision.NON
         if decision is Decision.OUI:
-            if (outil == "Bash" and deja_dehors and Path(CAGE_EXEC).exists()
-                    and (depot := nouveau_depot(str(entree.get("command") or "")))):
+            if depot and Path(CAGE_EXEC).exists():
                 # ton oui à un git clone / init : dans la cage quand même, son seul dossier ouvert
                 return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]),
                                                                                          permis=depot)})

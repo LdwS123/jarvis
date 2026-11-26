@@ -395,7 +395,8 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
     cage : après une page lue, il t'est demandé, s'il est seul et simple (un `cd` devant au plus, ni `;`, `$`,
     guillemets, ni option qui lance du code comme `-c`, `--upload-pack`, `--template` ou un transport `ext::`) et
     vers un dossier écrit en entier dans la commande (`git clone URL ~/Documents/nom`, `cd ~/Documents && git init
-    nom`), hors de ce qui se lance tout seul, ni au-dessus (`~`, `~/Jervis`), ni dans un `.git`. Ton oui le lance
+    nom`), neuf ou vide, hors de ce qui se lance tout seul, ni au-dessus (`~`, `~/Jervis`), ni dans un `.git`. Ce
+    dossier est trouvé une seule fois : c'est celui qu'on te montre et celui qui s'ouvre. Ton oui le lance
     dans la cage, avec ce seul dossier ouvert : c'est macOS qui vérifie le vrai chemin à chaque écriture (un lien
     glissé entre-temps, une autre casse n'ouvrent rien d'autre). Après une page lue, toute commande qu'on te demande
     t'est montrée telle quelle, sans rien de ce qu'en dit Steve, et une commande de plus de 300 caractères est
