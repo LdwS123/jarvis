@@ -981,6 +981,19 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     chat.MESSAGERIE.urgence = stop_ecrit
     chat.MESSAGERIE.brancher(asyncio.get_running_loop())
     par_ecrit = asyncio.create_task(repondre_par_ecrit())
+    iphone: list[asyncio.Task] = []
+    if config.IMESSAGE.lower() not in {"non", "off", "0"}:
+        # Ta conversation avec toi-même dans Messages : tu lui écris (ou le dictes à Siri) depuis l'iPhone,
+        # il répond dans le même fil. Il faut l'Accès complet au disque pour lire Messages.
+        from . import distance
+        def noter(ligne: str) -> None:
+            print(ligne, flush=True)  # le journal : le tableau de bord y relit l'échange
+        boite = distance.Boite(envoyer=lambda adresse, texte: outils._applescript(outils._IMESSAGE, adresse, texte),
+                               accord=lambda t: a if (a := lire_accord(t)) is not None else distance.accord_simple(t),
+                               journal=noter)  # (accord_simple connaît le 👍 tapé)
+        iphone = [asyncio.create_task(boite.relever()), asyncio.create_task(distance.servir(
+            boite, cerveau.demander, journal=noter,
+            relire=lambda: None if discussion["active"] else cerveau.fin_de_conversation()))]
     n = config.PRENOM
     if manquantes := outils.autorisations_manquantes():  # sans elles, « efface ci, fais ça » échoue en silence
         noms = ", ".join(outils.VOLETS[m][1] for m in manquantes)
@@ -1041,6 +1054,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         chat.MESSAGERIE.debrancher()
         chat.MESSAGERIE.urgence = None
         par_ecrit.cancel()
+        for tache in iphone:
+            tache.cancel()
         await taches.arreter()
         await cerveau.arreter()
         oreilles.fermer()

@@ -178,6 +178,20 @@ SAVOIR_FAIRE_MAX = int(_env("SAVOIR_FAIRE_MAX", "40"))
 QUESTION_ECRITE_S = float(_env("QUESTION_ECRITE_S", "300"))
 ECRIT_RELECTURE_S = float(_env("ECRIT_RELECTURE_S", "120"))
 
+# --- Steve partout : depuis ton iPhone, par iMessage (distance.py) ----------------------------------------
+# Tu t'écris à toi-même dans Messages (ou « Dis Siri, Steve ») : il lit, fait, et te répond dans le même fil.
+# auto = tes adresses sont trouvées dans la base de Messages ; non = coupé ; ou la liste : « +33612345678,moi@icloud.com ».
+IMESSAGE = _env("IMESSAGE", "auto")
+IMESSAGE_RELEVE_S = float(_env("IMESSAGE_RELEVE_S", "2"))       # il relit tes messages toutes les 2 s
+IMESSAGE_PATIENCE_S = float(_env("IMESSAGE_PATIENCE_S", "20"))  # pas fini en 20 s : « Je m'en occupe… » (0 = jamais)
+QUESTION_IMESSAGE_S = float(_env("QUESTION_IMESSAGE_S", "600"))  # une question sans réponse en 10 min vaut non
+
+# --- Appels par l'iPhone (appels.py) ------------------------------------------------------------------------
+# « Steve, appelle maman » : il compose sur le Mac, l'appel passe par ton iPhone, et toi tu parles.
+# APPEL_AUTO=non : il ouvre la bulle « Appeler » et c'est toi qui cliques.
+APPELS = _env("APPELS", "oui").lower() not in {"non", "off", "0"}
+APPEL_AUTO = _env("APPEL_AUTO", "oui").lower() not in {"non", "off", "0"}
+
 # --- Ses outils « infos » (infos.py) --------------------------------------------------
 # Actualité, météo, taux de change, Wikipédia, jours fériés, cryptos : des services gratuits, sans clé.
 # Un service qui ne répond pas dans ce délai : il le dit et passe à WebSearch.

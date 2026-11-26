@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import apis, comptes, compteur, config, graphe, infos, infos2, lecons, lexique, savoir_faire
+from . import apis, appels, comptes, compteur, config, distance, graphe, infos, infos2, lecons, lexique, savoir_faire
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -296,12 +296,20 @@ on run argv
   set q to item 1 of argv
   set sortie to ""
   tell application "Contacts"
-    set gens to (every person whose name contains q)
+    try
+      set gens to (every person whose name contains q or nickname contains q)
+    on error
+      set gens to (every person whose name contains q)
+    end try
     if (count of gens) > 5 then set gens to items 1 thru 5 of gens
     repeat with p in gens
       set ligne to name of p
       repeat with t in phones of p
         set ligne to ligne & " | tél " & (value of t)
+        try
+          set etiquette to label of t
+          if etiquette is not missing value then set ligne to ligne & " (" & (etiquette as text) & ")"
+        end try
       end repeat
       repeat with e in emails of p
         set ligne to ligne & " | mail " & (value of e)
@@ -314,12 +322,13 @@ end run
 """
 
 
-@tool("chercher_contact", "Cherche une personne dans Contacts par son nom ou prénom. "
-      "Renvoie ses numéros et adresses mail.", {"nom": str})
+@tool("chercher_contact", "Cherche une personne dans Contacts par son nom ou prénom (ou « maman », « papa » s'il "
+      "l'a nommée ainsi). Renvoie ses numéros et adresses mail.", {"nom": str})
 async def chercher_contact(args: dict[str, Any]) -> dict[str, Any]:
     code, sortie = await _applescript(_CONTACT, args["nom"])
     if code:
         return _echec_app("Contacts", sortie, "Contacts inaccessible")
+    sortie = re.sub(r"_\$!<(.+?)>!\$_", r"\1", sortie)  # « _$!<Mobile>!$_ » : l'étiquette du numéro, en clair
     return _texte(sortie or "Personne de ce nom dans les contacts.")
 
 
@@ -340,6 +349,7 @@ end run
        "properties": {"destinataire": {"type": "string"}, "texte": {"type": "string"}, "nom": {"type": "string"}},
        "required": ["destinataire", "texte"]})
 async def envoyer_imessage(args: dict[str, Any]) -> dict[str, Any]:
+    distance.noter_envoi(args["texte"])  # s'il part dans ta conversation avec toi-même, ce n'est pas un ordre de toi
     code, sortie = await _applescript(_IMESSAGE, args["destinataire"], args["texte"])
     return _echec_app("Messages", sortie, "Échec de l'envoi") if code else _texte("Message envoyé.")
 
@@ -964,6 +974,7 @@ OUTILS.extend(comptes.OUTILS_COMPTES)  # créer des comptes à ta place (comptes
 OUTILS.extend(infos.OUTILS_INFOS)  # actualité, météo, change, Wikipédia, jours fériés, cryptos (infos.py)
 OUTILS.extend(infos2.OUTILS_INFOS2)  # entreprises, adresses, produits, air, carburants, livres… (infos2.py)
 OUTILS.extend(apis.OUTILS_APIS)  # toutes les API publiques gratuites : le catalogue, l'appel, les clés (apis.py)
+OUTILS.extend(appels.OUTILS_APPELS)  # appeler par l'iPhone depuis le Mac, et raccrocher (appels.py)
 if graphe.ACTIF:
     OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)
 

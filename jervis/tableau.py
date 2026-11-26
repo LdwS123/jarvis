@@ -132,7 +132,7 @@ def lire_journal(texte: str) -> dict[str, list]:
     outils: list[dict[str, Any]] = []
     chronos: list[dict[str, Any]] = []
     lui = f"🤖 {config.PRENOM} : "
-    lui_ecrit = f"🤖 {config.PRENOM} (écrit) : "
+    lui_ecrit = (f"🤖 {config.PRENOM} (écrit) : ", f"🤖 {config.PRENOM} (iPhone) : ")  # le chat, ou iMessage
 
     def tour(qui: str, phrase: str, ecrit: bool = False) -> None:
         # Ses phrases d'une même réponse : un seul tour. Une réponse écrite reste à part (et en entier sur la page).
@@ -143,9 +143,9 @@ def lire_journal(texte: str) -> dict[str, list]:
 
     for ligne in _COULEURS.sub("", texte).splitlines():
         if m := _TOI.match(ligne):
-            tour("toi", m[2], ecrit=m[1] == "écrit")
+            tour("toi", m[2], ecrit=m[1] in ("écrit", "iPhone"))
         elif ligne.startswith(lui_ecrit):
-            tour("steve", ligne[len(lui_ecrit):].replace(" ⏎ ", "\n"), ecrit=True)
+            tour("steve", ligne.split(" : ", 1)[1].replace(" ⏎ ", "\n"), ecrit=True)
         elif ligne.startswith(lui):
             # Son annonce au démarrage n'est pas une réponse (l'ancienne tournure traîne encore dans le journal).
             if ligne[len(lui):] not in (config.ANNONCE, f"{config.PRENOM} en ligne."):

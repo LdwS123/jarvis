@@ -271,6 +271,8 @@ Ce qu'il faut savoir :
 | « Retiens que ma sœur s'appelle Inès » | il le note dans `memoire.md`, rangé par rubrique (Toi, Proches, Travail…) et daté |
 | « J'ai déménagé à Paris » | il range l'ancienne adresse dans « Ce qui n'est plus vrai (jusqu'au …) » au lieu de garder les deux |
 | « Oublie ce que je t'ai dit sur Inès » | il efface ces lignes |
+| « Appelle maman », « appelle le resto » | il trouve le numéro (Contacts, ou la fiche du lieu) et appelle avec ton iPhone, depuis le Mac. Toi tu parles, lui se tait. « Raccroche » (voir « Appeler avec ton iPhone ») |
+| (depuis ton iPhone) « Dis Siri, Steve » → « mets un rappel demain 9 h » | tu lui écris dans ta conversation avec toi-même ; il le fait sur le Mac et te répond dans le même fil, lu par Siri dans tes AirPods (voir « Steve depuis ton iPhone ») |
 | « Tu te souviens du resto qu'on a cherché la semaine dernière ? » | il fouille vos conversations passées (`espace/conversations.jsonl`) |
 | « Fais une recherche sur les vols pour Lisbonne en mars, et compare » | il lance un **agent de fond** (Opus, qui réfléchit longtemps) et te rend la main tout de suite. Tu peux lui demander autre chose ; quand c'est fini, il te prévient et te résume le résultat. Plusieurs travaux d'un coup (« ajoute des fondateurs sur LinkedIn et trouve-moi des vols ») = un agent chacun, jusqu'à 5 en parallèle. « Où en sont mes agents ? » (il dit ce que chacun fait là, tout de suite), « annule la tâche 2 ». Les agents ont leur propre Chrome, vide : pas connectés à tes comptes |
 | « À 18 h 30, dis-moi de partir à la gare » | une annonce programmée : à l'heure dite, il te le dit à voix haute (et une notification s'affiche) |
@@ -351,6 +353,52 @@ par « ••• », même quand l'API la recopie. Il refuse le Mac et
 ton réseau (127.0.0.1 et le tableau de bord, ta box, 192.168…, 10…, les `.local`, l'adresse des métadonnées des
 nuages…) : chaque nom est résolu une seule fois, l'adresse vérifiée, et la requête part vers cette adresse-là (un nom qui changerait d'adresse entre-temps ne le ramène pas chez toi), redirections comprises (3 au plus), jamais par un proxy. Il
 garde au plus 1 Mo de la réponse et en rend 8 000 caractères (le JSON résumé : 15 éléments par liste).
+
+### Steve depuis ton iPhone (iMessage)
+
+Loin du Mac, écris-lui dans Messages, **dans ta conversation avec toi-même** (envoie un message à ton propre numéro
+ou à ton adresse iCloud) : « Steve, rappelle-moi de payer le loyer », « il me reste quoi aujourd'hui ? », « mets la
+musique dans le salon ». Steve, sur le Mac, lit ton message en 2 secondes, fait la demande comme si tu l'avais
+tapée, et te répond dans le même fil. Ses réponses commencent par 🤖, ses questions par ❓ (« J'envoie « j'arrive » à
+Léa ? (réponds oui ou non) ») : réponds « oui » ou « non » dans le fil. Pas de réponse en 10 minutes, c'est non ;
+une autre phrase à la place d'un oui ou d'un non, c'est non aussi, et ta phrase devient la demande suivante. Une
+demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la réponse.
+
+- **Le Mac** : Steve doit tourner, Messages connecté à ton compte iCloud, et Jervis doit avoir l'**Accès complet au
+  disque** (c'est ce qui lui permet de lire `~/Library/Messages/chat.db`, en lecture seule). Sans lui, une ligne
+  `📱 Je ne lis pas tes iMessages…` le dit au démarrage.
+- **« Dis Siri, Steve »** : dans l'app Raccourcis de l'iPhone, crée un raccourci nommé « Steve » avec deux actions :
+  « Dicter le texte », puis « Envoyer un message » (destinataire : toi, texte : « Texte dicté »), sans « Afficher lors
+  de l'exécution ». « Dis Siri, Steve », tu parles, c'est parti.
+- **Ses réponses dans tes AirPods** : iPhone → Réglages → Notifications → Annoncer les notifications → Messages.
+  (Selon la version d'iOS, un message que tu reçois de toi-même ne fait pas toujours sonner l'iPhone : si rien ne
+  s'annonce, ses réponses sont quand même dans le fil.)
+- **Qui il écoute** : seulement toi, dans ta conversation avec toi-même. Un message de quelqu'un d'autre, un groupe,
+  une réaction (« A aimé… ») ne sont jamais des ordres. Ses propres messages (ceux qui commencent par 🤖 ou ❓, et
+  tout iMessage qu'il vient d'envoyer) ne sont jamais relus comme une demande : un texte copié d'une page ne
+  revient pas déguisé en ordre de toi. Les messages déjà là au démarrage sont ignorés.
+- **Ce qui ne change pas** : les mêmes règles qu'au micro. Il ne paie jamais, les interdits tiennent, et ce qu'il
+  demande d'habitude à voix haute, il te le demande par message. Il n'appelle personne depuis le Mac quand tu lui
+  écris de l'iPhone : l'appel sonnerait sur le Mac, sans toi (appelle depuis l'iPhone, ou « Dis Siri, appelle … »).
+- `JERVIS_IMESSAGE=non` coupe tout ; `JERVIS_IMESSAGE=+33612345678,moi@icloud.com` donne tes adresses à la main
+  (par défaut, `auto` : il les lit dans la base de Messages).
+
+### Appeler avec ton iPhone
+
+« Steve, appelle maman » : il cherche « maman » dans Contacts (prénom, nom ou surnom ; le portable d'abord), compose
+le numéro, et clique pour toi sur « Appeler » dans la bulle de macOS. L'appel passe par ton iPhone ; tu parles dans
+le micro du Mac (ou tu prends l'appel sur l'iPhone). « Appelle le resto » : le numéro vient de la fiche du lieu.
+« Appelle Léa en FaceTime » : un appel FaceTime audio. « Raccroche » : il raccroche. **Il ne dit jamais un mot dans
+l'appel** : il compose, c'est toi qui parles.
+
+- **Une fois** : sur le Mac, FaceTime → Réglages → « Appels depuis l'iPhone » ; sur l'iPhone, Réglages → Téléphone
+  → Appels sur d'autres appareils → ton Mac. Les deux sur le même compte iCloud et le même Wi-Fi. Pour le clic,
+  l'autorisation **Accessibilité** de Jervis (sans elle, il compose et te dit de cliquer sur « Appeler »).
+- **Jamais un numéro surtaxé** (081 à 089, les 118, les numéros courts payants, les satellites) : il refuse, ça
+  paie.
+- **Toujours demandé** : un numéro d'urgence (« J'appelle le 17, la police. Je peux ? ») et un numéro lu dans une page,
+  un mail ou le rapport d'un agent, même en mode autonome. « Appelle maman » sur ta demande part sans question.
+- `JERVIS_APPELS=non` coupe les appels ; `JERVIS_APPEL_AUTO=non` : il compose, et c'est toi qui cliques.
 
 ### Ce qu'il retient tout seul
 
@@ -793,6 +841,12 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_APIS_CATALOGUE_JOURS` | 30 | âge au-delà duquel le catalogue des API est retéléchargé en fond (0 = jamais) |
 | `JERVIS_QUESTION_ECRITE_S` | 300 | une question Oui / Non du chat restée sans clic ce temps-là : c'est non |
 | `JERVIS_ECRIT_RELECTURE_S` | 120 | après ce temps sans message tapé, il relit l'échange écrit pour sa mémoire et son carnet |
+| `JERVIS_IMESSAGE` | auto | Steve depuis ton iPhone : `auto` = tes adresses lues dans Messages ; `+336…,moi@icloud.com` = tes adresses à la main ; `non` = coupé |
+| `JERVIS_IMESSAGE_RELEVE_S` | 2 | toutes les combien de secondes il regarde si tu lui as écrit |
+| `JERVIS_IMESSAGE_PATIENCE_S` | 20 | une demande plus longue que ça : « Je m'en occupe… » part d'abord (0 = jamais) |
+| `JERVIS_QUESTION_IMESSAGE_S` | 600 | une question ❓ restée sans réponse ce temps-là : c'est non |
+| `JERVIS_APPELS` | oui | `non` = il n'appelle personne |
+| `JERVIS_APPEL_AUTO` | oui | il clique lui-même sur « Appeler » ; `non` = il compose, tu cliques |
 | `JERVIS_PRESENT_S` | 120 | tu es « devant le Mac » si tu as touché clavier ou souris depuis ce nombre de secondes |
 | `JERVIS_SCREENPIPE` | auto | `auto` = s'il tourne ; `oui` = toujours ; `non` = jamais |
 | `JERVIS_SCREENPIPE_MCP` | screenpipe-mcp@0.18.14 | version du connecteur screenpipe |
@@ -837,6 +891,9 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
 - Ta voix ne quitte jamais le Mac : détection, transcription et empreinte vocale (`voix.npy`) sont calculées en local.
 - Ce que tu dis (en texte), tes mails, ton agenda, tes documents Drive, tes pages Notion, ta mémoire, les captures d'écran et ce qu'il
   lit dans tes apps partent vers Claude pour qu'il réponde.
+- Tes iMessages à Steve sont lus sur le Mac, dans la base de Messages (en lecture seule) ; seul le texte de ta
+  demande part vers Claude, comme une phrase tapée. Ses réponses partent par iMessage, chiffrées par Apple, vers toi
+  seul. Les appels passent par ton iPhone ; Steve ne les écoute pas et n'y parle pas.
 - Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur
   ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
 - Ses outils d'infos n'envoient à Google Actualités, Open-Meteo, Frankfurter, Wikipédia, Nager.Date, CoinGecko,

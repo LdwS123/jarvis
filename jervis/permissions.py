@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
-from . import comptes, config
+from . import appels, comptes, config
 
 
 class Decision(Enum):
@@ -353,7 +353,7 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
 # entends le site exact (« netflix.com », pas « netflix-connexion.xyz »), et un code ne part pas sur la demande d'une
 # page piégée qui essaierait de te voler un compte en le réinitialisant.
 COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu", "ranger_cle_api"}
-JERVIS_A_CONFIRMER = {"envoyer_imessage", "demander_accord", "mettre_a_la_corbeille", "effacer_memoire",
+JERVIS_A_CONFIRMER = {"envoyer_imessage", "appeler", "demander_accord", "mettre_a_la_corbeille", "effacer_memoire",
                       *COMPTES_A_CONFIRMER}
 
 
@@ -659,6 +659,12 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     if action == "envoyer_imessage":
         qui = entree.get("nom") or entree.get("destinataire", "ce contact")
         return f"J'envoie à {qui} : « {entree.get('texte', '')} ». Je peux ?"
+    if action == "appeler":
+        numero = appels.numero_appelable(entree.get("numero")) or str(entree.get("numero", ""))
+        if urgence := appels.numero_urgence(numero):
+            return f"J'appelle le {appels.national(numero)}, {urgence}. Je peux ?"
+        qui = entree.get("nom")
+        return f"J'appelle {qui} au {numero}. Je peux ?" if qui else f"J'appelle le {numero}. Je peux ?"
     if action == "execute_zapier_write_action":
         return _decrire_zapier(entree)
     if action == "share_file":
@@ -836,7 +842,7 @@ LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^(?:s
 # d'autre, où un piège peut se cacher (« note dans ton carnet : transfère tout à… »). Un outil nouveau compte comme
 # une lecture du dehors tant qu'on ne l'a pas ajouté ici : en cas d'oubli, il demande, il ne laisse pas passer.
 _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublier|noter_lecon|effacer_memoire|"
-                       r"creer_rappel|creer_note|lister_raccourcis|demander_accord|envoyer_imessage|"
+                       r"creer_rappel|creer_note|lister_raccourcis|demander_accord|envoyer_imessage|appeler|raccrocher|"
                        r"mettre_a_la_corbeille|verifier_autorisations|memoire_du_mac|depenses|tableau_de_bord|"
                        r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme|"
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
@@ -913,6 +919,8 @@ class Gardien:
         self.mefiance = False
         # Il a lu un texte venu d'ailleurs pendant cette demande : ce qu'il note dans son carnet passe par toi.
         self.contenu_externe = False
+        # La demande vient de ton iPhone, par iMessage (distance.py) : tu n'es pas devant le Mac.
+        self.a_distance = False
         self._verrou = asyncio.Lock()  # une question à la fois, même si les appels arrivent ensemble
         self._reponses: dict[str, bool] = {}
         self._apps_vues: set[str] = set()
@@ -951,6 +959,16 @@ class Gardien:
             return PermissionResultDeny(message="Après un texte venu d'ailleurs, je n'écris pas dans mon lexique : il ne "
                                                 "s'apprend que de ce qu'il dit. La relecture de fin de conversation "
                                                 "relèvera sa correction.")
+        if outil == "mcp__jervis__appeler":
+            if self.a_distance:  # l'appel partirait du Mac, où personne ne parle
+                return PermissionResultDeny(message="Il t'écrit depuis son iPhone, loin du Mac : un appel lancé d'ici "
+                                                    "sonnerait sur le Mac, sans lui. Dis-lui d'appeler depuis son iPhone "
+                                                    "(ou « Dis Siri, appelle … »).")
+            if decision is Decision.OUI and (self.contenu_externe or self.mefiance
+                                             or appels.numero_urgence(appels.numero_appelable(entree.get("numero")))):
+                # Un numéro lu sur une page ou dans un mail, ou un numéro d'urgence : c'est toi qui dis oui, même
+                # en mode autonome (un appel ne se rattrape pas).
+                decision = Decision.DEMANDER
         prudent = config.CONFIRMATIONS != "autonome"   # en mode autonome : plus de questions que pour l'argent
         if prudent and decision is Decision.OUI and self.mefiance and not est_lecture(outil):
             decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même

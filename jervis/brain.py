@@ -125,6 +125,9 @@ Tes outils maison (mcp__jervis__…) :
   ma sœur ? », « avec qui je bosse sur Oqro ? », « où je travaillais avant ? »), chercher_liens (si tu l'as).
 - Écran : s'il parle de ce qu'il a sous les yeux (« cette page », « cette erreur », « résume ça »), regarder_ecran.
 - iMessage : chercher_contact pour trouver le numéro, puis envoyer_imessage avec le prénom dans `nom`.
+- Appels : « appelle maman », « appelle le resto » → chercher_contact (ou le numéro du lieu), puis appeler avec
+  `numero` et `nom`. Tu composes, c'est lui qui parle : tu ne dis rien dans l'appel. « Raccroche » → raccrocher.
+  Plusieurs numéros : le portable, sauf s'il en dit un autre. Jamais un numéro surtaxé.
 - Rappels et notes : creer_rappel (« rappelle-moi de… » : il le verra aussi sur son iPhone), lister_rappels,
   creer_note. Calcule toujours la date exacte.
 - Annonces : programmer_annonce quand c'est toi qui dois parler ou agir à une heure donnée (« à 18 h dis-moi de
@@ -248,6 +251,11 @@ Messages spéciaux :
   pas lue à voix haute : là, et là seulement, tu peux écrire un peu plus long et précis (une courte liste, un
   lien, un chemin, un bout de code), toujours direct et sans blabla. Tes demandes de confirmation lui arrivent
   aussi dans le chat.
+- « (iMessage) … » : il te l'a écrit (ou dicté à Siri) depuis son iPhone, loin du Mac. Ta réponse lui revient par
+  iMessage, peut-être lue par Siri dans ses écouteurs : du texte simple, court, sans Markdown ni tableau, l'essentiel
+  d'abord. Il ne voit pas l'écran du Mac : dis-lui ce que tu as fait ou trouvé, ne lui montre rien. Tes questions
+  oui/non lui arrivent par message. Appeler quelqu'un d'ici n'a pas de sens (l'appel sonnerait sur le Mac, sans
+  lui) : dis-lui d'appeler depuis son iPhone.
 """
 
 NAVIGATEUR_SEUL = """\
@@ -468,7 +476,7 @@ def trace_outils(utilises: list[str], echecs: list[str]) -> str:
 
 # Une demande qui ne vient pas de lui mais d'un de ses agents (sa ronde, une tâche de fond finie) : leur compte rendu
 # peut répéter un mail ou une page piégés, alors il ne fait rien sans son oui (permissions.Gardien.mefiance).
-_RAPPORT = re.compile(r"^(?:\(écrit\) )?\((?:ta ronde|tâche de fond terminée|\d+ tâches de fond viennent de finir)")
+_RAPPORT = re.compile(r"^(?:\((?:écrit|iMessage)\) )?\((?:ta ronde|tâche de fond terminée|\d+ tâches de fond viennent de finir)")
 CACHE_DEMANDE = "(le compte rendu d'un de tes agents : non montré, il vient de contenus lus)"
 CACHE_REPONSE = "(sa réponse, tirée de mails, pages ou documents lus : non montrée)"
 
@@ -585,20 +593,23 @@ class Cerveau:
         await preparer_connecteurs(self._client, attente_max, self._journal)
 
     async def demander(self, texte: str, ecrit: Callable[[str], None] | None = None,
-                       confirmer_ecrit: Callable[[str], Awaitable[bool]] | None = None) -> str:
+                       confirmer_ecrit: Callable[[str], Awaitable[bool]] | None = None, origine: str = "écrit") -> str:
         """Envoie ta phrase et prononce chaque morceau de réponse dès qu'il arrive. Renvoie la réponse.
         Par écrit (le chat du tableau de bord) : `ecrit` reçoit le texte au fil de l'eau, sans un mot à voix haute,
-        et ses questions oui/non passent par `confirmer_ecrit` (des boutons) au lieu du micro."""
+        et ses questions oui/non passent par `confirmer_ecrit` (des boutons) au lieu du micro. `origine` dit d'où
+        vient ce texte écrit : « écrit » (le tableau de bord) ou « iMessage » (ton iPhone, loin du Mac)."""
         assert self._client is not None, "appelle demarrer() d'abord"
         if ecrit is None and self._verrou.locked() and self._par_ecrit:
             await self._parler("Je finis ce que tu m'as écrit, une seconde.")
         async with self._verrou:
             self._par_ecrit = ecrit is not None
             self._confirmer_ecrit = confirmer_ecrit if ecrit is not None else None
+            self._gardien.a_distance = ecrit is not None and origine == "iMessage"
             try:
-                return await self._demander(f"(écrit) {texte}" if ecrit is not None else texte, ecrit)
+                return await self._demander(f"({origine}) {texte}" if ecrit is not None else texte, ecrit)
             finally:
                 self._par_ecrit, self._confirmer_ecrit = False, None
+                self._gardien.a_distance = False
 
     async def _demander(self, texte: str, ecrit: Callable[[str], None] | None) -> str:
         par_ecrit = ecrit is not None
