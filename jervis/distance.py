@@ -54,15 +54,24 @@ def vient_de_lui(texte: str) -> bool:
 
 
 def cle(adresse: str | None) -> str:
-    """Une adresse réduite pour comparer : un mail en minuscules, un numéro par ses 9 derniers chiffres
-    (« +33 6 12 34 56 78 », « 0612345678 » et « tel:+33612345678 » sont le même numéro)."""
+    """Une adresse sous une seule forme, pour la comparer en entier : un mail en minuscules, un numéro au format
+    international (« +33 6 12 34 56 78 », « 0612345678 », « 0033612345678 » et « tel:+33612345678 » donnent
+    « +33612345678 »). Jamais une fin de numéro : un +44 6 12 34 56 78 n'est pas toi."""
     adresse = (adresse or "").strip().removeprefix("tel:").removeprefix("mailto:")
     if re.match(r"^[EePp]:", adresse):  # « E:moi@icloud.com » (le compte, dans la base)
         adresse = adresse[2:]
     if "@" in adresse:
         return adresse.casefold()
     chiffres = re.sub(r"\D", "", adresse)
-    return chiffres[-9:] if len(chiffres) >= 6 else ""
+    if adresse.startswith("+"):
+        numero = "+" + chiffres
+    elif chiffres.startswith("00"):
+        numero = "+" + chiffres[2:]
+    elif len(chiffres) == 10 and chiffres.startswith("0"):  # un numéro français écrit sans indicatif
+        numero = "+33" + chiffres[1:]
+    else:
+        numero = chiffres
+    return numero if len(chiffres) >= 6 else ""
 
 
 def en_clair(texte: str) -> str:
