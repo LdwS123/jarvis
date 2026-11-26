@@ -383,7 +383,7 @@ NIVEAU_VOIX_DB = float(_env("NIVEAU_VOIX_DB", "-26"))  # … ni qu'une voix soit
 SEUIL_VAD_BRUT = float(_env("SEUIL_VAD_BRUT", "0.6"))  # le détecteur sur le son non débruité (un peu plus exigeant)
 # Une phrase est « chuchotée » quand ta voix y vibre moins que cette part du temps (parler : 0,7 à 0,9 ; chuchoter : ~0).
 SEUIL_CHUCHOTE = float(_env("SEUIL_CHUCHOTE", "0.15"))
-SEUIL_VOIX_CHUCHOTE = float(_env("SEUIL_VOIX_CHUCHOTE", "0.15"))  # ressemblance qu'il faut à une phrase chuchotée
+SEUIL_VOIX_CHUCHOTE = float(_env("SEUIL_VOIX_CHUCHOTE", "0.3"))  # ressemblance qu'il faut à une phrase chuchotée
 VOLUME_CHUCHOTE = float(_env("VOLUME_CHUCHOTE", "0.35"))  # sa voix quand tu viens de chuchoter (1 = comme d'habitude)
 # Taille max d'un message de Claude Code : une capture d'écran (outil « see ») dépasse le 1 Mo par défaut.
 TAMPON_MAX = 64 * 1024 * 1024

@@ -197,8 +197,9 @@ Au démarrage, une ligne indique ce qui est actif (`✓`) ou pas (`·`). Si une 
   remontée avant d'être transcrite ;
 - il reconnaît un chuchotement (ta voix ne vibre plus : rien que du souffle) et te répond alors plus bas (35 % du
   volume). L'empreinte d'un chuchotement ne ressemble pas à ta voix habituelle : pour ces phrases-là, le seuil de
-  ta voix descend à 0,15 (un chuchotement de la télé reste rare). Un chuchotement n'apprend rien à ta voix, et le
-  « oui » d'une confirmation sensible doit toujours être dit de ta voix normale.
+  ta voix descend à 0,3 (un chuchotement de toi a mesuré ~0,5 ; une voix inconnue presque 0). Ce filtre-là n'ouvre que les demandes ordinaires : un chuchotement n'apprend rien à ta voix, et le
+  « oui » d'une confirmation sensible (paiement, ordre venu d'une page web) est jugé sur ta voix principale, au seuil
+  plein : chuchoté, il ne passe pas.
 
 Mesuré sur des chuchotements de synthèse : de -52 à -58 dB (à quelques mètres, dans une pièce calme), il n'entendait
 rien ; il transcrit maintenant la phrase entière. Avec `JERVIS_DIAGNOSTIC_VOIX=oui`, les lignes de `jervis.log`
@@ -721,7 +722,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_NIVEAU_VOIX_DB` | -26 | une voix n'est jamais montée plus fort que ça (une voix normale passe donc telle quelle) |
 | `JERVIS_SEUIL_VAD_BRUT` | 0.6 | le second détecteur (son non débruité, chuchotements) : baisse-le (0.5) s'il rate tes chuchotements, monte-le (0.75) s'il réagit au bruit |
 | `JERVIS_SEUIL_CHUCHOTE` | 0.15 | sous cette part de voix « qui vibre », la phrase est chuchotée |
-| `JERVIS_SEUIL_VOIX_CHUCHOTE` | 0.15 | le seuil de ta voix pour une phrase chuchotée (si ta voix est apprise) |
+| `JERVIS_SEUIL_VOIX_CHUCHOTE` | 0.3 | le seuil de ta voix pour une phrase chuchotée (si ta voix est apprise) : baisse-le (0.2) s'il ignore tes chuchotements, monte-le (0.4) s'il écoute ceux de la télé |
 | `JERVIS_VOLUME_CHUCHOTE` | 0.35 | son volume quand tu viens de lui chuchoter (1 = il répond normalement) |
 | `JERVIS_SEUIL_VOIX` | 0.5 | si ta voix est apprise : baisse-le (0.4) s'il t'ignore, monte-le (0.6) s'il écoute les autres (phrases de `VOIX_LONGUE_S` et plus, et les « oui » sensibles) |
 | `JERVIS_SEUIL_VOIX_COURTE` | 0.42 | le seuil des phrases les plus courtes (`MIN_VERIF_VOIX_S`) ; entre les deux, il descend en douceur |
