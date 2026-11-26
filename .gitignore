@@ -31,3 +31,6 @@ sauvegardes/
 # Tes modes et tes règles de rangement (les comptes rendus, eux, sont dans espace/)
 modes.json
 rangement.json
+
+# Tes règles 📌 « autorise ça désormais »
+autorisations.json

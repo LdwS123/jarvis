@@ -62,6 +62,16 @@ def controle_voix(voix: float | None, voix_connue: bool, actif: bool = True) -> 
     return "ok" if voix >= config.SEUIL_VOIX else "inconnue"
 
 
+def appel_de_confiance(voix: float | None, voix_connue: bool, reglage: str | None = None) -> bool:
+    """Une phrase entendue pendant un appel peut-elle agir sans ton clic ? (config.APPEL_CONFIANCE) « oui » :
+    toujours ; « voix » : seulement si c'est ta voix, reconnue sur une vraie phrase (sans voix apprise, jamais :
+    ce pourrait être un participant, par les haut-parleurs) ; « non » : jamais."""
+    reglage = (reglage or config.APPEL_CONFIANCE).lower()
+    if reglage == "oui":
+        return True
+    return reglage == "voix" and voix_connue and voix is not None and voix >= config.SEUIL_VOIX
+
+
 # Ce qu'il te fait dire quand ton « oui » est trop bref pour reconnaître ta voix (moins de 0,8 s de parole :
 # « oui, vas-y » tient en 0,7 s, il le redemandait donc en boucle). Chaque essai demande plus long que le précédent.
 DEMANDES_PHRASE = [
@@ -436,8 +446,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         if not texte or HALLUCINATIONS.search(texte) or BRUITS.match(texte) or hors_alphabet(texte):
             return "", phrase.reveil  # (hors_alphabet : une vidéo en russe, en arabe…)
         chuchote(getattr(phrase, "chuchotee", False))
-        if not en_anglais(texte):
+        if not en_anglais(texte) and not appel["en_cours"]:
             # Une vraie phrase de toi : il affine ta voix. Avec son nom dedans, c'est sûr que c'est toi.
+            # (Pas pendant un appel : « Steve » dit par un participant, dans les haut-parleurs, n'est pas toi.)
             if appris := oreilles.apprendre_voix(phrase, sure=phrase.reveil or bool(NOM.search(texte))):
                 print(f"   🎙  Ta voix : {appris}.", flush=True)
         return texte, phrase.reveil
@@ -1003,6 +1014,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 return  # on parle dans l'appel, pas à lui
             commande = SALUTATION.sub("", texte).strip(" ,.!?")
         print(f"🧑 Toi (pendant l'appel) : {texte}", flush=True)
+        confiance = appel_de_confiance(chrono.get("voix"), oreilles.voix_connue)
         quoi = reunion.commande_reunion(commande)
         if quoi == "commencer":
             await ecrire_pendant_l_appel(await asyncio.to_thread(
@@ -1016,10 +1028,11 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             try:
                 # Une voix dans l'appel peut être celle d'un participant (les haut-parleurs) : il lit, mais n'agit
                 # qu'avec ton oui, par un clic dans le chat (personne dans l'appel ne peut cliquer à ta place).
+                # Sauf ta voix reconnue (JERVIS_APPEL_CONFIANCE=voix), ou si tu lui fais confiance en appel (oui).
                 reponse = await cerveau.demander(
                     commande, ecrit=lambda morceau: chat.MESSAGERIE.completer(n, morceau),
                     confirmer_ecrit=lambda question: chat.MESSAGERIE.demander(question, config.QUESTION_ECRITE_S),
-                    origine="entendu pendant un appel", en_appel=True)
+                    origine="entendu pendant un appel", en_appel=not confiance)
             except Exception as e:
                 reponse = f"⚠️ Je n'ai pas pu répondre ({e!r})."
             reponse = reponse or "OK."

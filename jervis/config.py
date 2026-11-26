@@ -123,6 +123,13 @@ GRAPHE_PARALLELE = int(_env("GRAPHE_PARALLELE", "3"))   # lectures en même temp
 # Ce qu'il dit est dans briefing.md (modifie-le comme tu veux). JERVIS_BRIEFING=non pour le couper.
 BRIEFING = _env("BRIEFING", "oui").lower() not in {"non", "off", "0"}
 BRIEFING_HEURE = _env("BRIEFING_HEURE", "07:30")
+# Avant une réunion : BRIEFING_REUNION_MIN minutes avant un rendez-vous avec d'autres personnes, il te résume tes
+# derniers mails avec elles, tes comptes rendus et ce qu'il sait d'elles (un agent en lecture seule). Il relève
+# ton agenda toutes les RELEVE_AGENDA_MIN minutes, entre INITIATIVE_DEBUT et INITIATIVE_FIN, quand tu es devant
+# le Mac. JERVIS_BRIEFING_REUNION=non pour le couper.
+BRIEFING_REUNION = _env("BRIEFING_REUNION", "oui").lower() not in {"non", "off", "0"}
+BRIEFING_REUNION_MIN = float(_env("BRIEFING_REUNION_MIN", "5"))
+RELEVE_AGENDA_MIN = float(_env("RELEVE_AGENDA_MIN", "60"))
 # Ses documents à toi (ton CV, tes papiers) : il en connaît la liste et les lit quand ça sert (une candidature,
 # un formulaire). Ils restent sur le Mac ; seul le passage qu'il lit part chez Claude, comme un fichier ouvert.
 DOCUMENTS = Path(_env("DOCUMENTS", str(DOSSIER / "documents"))).expanduser()
@@ -215,6 +222,10 @@ SCREENPIPE_MCP = _env("SCREENPIPE_MCP", "screenpipe-mcp@0.18.14")
 # « Voyons… » (préparé à l'avance : il part sans délai). JERVIS_PATIENCE=non pour le couper.
 PATIENCE = _env("PATIENCE", "oui").lower() not in {"non", "off", "0"}
 PATIENCE_S = float(_env("PATIENCE_S", "1.8"))
+# Tu lui as coupé la parole (« stop », ou une autre question) : pendant REPRISE_MIN minutes, « continue »,
+# « reprends », « tu disais ? » lui fait reprendre sa réponse à la phrase coupée, sans redire le début.
+# JERVIS_REPRISE_MIN=0 pour le couper.
+REPRISE_MIN = float(_env("REPRISE_MIN", "10"))
 PHRASES_PATIENCE = [p.strip() for p in _env("PHRASES_PATIENCE", "Voyons…|Alors…|Une seconde.|Je regarde.").split("|")
                     if p.strip()]
 # Quand tu commences à lui parler pendant qu'il parle, il baisse la voix (à ce volume, de 0 à 1) le temps
@@ -427,6 +438,10 @@ APPEL_SURVEILLANCE_S = float(_env("APPEL_SURVEILLANCE_S", "2"))  # il regarde to
 APPEL_FIN_S = float(_env("APPEL_FIN_S", "8"))  # le micro libéré depuis 8 s : l'appel est fini (pas un simple « muet »)
 # Pendant un appel, quand tu dis son nom : "ecrit" (il répond par écrit), "rien" (il ne réagit qu'à « compte rendu »).
 APPEL_REPONSE = _env("APPEL_REPONSE", "ecrit").lower()
+# Ce qu'il entend pendant un appel peut être la voix d'un participant (les haut-parleurs). Pour agir (un message, un
+# rappel, un fichier…) : "voix" (par défaut) = sans clic quand c'est ta voix (voix.npy), un clic dans le chat sinon ;
+# "non" = toujours un clic ; "oui" = jamais de clic (tu es seul au casque). Lire reste libre dans tous les cas.
+APPEL_CONFIANCE = _env("APPEL_CONFIANCE", "voix").lower()
 # Compte rendu : il transcrit la réunion en local, morceau par morceau, en détectant la langue de chaque morceau
 # (Whisper, 99 langues ; Parakeet s'il n'est pas là : 25 langues européennes).
 DOSSIER_REUNIONS = Path(os.path.expanduser(_env("DOSSIER_REUNIONS", str(DOSSIER / "espace" / "reunions"))))

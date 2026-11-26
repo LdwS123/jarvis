@@ -23,7 +23,7 @@ from urllib.parse import quote
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import (apis, appels, bureau, comptes, compteur, config, distance, graphe, infos, infos2, lecons, lexique,
-               reunion, savoir_faire)
+               permissions, reunion, savoir_faire)
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -978,6 +978,7 @@ OUTILS.extend(apis.OUTILS_APIS)  # toutes les API publiques gratuites : le catal
 OUTILS.extend(appels.OUTILS_APPELS)  # appeler par l'iPhone depuis le Mac, et raccrocher (appels.py)
 OUTILS.extend(reunion.OUTILS_REUNION)  # le compte rendu de réunion, transcrit sur le Mac (reunion.py)
 OUTILS.extend(bureau.OUTILS_BUREAU)  # fenêtres, modes, musique, sélection, rangement, santé, fichiers
+OUTILS.extend(permissions.OUTILS_BLOCAGES)  # pourquoi il a bloqué, et tes règles 📌 (permissions.py)
 if graphe.ACTIF:
     OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)
 

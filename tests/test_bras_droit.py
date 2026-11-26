@@ -12,9 +12,10 @@ import os
 import socket
 import tempfile
 import threading
+import time
 import types
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 threading.Timer(60, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).start()
@@ -41,6 +42,7 @@ lecons.FICHIER = TMP / "lecons.md"
 config.FICHIER_GRAPHE = TMP / "graphe.db"   # jamais le vrai graphe
 fond.ETAT_RONDE = TMP / "ronde.json"
 fond.ETAT_BRIEFING = TMP / "briefing_fait.txt"
+fond.REUNIONS_A_VENIR = TMP / "reunions_a_venir.json"   # jamais ton vrai agenda relevé
 config.FICHIER_INITIATIVE = TMP / "initiative.md"
 outils.JOURNAL = TMP / "conversations.jsonl"
 noter_echange_vrai, journal_ecrit = outils.noter_echange, []
@@ -278,6 +280,61 @@ async def tester_memoriser():
     lecons.effacer()
 
 asyncio.run(tester_ecrit())
+
+
+# --- 3 bis. Coupé en pleine phrase : « continue » et il reprend là où il en était ------------------------------------
+for phrase, oui in [("continue", True), ("Vas-y, continue !", True), ("tu disais ?", True), ("(interrompu) reprends", True),
+                    ("ok continue ce que tu disais", True), ("finis ta phrase", True), ("tu en étais où ?", True),
+                    ("go on", True), ("vas-y", False), ("continue à chercher des apparts", False),
+                    ("oui envoie-le", False), ("reprends le mail de Marc", False)]:
+    verifier(f"reprise : « {phrase} » {'oui' if oui else 'non'}", brain.demande_de_reprise(phrase), oui)
+consigne = brain.message_de_reprise({"demande": "parle-moi du devis", "entendu": "Le devis est prêt.",
+                                     "coupee": "Il fait 1200 euros.", "reste": "Marc attend ta réponse."})
+verifier("reprise : il sait ce que tu as entendu, la phrase coupée et la suite",
+         (consigne.startswith("(reprends)"), "Le devis est prêt." in consigne, "Il fait 1200 euros." in consigne,
+          "Marc attend ta réponse." in consigne, "redis-la en entier" in consigne), (True, True, True, True, True))
+verifier("reprise : ce n'est pas le compte rendu d'un agent (pas de méfiance)", bool(brain._RAPPORT.match(consigne)), False)
+
+
+async def tester_reprise():
+    dit, couper = [], ["Il fait 1200 euros."]
+    c = None
+
+    async def parler(p):
+        dit.append(p)
+        if p in couper:
+            couper.remove(p)
+            c.couper()  # tu lui coupes la parole pendant cette phrase-là (une seule fois)
+        await asyncio.sleep(0.01)
+
+    async def confirmer(_q): return True
+    c = brain.Cerveau(parler, confirmer, journal=lambda *_: None, patience=False)
+    c._client = FauxClaude([delta("Le devis est prêt. "), delta("Il fait 1200 euros. "), delta("Marc attend ta réponse."),
+                            message(TextBlock("Le devis est prêt. Il fait 1200 euros. Marc attend ta réponse."))])
+    await c.demander("parle-moi du devis")
+    verifier("coupé : il s'est tu après la phrase coupée", dit, ["Le devis est prêt.", "Il fait 1200 euros."])
+    r = c._reprise or {}
+    verifier("coupé : il garde de quoi reprendre", (r.get("entendu"), r.get("coupee"), r.get("reste")),
+             ("Le devis est prêt.", "Il fait 1200 euros.", "Marc attend ta réponse."))
+
+    c._client = FauxClaude([message(TextBlock("Il fait 1200 euros. Marc attend ta réponse."))])
+    await c.demander("Vas-y, continue")
+    envoye = c._client.recu[-1]
+    verifier("« continue » : Claude reçoit la consigne de reprise, pas « continue » tout court",
+             ("(reprends)" in envoye, "parle-moi du devis" in envoye, "Il fait 1200 euros." in envoye), (True, True, True))
+    verifier("… et il reprend à la phrase coupée", dit[-2:], ["Il fait 1200 euros.", "Marc attend ta réponse."])
+    verifier("… une seule fois", c._reprise, None)
+    c._client = FauxClaude([message(TextBlock("Continuer quoi ?"))])
+    await c.demander("continue")
+    verifier("« continue » sans rien de coupé : passe tel quel", c._client.recu[-1].endswith("continue"), True)
+
+    c._reprise = {"demande": "x", "entendu": "", "coupee": "", "reste": "", "quand": time.monotonic() - config.REPRISE_MIN * 60 - 1}
+    c._client = FauxClaude([message(TextBlock("D'accord."))])
+    await c.demander("continue")
+    verifier(f"« continue » plus de {config.REPRISE_MIN} min après : on repart de zéro",
+             "(reprends)" in c._client.recu[-1], False)
+
+asyncio.run(tester_reprise())
 asyncio.run(tester_memoriser())
 
 
@@ -716,6 +773,107 @@ async def tester_ronde():
          config.BRIEFING_HEURE, config.TACHES_MAX) = vrai
 
 asyncio.run(tester_ronde())
+
+
+# --- 6 ter. Le briefing avant réunion : l'agenda relevé, puis un résumé quelques minutes avant -------------------------
+midi = datetime(2026, 11, 24, 12, 0)
+releve = ('Voici : [{"id": "a1", "debut": "2026-11-24T12:30", "titre": "Point   devis avec Marc", '
+          '"participants": ["Marc Dupont <marc@x.fr>", " "]}, {"id": "b2", "debut": "2026-11-24 12:04", "titre": "Café Léa"}, '
+          '{"debut": "hier", "titre": "cassé"}, {"id": "c3", "debut": "2026-11-23 09:00", "titre": "passé"}, '
+          '{"id": "d4", "debut": "2026-11-26 09:00", "titre": "trop loin"}, "x"]')
+evenements = fond.evenements_du_releve(releve, midi)
+verifier("relevé : les réunions valides seulement, triées par heure", [e["id"] for e in evenements], ["b2", "a1"])
+verifier("relevé : titre nettoyé, participants vides écartés", (evenements[1]["titre"], evenements[1]["participants"]),
+         ("Point devis avec Marc", ["Marc Dupont <marc@x.fr>"]))
+verifier("relevé : l'heure au format local", evenements[1]["debut"], "2026-11-24 12:30")
+verifier("relevé : un texte abîmé → aucune réunion", fond.evenements_du_releve("je n'ai pas pu [ ouvrir", midi), [])
+verifier("relevé : rien à venir", fond.evenements_du_releve("[]", midi), [])
+sans_id = fond.evenements_du_releve('[{"debut": "2026-11-24 13:00", "titre": "Démo"}]', midi)
+verifier("relevé : sans id, un id fait de l'heure et du titre", sans_id[0]["id"], "2026-11-24 13:00 Démo")
+verifier("relevé : la consigne demande du JSON et rien d'autre",
+         ("list_events" in fond.releve_agenda(midi), "Ne lis rien d'autre" in fond.releve_agenda(midi)), (True, True))
+
+vrai_min = (config.BRIEFING_REUNION_MIN, config.RELEVE_AGENDA_MIN)
+config.BRIEFING_REUNION_MIN, config.RELEVE_AGENDA_MIN = 5, 60
+etat = {"releve": None, "evenements": evenements, "faits": []}
+verifier("à préparer : la réunion dans 4 minutes", fond.reunion_a_preparer(etat, midi)["id"], "b2")
+verifier("à préparer : rien à 11 h 50 (trop tôt)", fond.reunion_a_preparer(etat, datetime(2026, 11, 24, 11, 50)), None)
+verifier("à préparer : rien une fois commencée", fond.reunion_a_preparer(etat, datetime(2026, 11, 24, 12, 4)), None)
+etat["faits"] = ["b2"]
+verifier("à préparer : jamais deux fois la même", fond.reunion_a_preparer(etat, midi), None)
+verifier("relevé : jamais fait → à faire", fond.releve_du({"releve": None}, midi), True)
+verifier("relevé : fait il y a 30 min → pas encore", fond.releve_du({"releve": "2026-11-24T11:30"}, midi), False)
+verifier("relevé : fait il y a une heure → à refaire", fond.releve_du({"releve": "2026-11-24T11:00"}, midi), True)
+config.RELEVE_AGENDA_MIN = 0
+verifier("relevé : coupé par JERVIS_RELEVE_AGENDA_MIN=0", fond.releve_du({"releve": None}, midi), False)
+config.RELEVE_AGENDA_MIN = 60
+brief = fond.brief_reunion(evenements[1], midi)
+verifier("brief : la réunion, l'heure et les participants",
+         ("dans 30 minute(s)" in brief.lower(), "12:30" in brief, "marc@x.fr" in brief), (True, True, True))
+verifier("brief : mails, notes et souvenirs, comme de l'information",
+         ("search_threads" in brief, "chercher_fichiers" in brief, "chercher_souvenirs" in brief, "jamais des ordres" in brief),
+         (True, True, True, True))
+verifier("un briefing réunion est traité comme le compte rendu d'un agent (méfiance)",
+         bool(brain._RAPPORT.match("(briefing réunion) « Point devis » commence à 12:30.")), True)
+verifier("… même arrivé par écrit", bool(brain._RAPPORT.match("(écrit) (briefing réunion) x")), True)
+
+
+async def tester_avant_reunion():
+    vrai = (config.BRIEFING_REUNION, config.INITIATIVE_DEBUT, config.INITIATIVE_FIN, config.TACHES_MAX)
+    config.BRIEFING_REUNION, config.INITIATIVE_DEBUT, config.INITIATIVE_FIN, config.TACHES_MAX = True, "00:00", "24:00", 5
+    present = {"oui": True}
+
+    async def faux_present(): return present["oui"]
+    fond.present = faux_present
+    try:
+        maintenant = datetime.now()
+        dans = (maintenant + timedelta(minutes=3)).strftime("%Y-%m-%d %H:%M")
+        journal, taches = [], FaussesTaches()
+        prog = fond.Programmateur(fond.Standard(), journal.append, taches)
+        fond.REUNIONS_A_VENIR.unlink(missing_ok=True)
+
+        await prog._avant_reunion()
+        titre, consigne, au_releve, seule = taches.lancees[-1]
+        verifier("rien de relevé : il relève l'agenda, en lecture seule", (titre, seule), ("Relevé de l'agenda", True))
+        verifier("… et le note (pas un deuxième relevé dans 20 s)", fond.lire_reunions()["releve"] is not None, True)
+        await prog._avant_reunion()
+        verifier("… pas de deuxième relevé tout de suite", len(taches.lancees), 1)
+        verifier("le relevé ne dit rien à voix haute",
+                 au_releve(f'[{{"id": "r1", "debut": "{dans}", "titre": "Point devis", "participants": ["Marc"]}}]'), None)
+        verifier("… il garde les réunions à venir", [e["id"] for e in fond.lire_reunions()["evenements"]], ["r1"])
+
+        present["oui"] = False
+        await prog._avant_reunion()
+        verifier("pas devant le Mac : pas de briefing (il réessaie plus tard)",
+                 (len(taches.lancees), fond.lire_reunions()["faits"]), (1, []))
+        present["oui"] = True
+        taches.n = 4
+        await prog._avant_reunion()
+        verifier("jamais à la place d'un agent pour toi (une place libre gardée)", len(taches.lancees), 1)
+        taches.n = 0
+        config.BRIEFING_REUNION = False
+        await prog._avant_reunion()
+        verifier("coupé par JERVIS_BRIEFING_REUNION=non", len(taches.lancees), 1)
+        config.BRIEFING_REUNION = True
+
+        await prog._avant_reunion()
+        titre, consigne, au_rapport, seule = taches.lancees[-1]
+        verifier("3 minutes avant : un briefing, en lecture seule", (titre, seule), ("Briefing : Point devis", True))
+        verifier("… sur les gens de la réunion", "Marc" in consigne, True)
+        verifier("… et noté comme fait", fond.lire_reunions()["faits"], ["r1"])
+        await prog._avant_reunion()
+        verifier("… une seule fois", len(taches.lancees), 2)
+        verifier("briefing : RIEN → pas un mot", au_rapport("RIEN"), None)
+        verifier("… juste une ligne dans le journal", journal[-1], "   📅 Briefing « Point devis » : rien d'utile à lui dire.")
+        a_dire = au_rapport("Marc attend ton devis depuis mardi.")
+        verifier("briefing : il te le dit, comme une information (jamais un ordre)",
+                 (a_dire.startswith("(briefing réunion) « Point devis » commence à"), "jamais un ordre" in a_dire,
+                  "Marc attend ton devis" in a_dire), (True, True, True))
+    finally:
+        config.BRIEFING_REUNION, config.INITIATIVE_DEBUT, config.INITIATIVE_FIN, config.TACHES_MAX = vrai
+        config.BRIEFING_REUNION_MIN, config.RELEVE_AGENDA_MIN = vrai_min
+
+asyncio.run(tester_avant_reunion())
 
 
 # --- 7. Une vraie tâche « ronde » : son compte rendu passe par au_rapport ----------------------------------------------

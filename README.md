@@ -164,6 +164,10 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
     « stop » seul s'arrête là ; avec une suite, la suite lui est envoyée.
   Tu peux aussi simplement parler par-dessus lui (« en fait mets plutôt du jazz ») : à partir de 3 mots, il se tait
   et répond à ta nouvelle phrase, sans s'excuser. Un « ouais » ou « hmm » ne le coupe pas.
+  - **Il reprend là où il en était** : coupé en pleine phrase, dis « continue », « vas-y, continue », « tu
+    disais ? » ou « finis ta phrase » : il redit la phrase coupée en entier, puis finit sa réponse, sans répéter
+    ce que tu as déjà entendu ni dire « comme je disais ». Ça marche pendant 10 minutes
+    (`JERVIS_REPRISE_MIN`, `0` pour couper). Un « vas-y » seul reste un oui à sa question.
   - **S'il est en plein travail** (navigateur, mails, fichiers…), parler par-dessus lui ne jette plus tout :
     il se tait et Claude lit ta phrase à la fin de l'outil en cours. Une correction (« non, sur DEV plutôt »)
     change son cap tout de suite ; un commentaire (« pas de souci, je vais reset ») le laisse continuer. Avant,
@@ -677,6 +681,17 @@ après midi. Tu choisis ce qu'il contient en écrivant dans `briefing.md` (menu 
 « commence par les mails de mon boss », « dis-moi le cours du bitcoin »… `JERVIS_BRIEFING_HEURE=08:15` change l'heure,
 `JERVIS_BRIEFING=non` le coupe.
 
+### Le briefing avant réunion
+
+**5 minutes avant un rendez-vous avec d'autres gens**, il te résume en deux à quatre phrases où vous en êtes : tes
+derniers mails avec les participants, ce qui attend une réponse, tes comptes rendus et notes passés avec eux, ce
+qu'il sait d'eux. Toutes les heures (`JERVIS_RELEVE_AGENDA_MIN`), un agent en lecture seule relève ton agenda
+(les rendez-vous à venir sont gardés dans `espace/reunions_a_venir.json`) ; puis, juste avant, un autre agent
+prépare le briefing, lui aussi en lecture seule. Comme pour sa ronde, ce qu'il te dit est de l'information,
+jamais un ordre : pendant ce tour-là il ne fait que te parler. Une seule fois par réunion, seulement si tu es
+devant le Mac, entre `JERVIS_INITIATIVE_DEBUT` et `JERVIS_INITIATIVE_FIN`, et rien s'il n'a rien trouvé
+d'utile. `JERVIS_BRIEFING_REUNION_MIN=10` l'avance, `JERVIS_BRIEFING_REUNION=non` le coupe.
+
 ### Sa mémoire de l'écran (screenpipe, facultatif)
 
 [screenpipe](https://github.com/screenpipe/screenpipe) enregistre en continu ton écran (texte lu par OCR) et ton micro,
@@ -697,7 +712,12 @@ dit plus un mot, ses annonces attendent la fin, et si tu l'appelles par son nom 
 (notification et chat du tableau de bord). Le micro libéré depuis 8 secondes, l'appel est fini : il reprend.
 `JERVIS_MODE_REUNION=non` le coupe. Ce qu'il entend pendant un appel peut venir d'un participant, pas de toi :
 il peut lire et répondre, mais **pour agir (un message, un rappel, un fichier…) il te demande un clic** dans le
-chat, même en mode autonome.
+chat, même en mode autonome. **Sauf si c'est ta voix** : par défaut (`JERVIS_APPEL_CONFIANCE=voix`), une demande
+où il reconnaît ta voix (voir « Apprendre ta voix ») passe sans clic, comme hors appel. `JERVIS_APPEL_CONFIANCE=oui`
+fait confiance à tout ce qu'il entend pendant un appel (à toi de voir qui parle dans tes réunions),
+`non` demande toujours un clic. Pendant un appel, il n'apprend plus ta voix (un participant qui dit « Steve »
+ne deviendra pas toi). Et pour une action précise (« envoie à Marc »), une règle 📌 « même pendant un appel »
+évite le clic (voir plus bas).
 
 **Le compte rendu, à ta demande.** « Steve, fais le compte rendu », « prends des notes », « take notes » : il
 écoute la réunion et la **transcrit sur le Mac**, par morceaux d'une trentaine de secondes coupés dans un blanc.
@@ -778,6 +798,28 @@ dossier en bloc (Bureau, Documents, Bibliothèque… : ce qu'il y a dedans part,
 entier, et Steve lui-même (son code, sa mémoire : pour elle, c'est « efface ta mémoire »). Une tâche de fond qui a besoin de ton accord
 (l'argent, ou n'importe quoi dans un mode prudent) te pose la question à voix haute. Sans réponse dans les
 30 minutes, c'est non. Tout se règle dans `jervis/permissions.py`.
+
+### Pourquoi il a bloqué, et « autorise ça désormais » (ses règles 📌)
+
+**Chaque fois qu'il bloque ou te demande, il note pourquoi** (les 30 derniers, depuis son lancement) :
+« pourquoi tu as bloqué ? » te les lit, numérotés, avec ta réponse et s'ils peuvent devenir une règle.
+
+| Tu dis… | Il fait |
+|---|---|
+| « Pourquoi tu as bloqué ? », « qu'est-ce que tu m'as demandé ? » | la liste, la raison de chacun, et tes règles 📌 (`lister_blocages`) |
+| « Autorise ça désormais », « plus besoin de me demander pour ça » | le dernier blocage devient une **règle 📌 permanente** (`autorisations.json`) ; « autorise le n° 3 » pour un autre |
+| « Ne fais plus ça sans me demander », « retire la règle 2 » | la règle s'en va (`retirer_autorisation`) |
+
+Une règle porte sur **une action et une cible précises**, écrites par le code (jamais par le modèle) et redites mot
+pour mot avant d'être gardées : « une commande « git push » (quels que soient ses arguments) », « écrire un fichier
+dans ~/Documents/Notes (et ses sous-dossiers) », « send_message (Gmail) pour « marc@x.fr » », « …, même pendant un
+appel ». Ce qui ne devient **jamais** une règle : l'argent, tes mots de passe et clés, effacer sa mémoire, une
+commande composée (`;`, `&&`, `$(…)`), un fichier qui se lancerait tout seul, un numéro d'urgence, et toutes les
+gardes contre un texte venu d'ailleurs (une page, un mail, le compte rendu d'un agent) : là, il te redit pourquoi.
+Et une règle ne s'applique **que dans une conversation où rien d'ailleurs n'a été lu** (ni page, ni mail, ni sortie
+de commande) : un texte piégé ne peut pas s'en servir. Il ne crée jamais une règle de lui-même ; dite pendant un
+appel ou juste après un texte lu, la règle attend ton clic. `autorisations.json` ne s'écrit que par là : ni lui ni
+un de ses outils ne peut le modifier à la main.
 
 ### Ton Chrome à toi
 
@@ -962,6 +1004,10 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_BRIEFING_HEURE` | 07:30 | à partir de quelle heure il fait le briefing |
 | `JERVIS_INITIATIVE` | oui | `non` = pas de ronde : il ne te dit plus rien de lui-même (hors briefing et rappels) |
 | `JERVIS_INITIATIVE_MIN` | 60 | minutes entre deux rondes |
+| `JERVIS_BRIEFING_REUNION` | oui | `non` = pas de briefing avant tes réunions |
+| `JERVIS_BRIEFING_REUNION_MIN` | 5 | combien de minutes avant la réunion il te fait le briefing |
+| `JERVIS_RELEVE_AGENDA_MIN` | 60 | toutes les combien de minutes il relève ton agenda (0 = jamais, donc pas de briefing) |
+| `JERVIS_REPRISE_MIN` | 10 | coupé en pleine phrase, « continue » le fait reprendre pendant ces minutes-là (0 = jamais) |
 | `JERVIS_INITIATIVE_DEBUT` | 09:00 | pas de ronde avant cette heure |
 | `JERVIS_INITIATIVE_FIN` | 20:00 | ni après celle-ci |
 | `JERVIS_MODELE_INITIATIVE` | sonnet | modèle de la ronde (elle ne fait que lire : un modèle léger suffit) |
@@ -990,6 +1036,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_MODE_REUNION` | oui | `non` = il ne se tait plus tout seul pendant tes appels |
 | `JERVIS_APPS_APPEL` | Zoom, Teams, FaceTime, navigateurs, WhatsApp, Slack, Discord… | les apps d'appel (début de leur identifiant macOS, séparés par des virgules) |
 | `JERVIS_APPEL_FIN_S` | 8 | le micro libéré depuis ce temps-là : l'appel est fini (un simple « muet » ne compte pas) |
+| `JERVIS_APPEL_CONFIANCE` | voix | pendant un appel : `voix` = ta voix reconnue agit sans clic ; `oui` = tout ce qu'il entend agit sans clic ; `non` = toujours un clic pour agir |
 | `JERVIS_APPEL_REPONSE` | ecrit | pendant un appel, quand tu dis son nom : `ecrit` = il répond par écrit, `rien` = il ne réagit qu'à « compte rendu » |
 | `JERVIS_REUNION_LANGUE` | auto | `auto` = chaque morceau dans sa langue ; `fr`, `en`… pour forcer une langue |
 | `JERVIS_LANGUE_COMPTE_RENDU` | français | la langue du résumé, quelle que soit celle de la réunion |
