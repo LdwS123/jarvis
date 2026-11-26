@@ -226,7 +226,7 @@ async def gardien() -> dict:
     vu["cage : cd"] = await cage("cd ~/Documents", page=True)
     vu["cage : sa propre cage ouverte"] = await cage(
         "/usr/bin/sandbox-exec -p '(version 1)(allow default)' /bin/zsh -c 'echo b3Nh | base64 -d | sh'", page=True)
-    vu["cage : git clone après une page"] = await cage("cd ~/Documents && git clone -q https://example.com/x.git",
+    vu["cage : git clone après une page"] = await cage("git clone -q https://example.com/x.git ~/Documents/x",
                                                        page=True)
     vu["cage : git init après une page"] = await cage("cd ~/Documents && git init projet", page=True)
     vu["cage : git clone sans page"] = await cage("git clone -q https://example.com/x.git", page=False)
@@ -326,27 +326,29 @@ verifier("après une page : .git/config, hooks, info d'un autre dépôt, ou un .
 verifier("après une page : un modèle .pth dans Documents, ~/.zshrc.bak → sans question",
          [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c})
           for c in ("~/Documents/modele.pth", "~/.zshrc.bak")], [False, False])
-verifier("cage : git clone / git init après une page → demandés (hors cage, ils posent config et hooks)",
-         [vu["cage : git clone après une page"][:2], vu["cage : git init après une page"][:2]], [(A, D), (A, D)])
+verifier("cage : git clone / git init après une page → demandés, puis en cage avec leur seul dossier ouvert",
+         [vu["cage : git clone après une page"], vu["cage : git init après une page"]], [(A, D, True), (A, D, True)])
 verifier("cage : git init suivi d'une autre commande → reste en cage, sans question",
          vu["cage : git init puis autre chose"], (A, 0, True))
 verifier("cage : la question montre la commande elle-même (pas la description du modèle)",
-         ["hors de la cage : « git clone https://example.com/x.git ~/Documents/x »" in q for q in vu["cage : git clone montré"][1]], [True])
+         [f"n'écrira que dans {permissions.Path.home().resolve()}/Documents/x : « git clone https://example.com/x.git"
+          " ~/Documents/x »" in q for q in vu["cage : git clone montré"][1]], [True])
 verifier("cage : une commande trop longue pour être montrée → refusée, sans question",
          vu["cage : commande trop longue"][:2], ("PermissionResultDeny", 0))
 verifier("cage : seuls un git clone / init simples sortent (ni -c, ni --upload-pack, ni ext::, ni ; ou $)",
-         [permissions.nouveau_depot(c) for c in (
+         [bool(permissions.nouveau_depot(c)) for c in (
              "git clone --depth=1 https://github.com/a/b.git ~/Documents/b", "cd ~/Documents && git init -q projet",
              "git clone -c core.fsmonitor=x https://a/b", "git clone --upload-pack=touch https://a/b",
              "git clone 'ext::sh -c touch% x' y", "git clone ext::sh y", "git init x && sh y", "git init $(id)", "git init x\nsh y",
              "git clone --recurse-submodules https://a/b", "git init --template=/tmp/t x", "git submodule update")],
          [True, True] + [False] * 10)
 verifier("cage : un git clone / init vers ~/.claude, LaunchAgents, le code de Steve, ~ ou un dossier inconnu → reste en cage",
-         [permissions.nouveau_depot(c) for c in (
+         [bool(permissions.nouveau_depot(c)) for c in (
              "git clone https://a/b ~/.claude/skills/b", "cd ~/.claude/skills && git clone https://a/b.git",
              "git clone https://a/b ~/Library/LaunchAgents/x", "git init ~/Jervis/jervis/x", "cd ~ && git init",
              "git init ~/Jervis", "git init ~/p/.git/x", "git init ~+/x", "git clone https://a/b.git",
-             "git init projet")], [False] * 10)
+             "git init projet", "cd ~/Documents && git clone https://a/b.git",
+             "git clone https://a/b ~/.CLAUDE/skills/b", "git init ~/Projets/.GIT/x")], [False] * 13)
 verifier("cage : git clone sans page → sans question", vu["cage : git clone sans page"][:2], (A, 0))
 verifier("cage : conversation neuve → plus de cage", vu["cage : conversation neuve"], (A, 0, False))
 verifier("après une page : écrire un LaunchAgent → demandé", vu["écrire un LaunchAgent"], (A, D))
@@ -387,6 +389,28 @@ if nue:
         # Un nouveau dépôt ne se crée pas en cage (git init y poserait config et hooks : il t'est demandé avant)
         r = en_cage(f"git init -q {t}/depot && echo init_ok")
         verifier("cage réelle : git init refusé dans la cage", "init_ok" in r.stdout, False)
+        # Ton oui à un git init : son dossier s'ouvre, et lui seul (un autre dépôt, ~/Jervis/.git restent fermés)
+        neuf = Path(t).resolve() / "neuf"
+        subprocess.run(["git", "init", "-q", f"{t}/cible"], check=True)
+        r = subprocess.run(["/bin/zsh", "-c", permissions.encager(
+            f"git init -q {neuf} && echo init_ok; echo x > {t}/cible/.git/hooks/pre-push", permis=neuf)],
+            capture_output=True, text=True, timeout=20)
+        verifier("cage réelle : git init accepté → son dossier s'ouvre (hooks compris), pas un autre dépôt",
+                 ("init_ok" in r.stdout, (neuf / ".git/hooks").is_dir(), (Path(t) / "cible/.git/hooks/pre-push").exists()),
+                 (True, True, False))
+        copie = Path(t).resolve() / "copie"
+        r = subprocess.run(["/bin/zsh", "-c", permissions.encager(f"git clone -q {t}/cible {copie} && echo clone_ok",
+                                                                  permis=copie)], capture_output=True, text=True,
+                           timeout=20)
+        verifier("cage réelle : git clone accepté → il se fait dans son dossier", ("clone_ok" in r.stdout,
+                 (copie / ".git/config").exists()), (True, True))
+        # Un lien posé à la place du dossier entre la question et la commande : macOS juge le vrai chemin
+        lien = Path(t).resolve() / "lien"
+        lien.symlink_to(Path(t).resolve() / "cible/.git/hooks")
+        r = subprocess.run(["/bin/zsh", "-c", permissions.encager(f"echo x > {lien}/pre-commit", permis=lien)],
+                           capture_output=True, text=True, timeout=20)
+        verifier("cage réelle : un lien glissé à la place du dossier ouvert n'ouvre pas les hooks d'un autre dépôt",
+                 (Path(t) / "cible/.git/hooks/pre-commit").exists(), False)
         # ~/Jervis/.git fermé en entier : git status lit, rien ne s'y écrit (ni objet, ni branche, ni refs/replace)
         racine = permissions._RACINE
         (Path(t) / "blob").write_text(f"temoin de cage {time.time()}\n")  # neuf : jamais encore dans .git

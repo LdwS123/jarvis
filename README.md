@@ -391,15 +391,15 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
     shell, `~/.ssh`, `~/.gitconfig`, les `.pth` de Python, le code de Steve et tout son `.git` — `git status` y
     marche, tes commits se font hors cage —, la config, les hooks et `info/` de n'importe quel dépôt, à toute
     profondeur, sous-modules et worktrees compris, ni un fichier `.git` qui pointerait ailleurs, `~/.claude`), et ne
-    renomme pas leurs dossiers parents pour en poser des faux. Un `git clone` ou `git init` ne passe donc pas en
-    cage : après une page lue, il t'est demandé et, si tu dis oui, tourne hors cage — seulement s'il est seul et
-    simple (un `cd` devant au plus, ni `;`, `$`, guillemets, ni option qui lance du code comme `-c`,
-    `--upload-pack`, `--template` ou un transport `ext::`), et vers un dossier connu d'avance (un chemin absolu,
-    ou un `cd /chemin &&` devant) qui n'est ni dans ce qui se lance tout seul (`~/.claude`, LaunchAgents, le code
-    de Steve…), ni au-dessus (`~`, `~/Jervis`), ni dans un `.git` ; sinon il reste en cage. Après une page lue,
-    toute commande qu'on te demande t'est montrée telle quelle, sans rien de ce qu'en dit Steve (« Je vais lancer
-    cette commande hors de la cage : « … ». Je peux ? »), et une commande de plus de 300 caractères est refusée :
-    il la découpe.
+    renomme pas leurs dossiers parents pour en poser des faux. Un `git clone` ou `git init` ne marche donc pas en
+    cage : après une page lue, il t'est demandé, s'il est seul et simple (un `cd` devant au plus, ni `;`, `$`,
+    guillemets, ni option qui lance du code comme `-c`, `--upload-pack`, `--template` ou un transport `ext::`) et
+    vers un dossier écrit en entier dans la commande (`git clone URL ~/Documents/nom`, `cd ~/Documents && git init
+    nom`), hors de ce qui se lance tout seul, ni au-dessus (`~`, `~/Jervis`), ni dans un `.git`. Ton oui le lance
+    dans la cage, avec ce seul dossier ouvert : c'est macOS qui vérifie le vrai chemin à chaque écriture (un lien
+    glissé entre-temps, une autre casse n'ouvrent rien d'autre). Après une page lue, toute commande qu'on te demande
+    t'est montrée telle quelle, sans rien de ce qu'en dit Steve, et une commande de plus de 300 caractères est
+    refusée : il la découpe.
     La cage ferme les services eux-mêmes (Apple Events, LaunchServices, l'écran, les éléments de connexion,
     Raccourcis, les actions d'apps, toute tâche confiée à launchd) : une copie d'`open` ou d'`osascript` sous un
     autre nom, ou un script Python qui les appelle directement, n'y arrive pas plus, et un `sandbox-exec` lancé

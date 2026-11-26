@@ -1006,8 +1006,10 @@ _STEVE_FICHIERS: tuple[str, ...] = ()
 # Partout, dans tout dépôt, à toute profondeur (sous-modules, worktrees) : la config (core.fsmonitor, core.hooksPath
 # lanceraient du code à ton prochain git), les hooks, info/, commondir/gitdir, et l'entrée .git elle-même (un
 # fichier .git peut pointer vers un faux dépôt) ; et les .pth / sitecustomize que python lit à chaque démarrage.
-# Un git clone ou git init doit donc sortir de la cage : après une page lue, il t'est demandé (nouveau_depot), mais
-# seulement tout seul et tout simple — sinon un « git init x; curl … | sh » sortirait de la cage avec ton oui.
+# Un git clone ou git init ne marche donc pas dans la cage : après une page lue, il t'est demandé (nouveau_depot),
+# seulement tout seul et tout simple (sinon un « git init x; curl … | sh » passerait avec ton oui), puis tourne dans
+# une cage qui ne lui ouvre que son dossier : le chemin vérifié ici ne compte pas, c'est macOS qui juge à l'écriture
+# (un lien posé entre-temps vers ~/.claude, une casse différente sur APFS n'y ouvrent rien).
 _SE_LANCE_MOTIFS = (r"/\.git/(.*/)?(config|config\.worktree|commondir|gitdir)(\.lock)?$", r"/\.git/(.*/)?(hooks|info)/",
                     r"/\.git$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")
 COMMANDE_MONTREE_MAX = 300  # après une page lue, une commande demandée t'est montrée en entier, jusqu'à cette taille
@@ -1020,48 +1022,40 @@ _GIT_OPTIONS_SURES = re.compile(r"-q|--quiet|--single-branch|--no-tags|--depth=\
 _CHEMIN_ABSOLU = re.compile(r"(?:~(?=/|$)|/)[\w./@+,%-]*")  # ni ~+ ni ~autre ni =git, que zsh réinterpréterait
 
 
-def _depot_ou(dossier: str | None, cible: str | None) -> Path | None:
-    """Où le nouveau dépôt se pose, ou None si on ne le sait pas d'avance (le dossier courant de Bash a pu changer)."""
-    if cible and _CHEMIN_ABSOLU.fullmatch(cible):
-        return Path(cible).expanduser().resolve()
-    if not dossier or not _CHEMIN_ABSOLU.fullmatch(dossier) or (cible and (cible.startswith(("~", "=")))):
-        return None
-    return (Path(dossier).expanduser() / (cible or "")).resolve()
-
-
-def nouveau_depot(commande: str) -> bool:
-    """Un git clone ou git init tout seul et tout simple (un cd devant au plus), qu'on peut laisser sortir de la cage,
-    vers un dossier connu d'avance qui n'est ni dans ce qui se lance tout seul (~/.claude, LaunchAgents, le code de
-    Steve…), ni au-dessus, ni dans un .git."""
+def nouveau_depot(commande: str) -> Path | None:
+    """Le dossier d'un git clone ou git init tout seul et tout simple, vers un chemin donné en entier (un clone sans
+    dossier, ou relatif sans « cd /chemin && » devant, tomberait là où un cd d'avant l'a mis), qui n'est ni dans ce qui
+    se lance tout seul (~/.claude, LaunchAgents, le code de Steve…), ni au-dessus, ni dans un .git. Sinon None."""
     m = NOUVEAU_DEPOT.fullmatch(commande.strip())
     if not m:
-        return False
+        return None
     dossier, verbe, mots = m.group(1), m.group(2), m.group(3).split()
     for mot in mots:
         if mot.startswith("-") and not _GIT_OPTIONS_SURES.fullmatch(mot):
-            return False
+            return None
         if not mot.startswith("-") and "::" in mot:  # ext::sh -c … : un transport qui lance une commande
-            return False
+            return None
     noms = [mot for mot in mots if not mot.startswith("-")]
-    if verbe == "clone":
-        if len(noms) not in (1, 2):
-            return False
-        cible = noms[1] if len(noms) == 2 else re.sub(r"\.git$", "", noms[0].rstrip("/").rsplit("/", 1)[-1]
-                                                       .rsplit(":", 1)[-1])
-        if not cible:
-            return False
-    else:
-        if len(noms) > 1:
-            return False
-        cible = noms[0] if noms else None
+    attendus = 2 if verbe == "clone" else 1
+    if len(noms) != attendus and not (verbe == "init" and not noms and dossier):
+        return None  # le dossier d'un clone, on ne le devine pas d'après l'URL : il est écrit dans la commande
+    cible = noms[-1] if len(noms) == attendus else ""
     try:
-        ou = _depot_ou(dossier, cible)
+        if _CHEMIN_ABSOLU.fullmatch(cible):
+            ou = Path(cible).expanduser().resolve()
+        elif dossier and _CHEMIN_ABSOLU.fullmatch(dossier) and not cible.startswith(("~", "=")):
+            ou = (Path(dossier).expanduser() / cible).resolve()
+        else:
+            return None
     except (OSError, RuntimeError, ValueError):
-        return False
-    if ou is None or ".git" in ou.parts or SE_LANCE_PLUS_TARD.search(f"{ou}/x"):
-        return False
-    dessous = [*_se_lance_chemins()[0], *_se_lance_chemins()[1]]
-    return not any(c == ou or ou in c.parents for c in dessous)  # ni ~ ni ~/Jervis : ils contiennent du protégé
+        return None
+    if any(partie.casefold() == ".git" for partie in ou.parts) or SE_LANCE_PLUS_TARD.search(f"{ou}/x"):
+        return None
+    ici = str(ou).casefold()  # APFS ne distingue pas ~/.Claude de ~/.claude
+    for c in (*_se_lance_chemins()[0], *_se_lance_chemins()[1]):
+        if str(c).casefold() == ici or str(c).casefold().startswith(ici.rstrip("/") + "/"):
+            return None  # ni ~ ni ~/Jervis : ils contiennent du protégé
+    return ou
 
 
 def _se_lance_chemins() -> tuple[list[Path], list[Path]]:
@@ -1075,7 +1069,7 @@ def _sbpl(chemin: Path) -> str:
     return str(chemin).replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _cage_profil() -> str:
+def _cage_profil(permis: Path | None = None) -> str:
     maison = Path.home().resolve()
     dossiers, fichiers = _se_lance_chemins()
     motifs = " ".join(f'(regex #"{m}")' for m in _SE_LANCE_MOTIFS)
@@ -1096,12 +1090,15 @@ def _cage_profil() -> str:
             ' (global-name-prefix "com.apple.siriactionsd") (global-name-prefix "com.apple.linkd"))'
             f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')} {motifs})"
             f"(deny file-write-unlink {sp(parents, 'literal')})"
-            f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})")
+            f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})"
+            + (f'(allow file-write* (subpath "{_sbpl(permis)}"))' if permis else ""))  # en dernier : il l'emporte
 
 
-def encager(commande: str) -> str:
-    """La même commande, dans la cage (même shell, même dossier, même sortie)."""
-    return (f"MPLBACKEND=Agg GIT_OPTIONAL_LOCKS=0 {CAGE_EXEC} -p {shlex.quote(_cage_profil())} /bin/zsh -c {shlex.quote(commande)}")
+def encager(commande: str, permis: Path | None = None) -> str:
+    """La même commande, dans la cage (même shell, même dossier, même sortie) ; permis : le seul dossier qu'elle peut
+    écrire en entier, .git compris (le nouveau dépôt d'un git clone ou git init que tu as accepté)."""
+    profil = shlex.quote(_cage_profil(permis))
+    return f"MPLBACKEND=Agg GIT_OPTIONAL_LOCKS=0 {CAGE_EXEC} -p {profil} /bin/zsh -c {shlex.quote(commande)}"
 
 
 def a_encager(commande: str) -> bool:
@@ -1323,8 +1320,10 @@ class Gardien:
                         message=f"Cette commande est trop longue pour que je la lui montre en entier avant de dire oui : "
                                 f"découpe-la en commandes de {COMMANDE_MONTREE_MAX} caractères au plus, puis réessaie.")
                 # rien du modèle, que la commande ; ses « » deviennent des " pour qu'elle ne ferme pas la citation
-                question = (f"Je vais lancer cette commande hors de la cage : "
-                            f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?")
+                depot = nouveau_depot(commande)
+                question = (f"Je vais lancer cette commande, qui n'écrira que dans {depot} : " if depot else
+                            "Je vais lancer cette commande hors de la cage : ")
+                question += f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?"
             if outil.startswith("mcp__mac__") and (app := atelier(action, entree, apps)):
                 cle = f"atelier:{app}"  # un seul « oui » pour tout le travail dans Cursor pendant cette demande
                 question = _decrire_atelier(app, action, entree)
@@ -1339,6 +1338,11 @@ class Gardien:
                     self._reponses[cle] = await self._confirmer(question)
             decision = Decision.OUI if self._reponses[cle] else Decision.NON
         if decision is Decision.OUI:
+            if (outil == "Bash" and deja_dehors and Path(CAGE_EXEC).exists()
+                    and (depot := nouveau_depot(str(entree.get("command") or "")))):
+                # ton oui à un git clone / init : dans la cage quand même, son seul dossier ouvert
+                return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]),
+                                                                                         permis=depot)})
             return PermissionResultAllow(updated_input=entree)
         return PermissionResultDeny(
             message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "
