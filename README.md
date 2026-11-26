@@ -93,6 +93,7 @@ Elles se gèrent ensuite dans Réglages Système → Confidentialité et sécuri
 | Accès complet au disque → Jervis | « efface ci, range ça » partout sur le Mac : Bureau, Documents, Téléchargements, Mail, Messages… Sans elle, macOS répond « Operation not permitted » |
 | Accessibilité → Jervis | cliquer et taper dans tes apps (Peekaboo), appuyer sur Entrée dans Cursor |
 | Enregistrement de l'écran → Jervis | « regarde mon écran » (sans elle, il ne voit que le fond d'écran) |
+| Surveillance de l'entrée → Jervis | la touche fn (🌐) qui le réveille sans dire son nom (il ne lit que fn, pas ce que tu tapes) |
 | Automatisation → Jervis → Finder, Messages, Contacts, Notes, Rappels… | piloter ces apps (vider la corbeille, iMessage, notes, rappels) |
 | Contacts | retrouver « Léa » quand tu dis « envoie un message à Léa » |
 
@@ -121,6 +122,13 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
 - Dis son nom dans ta phrase, d'une traite : « Steve, ouvre Cursor », « Salut Steve, j'ai rendez-vous avec qui demain ? ».
   Le nom peut être au début ou à la fin.
 - Tu peux aussi dire juste « Salut Steve » ou « Hey Steve », attendre le bip, puis parler.
+- **Ou la touche fn (🌐), sans rien dire** : tape fn puis parle (le bip, et il attend ta demande), ou garde-la
+  enfoncée pendant ta phrase (ta phrase est la demande, telle quelle). fn avec une autre touche (fn+F1, fn+flèche)
+  reste ton raccourci et ne le réveille pas. Pendant un appel, fn vaut ta voix : ce que tu dis en la tenant est
+  de toi, pas d'un participant. Une fois : Réglages Système → Clavier → « Appuyer sur 🌐 » → **Ne rien faire**
+  (sinon macOS ouvre aussi la dictée ou les émojis), et l'autorisation **Surveillance de l'entrée** pour Jervis.
+  `JERVIS_TOUCHE_FN=non` l'éteint. Seuls « fn descend / fn remonte / une autre touche » sont lus, rien de ce que
+  tu tapes.
 - Il comprend qu'on parle *d'un autre* Steve quand un nom de famille suit (« Steve Jobs a fondé Apple ») et ne réagit pas.
   Mais « Steve » reste un prénom courant : si un ami s'appelle Steve, il risque de répondre à sa place.
 - **Il parle pendant qu'il réfléchit** : il dit sa première phrase dès qu'elle est écrite, sans attendre la fin de
@@ -459,6 +467,21 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
 - `JERVIS_IMESSAGE=non` coupe tout ; `JERVIS_IMESSAGE=+33612345678,moi@icloud.com` donne tes adresses à la main
   (par défaut, `auto` : il les lit dans la base de Messages).
 
+### Écrire dans un groupe (iMessage, WhatsApp)
+
+« Steve, écris dans le groupe Famille que j'arrive », « dis sur WhatsApp au groupe Foot que je suis en retard » :
+il te montre le message (« J'envoie sur WhatsApp au groupe « Foot » : « … ». Je peux ? » hors mode autonome) puis
+l'envoie. Le groupe se donne par **son nom exact**, tel qu'il est dans l'app (majuscules et accents près).
+
+- **iMessage** : la discussion de Messages qui porte ce nom. Aucune, ou plusieurs du même nom : rien ne part, il
+  te demande le nom exact.
+- **WhatsApp, en texte** (`envoyer_whatsapp`, à une personne ou à un groupe) : il ouvre la discussion dans l'app
+  du Mac (par la liste, sinon par la recherche), vérifie dans l'en-tête que c'est bien elle, écrit le message,
+  appuie sur Entrée (remise à WhatsApp seul, pas à l'app devant), puis regarde que le texte est parti. Un
+  brouillon déjà là, il n'y touche pas ; si ça rate, il efface ce qu'il a écrit : rien ne reste à moitié envoyé.
+- **WhatsApp, en vocal** : pareil avec `groupe` (voir plus bas).
+- Un nom approchant (« Fam » pour « Famille ») ne suffit pas : il ne devine jamais le groupe.
+
 ### Un vocal WhatsApp, avec sa voix
 
 « Steve, envoie un vocal à Mamad pour dire bonjour » : il te demande « J'envoie un vocal WhatsApp à Mamad : « … ».
@@ -479,7 +502,8 @@ pourquoi.
   pas la bulle : il ne le renvoie pas, regarde WhatsApp).
 - **Une fois** : l'app WhatsApp du Mac connectée, le micro autorisé pour WhatsApp, l'autorisation **Accessibilité**
   de Jervis, et la voix locale allumée (`JERVIS_VOIX_LOCALE`). Le contact : son nom dans Contacts (le portable
-  d'abord ; si deux fiches se ressemblent, il demande) ou son numéro en +33….
+  d'abord ; si deux fiches se ressemblent, il demande) ou son numéro en +33…. Un groupe : son nom exact
+  (« envoie un vocal au groupe Famille »).
 - **Si le vocal est muet ou très faible** : le micro de WhatsApp peut gommer ce qui sort des enceintes (son
   anti-écho). Installe BlackHole (`brew install blackhole-2ch`), mets `JERVIS_VOCAL_WHATSAPP_SORTIE="BlackHole 2ch"`
   et choisis « BlackHole 2ch » comme micro dans WhatsApp (menu Appel → Micro) : sa voix entre alors dans le vocal
@@ -887,11 +911,22 @@ chaque fois. Si tu veux qu'il te redemande, choisis un mode plus prudent (tablea
 | Ce qui reste demandé | Pourquoi |
 |---|---|
 | L'argent | `demander_accord` avec le montant et le marchand, et seulement si tu as mis `JERVIS_PAIEMENTS=oui` ; sinon il ne paie jamais (voir « Payer : coupé par défaut ») |
+| Juste après un texte venu d'ailleurs (une page, un mail, la sortie d'une commande) : un script qui pilote une app, un fichier qui se lance tout seul, arrêter un programme, ouvrir un projet, écouter une réunion, un numéro lu dans ce texte | ce texte a pu le lui dicter. Ses commandes tournent alors dans une cage. `JERVIS_MEFIANCE=non` enlève ces questions et la cage (voir plus bas) |
+| Un numéro d'urgence | un appel ne se rattrape pas |
 
 | Ce qui est refusé d'office, sans question | Pourquoi |
 |---|---|
 | `sudo`, `rm` direct, formater un disque, éteindre ou redémarrer le Mac | irréversible : il passe par la corbeille, qui se rattrape |
 | Un numéro de carte dans ses outils, un clic sur « Payer »… quand les paiements sont coupés | voir « Payer » |
+
+**Tout ce qu'un humain fait sur le Mac** lui est ouvert : cliquer, taper, glisser-déposer, sélectionner du texte,
+changer d'espace, le Dock, les menus (Peekaboo), plus ses outils à lui. Seuls restent coupés les outils de Peekaboo
+qui lancent un autre modèle d'IA ou font doublon (son agent, l'analyse d'image, le navigateur : il a Chrome).
+
+**`JERVIS_MEFIANCE=non` : plus que l'argent.** Les questions d'après un texte venu d'ailleurs (ligne 2 du tableau)
+disparaissent, et ses commandes ne passent plus par la cage. **À tes risques** : une page ou un mail piégé qu'il
+lit peut alors lui faire cliquer, taper, lancer du code ou écrire en ton nom sans que tu le voies. Restent quoi
+qu'il arrive : l'argent, les numéros d'urgence, les interdits ci-dessous, et Messages par un script.
 
 Le revers de la médaille : en mode autonome, une page ou un mail piégé a moins de garde-fous pour l'empêcher d'agir.
 Les modes plus prudents les remettent : `confiance` (ce qui détruit, les secrets, le Terminal et ce qui ne vient pas
@@ -1024,6 +1059,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_VOIX_DIRECTE` | oui | garde une connexion ouverte avec la voix Microsoft pendant qu'il réfléchit (sa première phrase part plus vite) ; `non` = une connexion neuve par phrase |
 | `JERVIS_SEUIL_VAD` | 0.5 | baisse-le (0.3) s'il ne t'entend pas, monte-le (0.7) s'il réagit au bruit |
 | `JERVIS_PRENOM` | Steve | le nom auquel il répond et qu'il se donne (`Jarvis` = l'ancien) |
+| `JERVIS_TOUCHE_FN` | oui | la touche fn (🌐) le réveille sans dire son nom ; `non` l'éteint |
 | `JERVIS_MOTCLE_MODELE` | (aucun) | modèle de mot de réveil : `hey_jarvis` (fourni) ou le chemin de ton `.onnx` « Hey Steve » |
 | `JERVIS_DETECTION` | whisper | `whisper` = son nom dans la phrase transcrite ; avec un modèle de mot de réveil : `hybride` (par défaut alors) = l'un ou l'autre, `motcle` = seulement le mot de réveil |
 | `JERVIS_SEUIL_MOTCLE` | 0.5 | baisse-le (0.3) s'il rate le mot de réveil, monte-le (0.7) s'il se réveille tout seul |
@@ -1094,6 +1130,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_PEEKABOO_MCP` | @steipete/peekaboo@4.9.8 | version de Peekaboo |
 | `JERVIS_MCP_GRATUITS` | tous | les serveurs MCP gratuits en plus : `tous`, `aucun`, ou une liste (`deepwiki,context7,wikipedia`) |
 | `JERVIS_RECHERCHE_OUTILS` | (vide) | passé à Claude Code (`ENABLE_TOOL_SEARCH`) : `true` = les extras toujours derrière ToolSearch, `false` = tout chargé, `auto:10` = le seuil ; vide = son réglage |
+| `JERVIS_MEFIANCE` | oui | `non` = plus de questions ni de cage juste après un texte venu d'ailleurs : seul l'argent (et un numéro d'urgence) passe encore par toi. À tes risques (voir « Ce qu'il te demande encore ») |
 | `JERVIS_CONFIRMATIONS` | autonome | `autonome` = il fait tout seul, il ne demande que pour l'argent ; `confiance` = il confirme ce qui détruit, les secrets, le Terminal et ce qui ne vient pas de toi ; `essentielles` = en plus, chaque message envoyé ; `toutes` = avant chaque création ou modification |
 | `JERVIS_OUBLI_MIN` | 15 | après cette pause, conversation neuve (il garde sa mémoire et vos 3 derniers échanges) : moins cher et plus rapide |
 | `JERVIS_COUT` | oui | `non` = ne plus afficher « 💰 … » après chaque réponse |

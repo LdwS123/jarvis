@@ -15,6 +15,11 @@ Pendant l'enregistrement seulement (au plus VOCAL_WHATSAPP_MAX_S) :
 Tout est rétabli dans un `finally`, et le drapeau expire seul au bout du maximum, même si rien ne le remet.
 
 Jamais de repli : si le vocal ne peut pas partir, il le dit (ÉCHEC + la raison). Pas de texte, pas de fichier.
+
+Un groupe (ou quelqu'un sans numéro dans Contacts) : il ouvre la discussion qui porte exactement ce nom dans la
+liste de WhatsApp (en la cherchant si elle n'y est pas), vérifie que l'en-tête de la discussion ouverte dit bien ce
+nom, et refuse s'il y en a plusieurs. Le même chemin sert au texte (envoyer_whatsapp) : le texte est posé dans la
+zone d'écriture, Entrée, et il vérifie qu'il a quitté la zone.
 """
 
 from __future__ import annotations
@@ -36,6 +41,10 @@ from . import ax, config, voix_locale
 MICRO = "ChatBar_VoiceMessageButton"
 ENVOYER = "ChatBar_PTTDraft_SendButton"
 CORBEILLE = "ChatBar_PTTDraft_TrashButton"
+RECHERCHE = "TokenizedSearchBar_TextView"
+LISTE = "ChatListView_TableView"
+ENTETE = "NavigationBar_HeaderViewButton"
+ECRITURE = "ChatBar_ComposerTextView"
 
 # --- Le drapeau « vocal en cours » ------------------------------------------------------------------------------
 
@@ -250,6 +259,93 @@ class WhatsApp:
         raise Echec("la discussion WhatsApp ne s'est pas ouverte (ce numéro a-t-il WhatsApp ? WhatsApp est-il "
                     "connecté sur le Mac ?)")
 
+    def ouverte(self) -> str:
+        """Le nom de la discussion ouverte (l'en-tête : un groupe, ou quelqu'un)."""
+        entete = self._trouver(ENTETE)
+        return (entete.texte("AXDescription") or "") if entete is not None else ""
+
+    def discussions(self, nom: str) -> list[ax.Element]:
+        """Les discussions de la liste qui portent exactement ce nom (aux majuscules et aux accents près)."""
+        liste = self._trouver(LISTE)
+        if liste is None:
+            return []
+        return [c for c in liste.liste("AXChildren") if _simple(c.texte("AXDescription") or "") == _simple(nom)]
+
+    def chercher(self, texte: str) -> bool:
+        """Tape `texte` dans la recherche de WhatsApp (vide : la remet à zéro). Vrai si elle l'a pris."""
+        champ = self._trouver(RECHERCHE)
+        if champ is None:
+            return False
+        champ.mettre("AXFocused", True)
+        if champ.mettre_texte("AXValue", texte) and (champ.texte("AXValue") or "") == texte:
+            return True
+        pid = ax.pid_de(self.PROCESSUS)
+        return bool(texte) and pid is not None and champ.booleen("AXFocused") is True and ax.taper(pid, texte)
+
+    def ouvrir_nom(self, nom: str, patience: float = 10.0) -> None:
+        """Ouvre la discussion qui s'appelle exactement `nom` (un groupe surtout). Refuse s'il y en a plusieurs, et
+        n'en sort que quand l'en-tête dit ce nom avec un bouton du micro neuf : jamais la discussion d'à côté."""
+        if not _simple(nom):
+            raise Echec("quel groupe ? Redis-moi son nom tel qu'il est dans WhatsApp")
+        self.devant()
+        ancien, cherche = self._trouver(MICRO), False
+        trouvees = self.discussions(nom)
+        if not trouvees:
+            cherche = self.chercher(nom)
+            fin = time.monotonic() + 4
+            while cherche and time.monotonic() < fin and not (trouvees := self.discussions(nom)):
+                time.sleep(0.3)
+        try:
+            if len(trouvees) > 1:
+                raise Echec(f"{len(trouvees)} discussions s'appellent « {nom} » dans WhatsApp : je n'envoie rien, "
+                            "redis-moi lequel (son nom exact)")
+            if not trouvees:
+                raise Echec(f"aucune discussion WhatsApp ne s'appelle exactement « {nom} » : redis-moi son nom tel "
+                            "qu'il est dans WhatsApp")
+            # La discussion déjà ouverte est un texte dans la liste (sélectionnée), les autres des boutons.
+            deja = trouvees[0].texte("AXRole") != "AXButton" and _simple(self.ouverte()) == _simple(nom)
+            if not deja and not trouvees[0].appuyer():
+                raise Echec("WhatsApp n'a pas ouvert la discussion")
+            fin = time.monotonic() + patience
+            while time.monotonic() < fin:
+                bouton = self._trouver(MICRO)
+                if (_simple(self.ouverte()) == _simple(nom) and bouton is not None
+                        and (deja or ancien is None or bouton != ancien)):
+                    time.sleep(0.5)  # la discussion finit de s'afficher
+                    return
+                time.sleep(0.3)
+            raise Echec(f"je ne suis pas sûr que la discussion « {nom} » soit ouverte : je n'envoie rien")
+        finally:
+            if cherche:
+                self.chercher("")
+
+    def ecrire(self, texte: str) -> None:
+        """Pose `texte` dans la zone d'écriture de la discussion ouverte (sans l'envoyer)."""
+        champ = self._trouver(ECRITURE)
+        if champ is None:
+            raise Echec("je ne trouve pas la zone d'écriture de la discussion")
+        if (champ.texte("AXValue") or "").strip():
+            raise Echec("il y a déjà un brouillon dans cette discussion : je n'y touche pas")
+        champ.mettre("AXFocused", True)
+        if not champ.mettre_texte("AXValue", texte) or (champ.texte("AXValue") or "") != texte:
+            self.effacer()
+            raise Echec("WhatsApp n'a pas pris le texte dans la zone d'écriture")
+
+    def brouillon(self) -> str:
+        champ = self._trouver(ECRITURE)
+        return (champ.texte("AXValue") or "") if champ is not None else ""
+
+    def effacer(self) -> None:
+        champ = self._trouver(ECRITURE)
+        if champ is not None:
+            champ.mettre_texte("AXValue", "")
+
+    def valider(self) -> bool:
+        """Entrée dans la zone d'écriture (ce que fait ton doigt pour envoyer), remise à WhatsApp seul."""
+        champ, pid = self._trouver(ECRITURE), ax.pid_de(self.PROCESSUS)
+        return champ is not None and pid is not None and champ.booleen("AXFocused") is not False \
+            and ax.taper(pid, entree=True)
+
     def vocaux(self) -> Counter:
         """Les bulles de vocal visibles : (identifiant, rôle, description) → combien."""
         vus: Counter = Counter()
@@ -305,14 +401,29 @@ async def _enregistrer(pilote, son: np.ndarray, etat: dict) -> None:
     etat["envoye"] = True
 
 
-async def envoyer(contact: str, texte: str, pilote=None) -> tuple[str, str]:
-    """(« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », le détail en clair)."""
+def _qui(contact: str, groupe: str) -> None:
+    if bool(contact.strip()) == bool(groupe.strip()):
+        raise Echec("donne soit `contact` (une personne), soit `groupe` (le nom exact du groupe), pas les deux"
+                    if contact.strip() else "à qui ? Donne `contact` (une personne) ou `groupe` (le nom du groupe)")
+
+
+async def _ouvrir(pilote, contact: str, groupe: str, numero: str | None) -> None:
+    if groupe.strip():
+        await asyncio.to_thread(pilote.ouvrir_nom, groupe.strip())
+    else:
+        await asyncio.to_thread(pilote.ouvrir, numero)
+
+
+async def envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
+    """(« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », le détail en clair). `groupe` : le nom exact d'un groupe, à la place
+    de `contact`."""
     from . import tts
     try:
+        _qui(contact, groupe)
         if appels := await asyncio.to_thread(_appel_en_cours):
             from . import reunion
             raise Echec(f"tu es en appel ({reunion.noms(appels)}) : je ne joue pas un vocal dans ton appel")
-        numero = await numero_de(contact)
+        numero = None if groupe.strip() else await numero_de(contact)
         son = await asyncio.to_thread(fabriquer, texte)
         duree = len(son) / 48000
         if duree > config.VOCAL_WHATSAPP_MAX_S - 5:
@@ -320,7 +431,7 @@ async def envoyer(contact: str, texte: str, pilote=None) -> tuple[str, str]:
         pilote = pilote or WhatsApp()
         if raison := pilote.pret():
             raise Echec(raison)
-        await asyncio.to_thread(pilote.ouvrir, numero)
+        await _ouvrir(pilote, contact, groupe, numero)
         avant = await asyncio.to_thread(pilote.vocaux)
         etat = {"enregistre": False, "envoye": False}
         try:
@@ -354,16 +465,70 @@ async def envoyer(contact: str, texte: str, pilote=None) -> tuple[str, str]:
                          "renvoie pas : demande-lui de regarder WhatsApp")
 
 
+async def envoyer_texte(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
+    """Un message écrit WhatsApp, à quelqu'un ou dans un groupe : (« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », détail)."""
+    ecrit = False
+    try:
+        _qui(contact, groupe)
+        if not texte.strip():
+            raise Echec("le message est vide")
+        numero = None if groupe.strip() else await numero_de(contact)
+        pilote = pilote or WhatsApp()
+        if raison := pilote.pret():
+            raise Echec(raison)
+        await _ouvrir(pilote, contact, groupe, numero)
+        await asyncio.to_thread(pilote.ecrire, texte)
+        ecrit = True
+        if not await asyncio.to_thread(pilote.valider):
+            raise Echec("WhatsApp n'a pas pris la touche Entrée")
+    except Echec as e:
+        if ecrit:
+            pilote.effacer()  # rien ne reste à moitié dans la zone d'écriture
+        print(f"   💬 Message WhatsApp raté : {e}", flush=True)
+        return "ÉCHEC", str(e)
+    except Exception as e:
+        if ecrit:
+            pilote.effacer()
+        print(f"   💬 Message WhatsApp raté : {type(e).__name__}: {e}", flush=True)
+        return "ÉCHEC", f"panne imprévue ({type(e).__name__})"
+    if await _attendre(lambda: texte.strip() not in pilote.brouillon(), 3.0, pas=0.3):
+        print("   💬 Message WhatsApp envoyé.", flush=True)
+        return "ENVOYÉ", "le message est parti (il a quitté la zone d'écriture)"
+    pilote.effacer()
+    print("   💬 Message WhatsApp : Entrée sans effet, brouillon effacé.", flush=True)
+    return "ÉCHEC", "WhatsApp a gardé le texte dans la zone d'écriture (Entrée n'a rien envoyé) ; je l'ai effacé"
+
+
+@tool("envoyer_whatsapp", "Envoie un message ÉCRIT WhatsApp, à quelqu'un ou dans un groupe : « écris sur le groupe "
+      "Famille que j'arrive », « dis à Mamad sur WhatsApp… ». Soit `contact` = son nom dans Contacts ou son numéro "
+      "(+33…), soit `groupe` = le nom exact du groupe (ou de la discussion) tel qu'il est dans WhatsApp ; `texte` = le "
+      "message ; `nom` = le prénom (ou le groupe) à prononcer quand tu demandes confirmation.",
+      {"type": "object",
+       "properties": {"contact": {"type": "string"}, "groupe": {"type": "string"}, "texte": {"type": "string"},
+                      "nom": {"type": "string"}},
+       "required": ["texte"]})
+async def envoyer_whatsapp(args: dict[str, Any]) -> dict[str, Any]:
+    statut, detail = await envoyer_texte(str(args.get("contact") or ""), str(args.get("texte") or ""),
+                                         groupe=str(args.get("groupe") or ""))
+    texte = f"{statut} : {detail}."
+    if statut == "ÉCHEC":
+        return {"content": [{"type": "text", "text": texte + " Rien n'est parti."}], "is_error": True}
+    return {"content": [{"type": "text", "text": texte}]}
+
+
 @tool("envoyer_vocal_whatsapp", "Envoie un VRAI message vocal WhatsApp (une bulle de voix, dite avec ta voix) : "
-      "« envoie-lui un vocal », « dis-le à Mamad en vocal ». `contact` = son nom dans Contacts ou son numéro "
-      "(+33…) ; `texte` = ce que tu dis dans le vocal, à la première personne, comme tu le dirais ; `nom` = le "
+      "« envoie-lui un vocal », « dis-le à Mamad en vocal », « un vocal sur le groupe Famille ». Soit `contact` = son "
+      "nom dans Contacts ou son numéro (+33…), soit `groupe` = le nom exact du groupe tel qu'il est dans WhatsApp ; "
+      "`texte` = ce que tu dis dans le vocal, à la première personne, comme tu le dirais ; `nom` = le "
       "prénom à prononcer quand tu demandes confirmation. Jamais de texte ni de fichier à la place, même si ça rate. "
       "« INCERTAIN » : ne le renvoie pas, dis-lui de regarder WhatsApp.",
       {"type": "object",
-       "properties": {"contact": {"type": "string"}, "texte": {"type": "string"}, "nom": {"type": "string"}},
-       "required": ["contact", "texte"]})
+       "properties": {"contact": {"type": "string"}, "groupe": {"type": "string"}, "texte": {"type": "string"},
+                      "nom": {"type": "string"}},
+       "required": ["texte"]})
 async def envoyer_vocal_whatsapp(args: dict[str, Any]) -> dict[str, Any]:
-    statut, detail = await envoyer(str(args.get("contact") or ""), str(args.get("texte") or ""))
+    statut, detail = await envoyer(str(args.get("contact") or ""), str(args.get("texte") or ""),
+                                   groupe=str(args.get("groupe") or ""))
     texte = f"{statut} : {detail}."
     if statut == "ÉCHEC":
         return {"content": [{"type": "text", "text": texte + " Rien n'est parti. N'envoie ni texte ni fichier à la "
@@ -371,4 +536,4 @@ async def envoyer_vocal_whatsapp(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": texte}]}
 
 
-OUTILS_VOCAL = [envoyer_vocal_whatsapp]
+OUTILS_VOCAL = [envoyer_vocal_whatsapp, envoyer_whatsapp]

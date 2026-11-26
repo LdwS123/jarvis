@@ -49,6 +49,7 @@ class Phrase:
     coupee: bool = False    # arrêtée par la durée maximale : tu parlais encore
     inconnue: bool = False  # pas ta voix (gardée seulement si on l'a demandé : un « stop » compte quand même)
     chuchotee: bool = False  # dite en chuchotant (sans que la voix vibre)
+    par_touche: bool = False  # dite avec la touche fn (enfoncée pendant ta phrase, ou tapée avant sa fin)
 
 
 class _Decimateur:
@@ -533,6 +534,7 @@ class Oreilles:
         laisser_finir: bool = False,
         quand_tu_parles=None,
         garder_inconnue: bool = False,
+        touche=None,
     ) -> Phrase | None:
         """Attend que tu parles, puis enregistre jusqu'à la fin de ta phrase.
         Renvoie None si personne n'a parlé pendant `attente_max` secondes (None = attendre sans fin)
@@ -542,7 +544,9 @@ class Oreilles:
         `quand_tu_parles(True)` est appelé dès qu'on est sûr que quelqu'un parle (pas un simple bruit),
         `quand_tu_parles(False)` si ça n'était finalement qu'un bruit.
         `garder_inconnue=True` : une voix qui n'est pas la tienne est quand même rendue (marquée `inconnue`) :
-        pendant qu'il parle, sa voix mêlée à la tienne fait baisser ton score, et un « stop » doit passer."""
+        pendant qu'il parle, sa voix mêlée à la tienne fait baisser ton score, et un « stop » doit passer.
+        `touche(debut)` : la touche fn a-t-elle servi depuis `debut` (le début de ta phrase) ? Alors elle vaut le
+        mot-clé : ta phrase est pour lui."""
         if repartir_a_zero:
             self.vider()
         duree_bloc = config.FRAME / config.SAMPLE_RATE
@@ -566,6 +570,7 @@ class Oreilles:
                 if self._est_voix(propre, debruite, calme):
                     break
                 avant.append(propre)
+            debut = time.monotonic() - (len(avant) + 1) * duree_bloc - 0.5  # (avec ce qui attendait dans la file)
 
             # 2) on enregistre jusqu'à la fin de la phrase
             morceaux = [*avant, propre]
@@ -595,11 +600,13 @@ class Oreilles:
 
             if parole < config.MIN_PAROLE_S:
                 continue  # simple bruit : on recommence à attendre
+            par_touche = not reveil and touche is not None and touche(debut)
+            reveil = reveil or par_touche
             if veille and config.DETECTION == "motcle" and self._motcle is not None and not reveil:
                 if signale and quand_tu_parles:
                     quand_tu_parles(False)  # pas pour lui : on remet le volume
                 continue  # sans le mot-clé, on ne transcrit même pas
-            phrase = Phrase(np.concatenate(morceaux), reveil, parole, silence, coupee=coupee)
+            phrase = Phrase(np.concatenate(morceaux), reveil, parole, silence, coupee=coupee, par_touche=par_touche)
             phrase.chuchotee = self._chuchotee is not None and self._chuchotee(phrase.audio)
             self._signer(phrase)
             if verifier_voix and self._voix_inconnue(phrase):

@@ -347,7 +347,7 @@ class FauxOreilles:
                 if audio.startswith("(autre voix) ") and not inconnue:
                     continue  # sans garder_inconnue, Oreilles l'aurait ignorée
                 return types.SimpleNamespace(audio=audio.removeprefix("(autre voix) "), reveil=False,
-                                             silence=0.3, inconnue=inconnue)
+                                             silence=0.3, inconnue=inconnue, par_touche=False)
             if attente is not None and t() - debut > attente:
                 return None
             time.sleep(0.02)

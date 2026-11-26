@@ -140,6 +140,17 @@ class Element:
         finally:
             cf.CFRelease(cle)
 
+    def mettre_texte(self, attribut: str, texte: str) -> bool:
+        """Écrit un texte dans le champ (AXValue d'une zone de texte ou d'une recherche). Vrai si l'app l'a pris."""
+        ax, cf = _bibliotheques()
+        cle, valeur = _cle(attribut), _cle(texte)
+        try:
+            return bool(valeur) and ax.AXUIElementSetAttributeValue(self.ref, cle, valeur) == 0
+        finally:
+            cf.CFRelease(cle)
+            if valeur:
+                cf.CFRelease(valeur)
+
     def appuyer(self) -> bool:
         ax, cf = _bibliotheques()
         cle = _cle("AXPress")
@@ -178,6 +189,51 @@ def application(pid: int, patience: float = 2.0) -> Element | None:
         return None
     ax.AXUIElementSetMessagingTimeout(ref, patience)  # une app qui ne répond plus ne bloque pas Steve
     return Element(ref)
+
+
+ENTREE = 36  # kVK_Return
+_cg = None
+
+
+def _graphiques():
+    global _cg
+    if _cg is None:
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        p = ctypes.c_void_p
+        cg.CGEventCreateKeyboardEvent.argtypes = [p, ctypes.c_uint16, ctypes.c_bool]
+        cg.CGEventCreateKeyboardEvent.restype = p
+        cg.CGEventKeyboardSetUnicodeString.argtypes = [p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_uint16)]
+        cg.CGEventPostToPid.argtypes = [ctypes.c_int32, p]
+        _cg = cg
+    return _cg
+
+
+def taper(pid: int, texte: str = "", entree: bool = False) -> bool:
+    """Tape `texte` (puis Entrée si demandé) dans l'app `pid`, et seulement elle : les touches lui sont remises
+    directement, elles ne passent pas par l'app qui est devant. Vrai si tout a été remis."""
+    try:
+        cg, (_, cf) = _graphiques(), _bibliotheques()
+    except Exception:
+        return False
+    unites = texte.encode("utf-16-le")
+    morceaux = [unites[i:i + 40] for i in range(0, len(unites), 40)]  # 20 caractères par touche au plus (macOS)
+    for morceau in morceaux:
+        tampon = (ctypes.c_uint16 * (len(morceau) // 2)).from_buffer_copy(morceau)
+        for bas in (True, False):
+            evenement = cg.CGEventCreateKeyboardEvent(None, 0, bas)
+            if not evenement:
+                return False
+            cg.CGEventKeyboardSetUnicodeString(evenement, len(tampon), tampon)
+            cg.CGEventPostToPid(pid, evenement)
+            cf.CFRelease(evenement)
+    if entree:
+        for bas in (True, False):
+            evenement = cg.CGEventCreateKeyboardEvent(None, ENTREE, bas)
+            if not evenement:
+                return False
+            cg.CGEventPostToPid(pid, evenement)
+            cf.CFRelease(evenement)
+    return True
 
 
 def parcourir(racine: Element, profondeur: int = 40, maxi: int = 6000) -> Iterator[Element]:

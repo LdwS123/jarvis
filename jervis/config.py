@@ -90,6 +90,14 @@ AFFICHER_COUT = _env("COUT", "oui").lower() not in {"non", "off", "0"}
 #   essentielles : en plus, il confirme tout ce qui part chez quelqu'un d'autre (message, mail, partage).
 #   toutes       : l'ancien réglage, prudent : il demande avant chaque création, modification ou commande inconnue.
 CONFIRMATIONS = _env("CONFIRMATIONS", "autonome").lower()
+# Méfiance (même en autonome) : juste après un texte venu d'ailleurs (une page, un mail, la sortie d'une commande),
+# ce qui pilote tes apps (clics, frappes, scripts), lance un fichier ou le code d'un projet, arrête un programme,
+# compose un numéro lu dans ce texte, te demande d'abord : ce texte a pu le lui dicter.
+# JERVIS_MEFIANCE=non : plus aucune de ces questions ni de cage, seul l'argent passe par toi. À tes risques : une
+# page ou un mail piégé qu'il lit peut alors lui faire écrire, cliquer ou taper en ton nom sans que tu le voies.
+# Restent quoi qu'il arrive : l'argent, les numéros d'urgence, sudo/rm/kill (la corbeille à la place), Messages par
+# un script.
+MEFIANCE = _env("MEFIANCE", "oui").lower() not in {"non", "off", "0"}
 
 # --- Cursor ----------------------------------------------------------------------
 # Quand tu dis « écris ça dans Cursor » sans préciser, où va le prompt ?
@@ -329,6 +337,9 @@ PHRASE_MOTCLE = _env("PHRASE_MOTCLE", "Hey Jarvis" if MOTCLE_MODELE == "hey_jarv
 #   whisper : seulement son nom dans la phrase transcrite (le choix par défaut quand il n'y a pas de mot-clé)
 DETECTION = _env("DETECTION", "hybride" if MOTCLE_MODELE else "whisper").lower()
 SEUIL_MOTCLE = float(_env("SEUIL_MOTCLE", "0.5"))       # baisse (0.3) s'il rate le mot-clé, monte (0.7) s'il se réveille seul
+# La touche fn (🌐) le réveille sans dire son nom (touche.py) : tape-la puis parle, ou garde-la enfoncée pendant
+# ta phrase. Une autre touche avec elle (fn+F1…) ne compte pas. JERVIS_TOUCHE_FN=non pour l'éteindre.
+TOUCHE_FN = _env("TOUCHE_FN", "oui").lower() not in {"non", "off", "0"}
 # Fin de phrase intelligente (smart-turn) : après une courte pause, il devine si tu as fini.
 FIN_INTELLIGENTE = _env("FIN_INTELLIGENTE", "oui").lower() not in {"non", "off", "0"}
 # Il se repose la question tout au long de ta pause, en étant de moins en moins exigeant : juste après un

@@ -17,12 +17,13 @@ etape() {  # etape <volet> <nom dans Réglages> <à quoi ça sert>
   read "?  Entrée quand c'est fait (ou Entrée tout de suite pour passer)… "
 }
 
-print -P "%F{cyan}Les accès de Steve%f : cinq écrans, une minute."
+print -P "%F{cyan}Les accès de Steve%f : six écrans, une minute."
 open -R "$APP"
 
 etape AllFiles      "Accès complet au disque"  "lire, ranger et mettre à la corbeille n'importe quel fichier du Mac."
 etape Accessibility "Accessibilité"            "cliquer et taper à ta place (envoyer un prompt dans Cursor, piloter une app)."
 etape ScreenCapture "Enregistrement de l'écran et de l'audio système"  "voir ce qu'il y a à l'écran."
+etape ListenEvent   "Surveillance de l'entrée"  "t'écouter dès que tu appuies sur fn (🌐), sans dire son nom."
 etape Automation    "Automatisation"           "piloter Finder, Messages, Notes, Rappels, Contacts, Chrome. Déplie « Jervis » et allume tout. (La liste se remplit à mesure que Steve s'en sert : c'est normal si elle est courte.)"
 etape Contacts      "Contacts"                 "retrouver un numéro quand tu dis « écris à Marie »."
 

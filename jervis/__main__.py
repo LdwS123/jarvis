@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 
-from . import bureau, chat, compteur, config, dev, oral, reunion, tts, vocal, voix_locale
+from . import bureau, chat, compteur, config, dev, oral, reunion, touche, tts, vocal, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
 from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond
@@ -434,10 +434,15 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         phrase précédente (tu continuais à parler pendant la transcription)."""
         async with micro:
             chrono["voix"] = None
+            # En veille, la touche fn vaut le mot-clé (enfoncée pendant ta phrase, ou tapée avant sa fin)
+            fn = touche.FN.tenue_depuis if veille and config.TOUCHE_FN else None
             phrase = await asyncio.to_thread(oreilles.ecouter_phrase, attente, arret, veille=veille,
-                                             laisser_finir=arret is not None, repartir_a_zero=not garder)
+                                             laisser_finir=arret is not None, repartir_a_zero=not garder, touche=fn)
             if phrase is None:
                 return None, False
+            chrono["fn"] = phrase.par_touche
+            if phrase.par_touche:
+                touche.FN.phrase_prise()  # sa remontée, après coup, ne relancera pas d'écoute
             if vocal.en_cours():
                 return "", False  # sa propre voix, enregistrée dans un vocal WhatsApp : ni une demande, ni ta voix
             # Le score de ta voix principale (sans les empreintes apprises seules) : confirmer s'en sert pour les oui sensibles
@@ -452,7 +457,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         if not en_anglais(texte) and not appel["en_cours"]:
             # Une vraie phrase de toi : il affine ta voix. Avec son nom dedans, c'est sûr que c'est toi.
             # (Pas pendant un appel : « Steve » dit par un participant, dans les haut-parleurs, n'est pas toi.)
-            if appris := oreilles.apprendre_voix(phrase, sure=phrase.reveil or bool(NOM.search(texte))):
+            # (fn ne dit pas qui parle : seuls le mot-clé et son nom rendent la voix « sûre »)
+            sure = (phrase.reveil and not phrase.par_touche) or bool(NOM.search(texte))
+            if appris := oreilles.apprendre_voix(phrase, sure=sure):
                 print(f"   🎙  Ta voix : {appris}.", flush=True)
         return texte, phrase.reveil
 
@@ -1024,7 +1031,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 return  # on parle dans l'appel, pas à lui
             commande = SALUTATION.sub("", texte).strip(" ,.!?")
         print(f"🧑 Toi (pendant l'appel) : {texte}", flush=True)
-        confiance = appel_de_confiance(chrono.get("voix"), oreilles.voix_connue)
+        # fn enfoncée pendant ta phrase : c'est toi, au clavier (personne dans l'appel ne peut appuyer à ta place)
+        confiance = bool(chrono.get("fn")) or appel_de_confiance(chrono.get("voix"), oreilles.voix_connue)
         quoi = reunion.commande_reunion(commande)
         if quoi == "commencer":
             await ecrire_pendant_l_appel(await asyncio.to_thread(
@@ -1121,6 +1129,11 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         noms = ", ".join(outils.VOLETS[m][1] for m in manquantes)
         print(f"   🔐 Autorisations de macOS à me donner : {noms}. Menu {n} → « Autorisations… », "
               f"ou dis « {n}, vérifie tes autorisations ».", flush=True)
+    if config.TOUCHE_FN:  # la touche fn : son écoute du clavier (lecture seule), et le conseil pour macOS
+        if (souci := touche.demarrer()) and "clavier" not in manquantes:
+            print(f"   ⌨️  {souci}", flush=True)
+        if not souci and (conseil := touche.reglage_systeme()):
+            print(f"   ⌨️  {conseil}", flush=True)
     await parler(config.ANNONCE, interruptible=False)
     if config.MODE_REUNION:
         surveillance.demarrer()  # (après l'annonce : le standard et Claude sont prêts)
@@ -1130,7 +1143,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     # La fin de tests longs ou d'une CI surveillée (dev.py) : une phrase écrite par le code, dite telle quelle.
     dev.ANNONCER = lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("annonce", texte))
     print(f"👂 Parle-moi en disant « {n} » : « Hey {n} », « Salut {n} », « {n}, ouvre Cursor »… "
-          "(Ctrl+C pour quitter)", flush=True)
+          + ("ou appuie sur fn, puis parle " if config.TOUCHE_FN else "") + "(Ctrl+C pour quitter)", flush=True)
+    # La veille s'arrête pour une annonce, ou pour la touche fn tapée (entre deux phrases, jamais au milieu)
+    reveil_veille = touche.L_un_ou_l_autre(standard.sonnerie, touche.FN.tapee) if config.TOUCHE_FN else standard.sonnerie
 
     try:
         while True:
@@ -1151,16 +1166,22 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 # Veille : on réagit si le modèle a entendu le mot-clé, ou si son nom est dans la phrase transcrite.
                 # Une annonce ou une tâche finie la réveille aussi (entre deux phrases, jamais au milieu).
                 etat("veille")
-                texte, reveil = await entendre(None, veille=True, arret=standard.sonnerie)
+                touche.FN.prendre()  # un fn tapé avant (pendant qu'il te parlait) ne compte plus
+                texte, reveil = await entendre(None, veille=True, arret=reveil_veille)
+                if texte is None and touche.FN.prendre():
+                    texte, reveil = "", True  # fn tapée : comme « Salut Steve », il attend ta demande
+                    print("⌨️  fn : je t'écoute.", flush=True)
             if texte is None or (not texte and not reveil):
                 continue
             commande = extraire_commande(texte)
-            if commande is None and reveil:  # mot-clé bien entendu, mais nom mal écrit par la transcription
+            if commande is None and reveil:  # mot-clé bien entendu (ou fn), mais nom mal écrit par la transcription
                 commande = SALUTATION.sub("", texte).strip(" ,.!?")
             if commande is None:
                 print(f"   \033[2m(entendu sans « {n} » : {texte})\033[0m", flush=True)
                 continue
-            print(f"🧑 Toi : {texte}" + (f"  \033[2m(« {config.PHRASE_MOTCLE} »)\033[0m" if reveil else ""), flush=True)
+            if texte:
+                pourquoi = "fn" if chrono.get("fn") else f"« {config.PHRASE_MOTCLE} »"
+                print(f"🧑 Toi : {texte}" + (f"  \033[2m({pourquoi})\033[0m" if reveil else ""), flush=True)
             tts.bip()
 
             if len(commande) < 3:  # juste « Salut Steve » : on attend la suite

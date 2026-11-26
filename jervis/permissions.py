@@ -364,7 +364,9 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
 # entends le site exact (« netflix.com », pas « netflix-connexion.xyz »), et un code ne part pas sur la demande d'une
 # page piégée qui essaierait de te voler un compte en le réinitialisant.
 COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu", "ranger_cle_api"}
-JERVIS_A_CONFIRMER = {"envoyer_imessage", "envoyer_vocal_whatsapp", "appeler", "demander_accord",
+# Les messages à quelqu'un (ou à un groupe) : la question dit à qui et quoi.
+ENVOIS = {"envoyer_imessage", "envoyer_vocal_whatsapp", "envoyer_whatsapp"}
+JERVIS_A_CONFIRMER = {*ENVOIS, "appeler", "demander_accord",
                       "mettre_a_la_corbeille", "effacer_memoire", "liberer_port", *COMPTES_A_CONFIRMER}
 # L'atelier de code (dev.py). Ce qui lance le code d'un projet ou un programme de Homebrew (gh) : après un texte venu
 # d'ailleurs, toujours dans la cage (le Gardien ajoute `cage` à l'appel), même après ton oui, puisque la question ne
@@ -450,7 +452,7 @@ MENU_RISQUE = re.compile(
 TOUCHES_RISQUE = {"q", "w", "delete", "backspace", "del", "forwarddelete", "escape", "esc"}
 INCONNUE = "?"  # tout l'écran, une fenêtre par numéro… : on ne sait pas quelle app reçoit le geste
 # Gestes qui agissent dans l'app visée (via le « snapshot » de see, ou une app nommée).
-GESTES_MAC = {"click", "type", "press", "set_value", "action", "paste", "menu"}
+GESTES_MAC = {"click", "type", "press", "set_value", "action", "paste", "menu", "drag"}
 
 
 def _lancer(*commande: str) -> str:
@@ -699,12 +701,15 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         quoi = {"memoire": "ce que je sais de toi", "conversations": "l'historique de nos conversations"}.get(
             str(entree.get("quoi") or ""), "ce que je sais de toi et nos conversations")
         return f"Je vais effacer {quoi}. Je peux ?"
-    if action == "envoyer_imessage":
-        qui = _destinataire(entree.get("nom"), entree.get("destinataire"))
-        return f"J'envoie à {qui} : « {entree.get('texte', '')} ». Je peux ?"
-    if action == "envoyer_vocal_whatsapp":
-        qui = _destinataire(entree.get("nom"), entree.get("contact"))
-        return f"J'envoie un vocal WhatsApp à {qui} : « {entree.get('texte', '')} ». Je peux ?"
+    if action in ENVOIS:
+        vocal = {"envoyer_vocal_whatsapp": " un vocal WhatsApp", "envoyer_whatsapp": " sur WhatsApp"}.get(action, "")
+        personne = entree.get("destinataire") if action == "envoyer_imessage" else entree.get("contact")
+        if groupe := str(entree.get("groupe") or "").strip():  # le nom du groupe tel qu'il sera cherché
+            qui = f"au groupe « {groupe} »" + (f" et à {_destinataire(entree.get('nom'), personne)}"
+                                                if str(personne or "").strip() else "")
+        else:
+            qui = f"à {_destinataire(entree.get('nom'), personne)}"
+        return f"J'envoie{vocal} {qui} : « {entree.get('texte', '')} ». Je peux ?"
     if action == "appeler":
         numero = appels.numero_appelable(entree.get("numero")) or str(entree.get("numero", ""))
         if urgence := appels.numero_urgence(numero):
@@ -890,7 +895,7 @@ LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^(?:s
 _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublier|noter_lecon|effacer_memoire|"
                        r"creer_rappel|creer_note|lister_raccourcis|demander_accord|envoyer_imessage|appeler|raccrocher|"
                        # Le vocal WhatsApp : « ENVOYÉ / ÉCHEC + raison », écrit par le code (jamais un nom de Contacts).
-                       r"envoyer_vocal_whatsapp|"
+                       r"envoyer_vocal_whatsapp|envoyer_whatsapp|"
                        r"mettre_a_la_corbeille|verifier_autorisations|memoire_du_mac|depenses|tableau_de_bord|"
                        r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme|"
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
@@ -1492,6 +1497,10 @@ def cible_de(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) 
         return None if not numero or appels.numero_urgence(numero) else numero
     if action == "execute_zapier_write_action":
         return f"{entree.get('selected_api') or '?'} / {entree.get('action') or '?'}"
+    if action in ENVOIS and str(entree.get("groupe") or "").strip():
+        if any(str(entree.get(c) or "").strip() for c in _CHAMPS_CIBLE):
+            return None  # un groupe et une personne à la fois : l'outil refuse, une règle n'a pas à le couvrir
+        return f"le groupe {str(entree['groupe']).strip()}"
     # Tous les destinataires ensemble (to, cc, bcc…) : une règle pour Léa ne laisse pas partir une copie cachée.
     gens: set[str] = set()
     for champ in _CHAMPS_CIBLE:
@@ -1821,13 +1830,16 @@ class Gardien:
                 return PermissionResultDeny(message="Il t'écrit depuis son iPhone, loin du Mac : un appel lancé d'ici "
                                                     "sonnerait sur le Mac, sans lui. Dis-lui d'appeler depuis son iPhone "
                                                     "(ou « Dis Siri, appelle … »).")
-            if decision is Decision.OUI and (self.contenu_externe or self.mefiance
+            if decision is Decision.OUI and ((config.MEFIANCE and (self.contenu_externe or self.mefiance))
                                              or appels.numero_urgence(appels.numero_appelable(entree.get("numero")))):
                 # Un numéro lu sur une page ou dans un mail, ou un numéro d'urgence : c'est toi qui dis oui, même
                 # en mode autonome (un appel ne se rattrape pas).
                 decision = Decision.DEMANDER
                 autorisable, pourquoi = False, "un numéro d'urgence, ou lu dans un texte venu d'ailleurs"
-        if decision is Decision.OUI and deja_dehors and (
+        # JERVIS_MEFIANCE=non : plus aucune de ces questions, et plus de cage non plus (à tes risques : ce qu'une page
+        # dicte, il le fait).
+        mefiant = deja_dehors and config.MEFIANCE
+        if decision is Decision.OUI and mefiant and (
                 pilote_des_apps(outil, entree) or ecrit_ce_qui_se_lance(outil, entree)
                 or depot):
             # Des frappes, un script d'app, un « open » de fichier, ou un fichier qui se lancera tout seul plus tard
@@ -1837,14 +1849,14 @@ class Gardien:
                                             "sur tes apps, un fichier qui se lance tout seul ou un nouveau dépôt "
                                             "passent par toi : ce texte pourrait me les avoir dictés")
         action_dev = outil.split("__")[-1] if outil.startswith("mcp__jervis__") else ""
-        if decision is Decision.OUI and deja_dehors and action_dev in DEV_DEMANDE_APRES_DEHORS:
+        if decision is Decision.OUI and mefiant and action_dev in DEV_DEMANDE_APRES_DEHORS:
             decision = Decision.DEMANDER  # arrêter un programme, ouvrir un projet dans une app : pas sous la dictée
             autorisable, pourquoi = False, ("arrêter un programme ou ouvrir un projet juste après un texte venu "
                                             "d'ailleurs")
-        if decision is Decision.OUI and deja_dehors and action_dev in DEV_EN_CAGE and not Path(CAGE_EXEC).exists():
+        if decision is Decision.OUI and mefiant and action_dev in DEV_EN_CAGE and not Path(CAGE_EXEC).exists():
             decision = Decision.DEMANDER
             autorisable, pourquoi = False, "le code d'un projet après un texte venu d'ailleurs, et pas de cage sur ce Mac"
-        if decision is Decision.OUI and outil == "mcp__jervis__commencer_compte_rendu" and deja_dehors:
+        if decision is Decision.OUI and outil == "mcp__jervis__commencer_compte_rendu" and mefiant:
             decision = Decision.DEMANDER  # écouter une réunion : jamais sous la dictée d'une page ou d'un mail
             autorisable, pourquoi = False, "écouter une réunion juste après un texte venu d'ailleurs"
         if decision is Decision.OUI and outil == "mcp__jervis__autoriser_desormais" and (deja_dehors or self.en_appel):
@@ -1873,14 +1885,16 @@ class Gardien:
         if decision is Decision.OUI and deja_dehors and outil == "Bash" and commande_anodine(str(entree.get("command") or "")):
             # la courte liste, hors cage ; une app, par son chemin dans /Applications (pas une homonyme posée ailleurs)
             return PermissionResultAllow(updated_input={**entree, "command": avec_chemin_app(str(entree["command"]))})
-        if decision is Decision.OUI and deja_dehors and outil == "Bash" and a_encager(str(entree.get("command") or "")):
+        if decision is Decision.OUI and mefiant and outil == "Bash" and a_encager(str(entree.get("command") or "")):
             if Path(CAGE_EXEC).exists():  # seul, mais dans la cage (après ton oui à une question, sans)
                 noter_touches(outil, entree)  # les projets qu'elle nomme : leurs tests passeront par toi
                 return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]))})
-            decision = Decision.DEMANDER  # pas de cage sur ce Mac : c'est toi qui dis oui
-            autorisable, pourquoi = False, "une commande après un texte venu d'ailleurs, et pas de cage sur ce Mac"
+            else:
+                decision = Decision.DEMANDER  # pas de cage sur ce Mac : c'est toi qui dis oui
+                autorisable, pourquoi = False, "une commande après un texte venu d'ailleurs, et pas de cage sur ce Mac"
         touche = None
-        if decision is Decision.OUI and not deja_dehors and (touche := code_touche(action_dev, entree)):
+        if decision is Decision.OUI and config.MEFIANCE and not deja_dehors and (
+                touche := code_touche(action_dev, entree)):
             # Du code de ce projet écrit juste après un texte venu d'ailleurs, puis lancé ici hors cage : toi d'abord
             decision = Decision.DEMANDER
             autorisable, pourquoi = False, "du code écrit juste après un texte venu d'ailleurs, lancé hors de la cage"
@@ -1945,12 +1959,12 @@ class Gardien:
                 dev.oublier_touche(touche[0])  # ton oui : relu, il redevient un projet comme les autres
             if deja_dehors and (outil in ECRITURE_FICHIERS or outil == "Bash"):
                 noter_touches(outil, entree)  # écrit sous un texte venu d'ailleurs : ses tests passeront par toi
-            if depot and Path(CAGE_EXEC).exists():
+            if depot and mefiant and Path(CAGE_EXEC).exists():
                 # ton oui à un git clone / init : dans la cage quand même, son seul dossier ouvert
                 return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]),
                                                                                          permis=depot)})
             if action_dev in DEV_EN_CAGE:  # ses tests, son serveur, gh : dans la cage après un texte venu d'ailleurs
-                return PermissionResultAllow(updated_input={**entree, "cage": deja_dehors and Path(CAGE_EXEC).exists()})
+                return PermissionResultAllow(updated_input={**entree, "cage": mefiant and Path(CAGE_EXEC).exists()})
             return PermissionResultAllow(updated_input=entree)
         return PermissionResultDeny(
             message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "

@@ -343,15 +343,46 @@ on run argv
 end run
 """
 
+# Un groupe : la discussion dont le nom est exactement celui-là (Messages ignore la casse). Aucune, ou plusieurs
+# du même nom : rien ne part (on ne devine pas lequel).
+_IMESSAGE_GROUPE = """
+on run argv
+  tell application "Messages"
+    set trouves to {}
+    repeat with c in chats
+      try
+        if name of c is (item 1 of argv) then set end of trouves to c
+      end try
+    end repeat
+    if (count of trouves) is 0 then return "aucun"
+    if (count of trouves) > 1 then return "plusieurs"
+    send (item 2 of argv) to (item 1 of trouves)
+  end tell
+  return "envoyé"
+end run
+"""
 
-@tool("envoyer_imessage", "Envoie un iMessage. `destinataire` = numéro (+33…) ou adresse mail trouvée avec "
-      "chercher_contact ; `nom` = le prénom à prononcer quand tu demandes confirmation.",
+
+@tool("envoyer_imessage", "Envoie un iMessage. À une personne : `destinataire` = numéro (+33…) ou adresse mail "
+      "trouvée avec chercher_contact, et `nom` = le prénom à prononcer quand tu demandes confirmation. À un groupe "
+      "(« écris dans le groupe Famille ») : `groupe` = son nom exact dans Messages, sans `destinataire`.",
       {"type": "object",
-       "properties": {"destinataire": {"type": "string"}, "texte": {"type": "string"}, "nom": {"type": "string"}},
-       "required": ["destinataire", "texte"]})
+       "properties": {"destinataire": {"type": "string"}, "groupe": {"type": "string"}, "texte": {"type": "string"},
+                      "nom": {"type": "string"}},
+       "required": ["texte"]})
 async def envoyer_imessage(args: dict[str, Any]) -> dict[str, Any]:
+    destinataire, groupe = str(args.get("destinataire") or "").strip(), str(args.get("groupe") or "").strip()
+    if bool(destinataire) == bool(groupe):
+        return _erreur("Donne soit `destinataire` (une personne), soit `groupe` (le nom d'un groupe), pas les deux.")
     distance.noter_envoi(args["texte"])  # s'il part dans ta conversation avec toi-même, ce n'est pas un ordre de toi
-    code, sortie = await _applescript(_IMESSAGE, args["destinataire"], args["texte"])
+    if groupe:
+        code, sortie = await _applescript(_IMESSAGE_GROUPE, groupe, args["texte"])
+        if not code and sortie.strip() in {"aucun", "plusieurs"}:
+            quoi = "aucune" if sortie.strip() == "aucun" else "plusieurs"
+            return _erreur(f"Rien n'est parti : {quoi} discussion de groupe s'appelle exactement « {groupe} » dans "
+                           "Messages. Demande-lui son nom exact (ou le nom d'une personne du groupe).")
+        return _echec_app("Messages", sortie, "Échec de l'envoi") if code else _texte(f"Message envoyé au groupe {groupe}.")
+    code, sortie = await _applescript(_IMESSAGE, destinataire, args["texte"])
     return _echec_app("Messages", sortie, "Échec de l'envoi") if code else _texte("Message envoyé.")
 
 
@@ -863,6 +894,7 @@ VOLETS = {   # dans l'ordre où on les règle : nom du volet macOS, et son nom d
     "disque": ("AllFiles", "Accès complet au disque"),
     "accessibilite": ("Accessibility", "Accessibilité"),
     "ecran": ("ScreenCapture", "Enregistrement de l'écran et de l'audio système"),
+    "clavier": ("ListenEvent", "Surveillance de l'entrée (la touche fn)"),
     "automatisation": ("Automation", "Automatisation"),
     "contacts": ("Contacts", "Contacts"),
 }
@@ -872,7 +904,7 @@ _APPS_PILOTEES = [("System Events", "count processes"), ("Finder", "count window
 
 
 def autorisations_manquantes() -> list[str]:
-    """Ce qui manque parmi disque, accessibilite, ecran. Ne fait apparaître aucune fenêtre de macOS."""
+    """Ce qui manque parmi disque, accessibilite, ecran (et clavier, pour la touche fn). Sans fenêtre de macOS."""
     manquantes = []
     try:  # ce fichier n'est lisible qu'avec « Accès complet au disque »
         with open(Path.home() / "Library/Application Support/com.apple.TCC/TCC.db", "rb") as f:
@@ -892,6 +924,9 @@ def autorisations_manquantes() -> list[str]:
         graphiques.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
         if not graphiques.CGPreflightScreenCaptureAccess():
             manquantes.append("ecran")
+        graphiques.CGPreflightListenEventAccess.restype = ctypes.c_bool
+        if config.TOUCHE_FN and not graphiques.CGPreflightListenEventAccess():
+            manquantes.append("clavier")  # sans elle, la touche fn ne le réveille pas
     except (OSError, AttributeError):
         pass
     return manquantes
@@ -904,7 +939,8 @@ def autorisations_manquantes() -> list[str]:
       "fenêtres « Jervis veut contrôler… » : c'est normal, il clique sur Autoriser.", {})
 async def verifier_autorisations(_args: dict[str, Any]) -> dict[str, Any]:
     manquantes = await asyncio.to_thread(autorisations_manquantes)
-    bonnes = [VOLETS[c][1] for c in ("disque", "accessibilite", "ecran") if c not in manquantes]
+    bonnes = [VOLETS[c][1] for c in ("disque", "accessibilite", "ecran", "clavier")[:4 if config.TOUCHE_FN else 3]
+              if c not in manquantes]
     refusees, attente = [], None
     for app, question in _APPS_PILOTEES:  # une à la fois : chaque app peut faire apparaître sa fenêtre
         code, sortie = await _lancer("osascript", "-e", f'tell application "{app}" to {question}', delai=25)
@@ -1018,11 +1054,10 @@ def serveur_navigateur(isole: bool = False) -> dict[str, Any] | None:
 # Les apps du Mac : Peekaboo (github.com/openclaw/Peekaboo) lit leur interface par l'accessibilité
 # et y clique ou tape en arrière-plan, sans prendre la souris ni le clavier.
 NOM_MAC = "mac"
-# Outils de Peekaboo qu'il n'a pas : doublons (capture, navigateur), agent IA interne, gestes risqués ou rares.
-# Moins d'outils = moins de jetons à chaque message, et des choix plus nets.
+# Outils de Peekaboo qu'il n'a pas : les doublons (capture, navigateur, inspection) et l'agent IA interne. Tout ce
+# que fait ta main, il l'a : glisser-déposer (drag), sélectionner du texte, changer de bureau (space), le Dock.
 OUTILS_MAC_COUPES = [f"mcp__{NOM_MAC}__{n}" for n in (
-    "agent", "analyze", "browser", "capture", "image", "verify_state", "space", "dock",
-    "drag", "inspect_ui", "select_text")]
+    "agent", "analyze", "browser", "capture", "image", "verify_state", "inspect_ui")]
 
 
 def serveur_mac() -> dict[str, Any] | None:
