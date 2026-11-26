@@ -325,6 +325,7 @@ def t():
 
 class FauxOreilles:
     haut_parleur = None
+    enceinte = None
     en_pause = False
     anti_echo = True
 

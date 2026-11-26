@@ -686,6 +686,7 @@ async def tester_ronde():
 
         # _initiative regarde l'heure qu'il est vraiment : le test ne doit pas dépendre de l'heure où on le lance.
         config.INITIATIVE_DEBUT, config.INITIATIVE_FIN = "00:00", "24:00"
+        fond.ETAT_BRIEFING.write_text(f"{datetime.now():%Y-%m-%d}")  # (lancé entre 8 h et midi : briefing fait)
         present["oui"] = False
         await prog._initiative()
         verifier("ronde : pas devant le Mac, il ne lance rien", taches.lancees, [])

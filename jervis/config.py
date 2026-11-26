@@ -358,6 +358,12 @@ DEUXIEME_AVIS = _env("DEUXIEME_AVIS", "oui").lower() not in {"non", "off", "0"}
 BOOST_NOM = float(_env("BOOST_NOM", "4" if _JARVIS else "0"))
 # Annulation d'écho : il n'entend plus sa propre voix dans le haut-parleur.
 ANTI_ECHO = _env("ANTI_ECHO", "oui").lower() not in {"non", "off", "0"}
+# Le micro quand tu branches un casque ou tes AirPods. « auto » : celui que macOS choisit, sauf un micro loin de
+# toi (AirPods, casque Bluetooth, iPhone) : alors celui du Mac, et tes AirPods gardent leur bon son (leur micro les
+# ferait passer en qualité téléphone). « systeme » : toujours celui de macOS. Ou un bout de son nom (« Yeti »).
+MICRO = _env("MICRO", "auto")
+# Toutes les combien de secondes il vérifie qu'un casque n'a pas été branché (ou que le micro n'est pas tombé).
+SURVEILLANCE_SON_S = float(_env("SURVEILLANCE_SON_S", "1.5"))
 # Débruitage (DPDFNet) : « detection » = seulement pour savoir si tu parles, « tout » = aussi pour la transcription.
 DEBRUITAGE = _env("DEBRUITAGE", "detection").lower()
 # Ta voix : si voix.npy existe (python -m jervis --apprendre-ma-voix), il ignore les autres voix.

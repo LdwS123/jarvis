@@ -10,6 +10,9 @@ Le chemin du son, toutes les 80 ms :
 Le micro et le haut-parleur passent par un seul flux audio (« duplex ») : l'anti-écho sait ainsi exactement
 ce qui sort des enceintes, au bon moment. Si ce flux ne s'ouvre pas, on revient au micro seul et à `afplay`.
 
+Tu branches un casque, tes AirPods se connectent, le micro tombe : un fil de surveillance le voit (appareils.py
+demande à macOS) et rouvre le flux sur les bons appareils, sans redémarrer Steve.
+
 Chaque phrase est découpée par le détecteur de voix (Silero VAD). Sa fin est décidée par smart-turn :
 après un court silence, il écoute l'intonation pour savoir si tu as fini ou si tu cherches tes mots.
 """
@@ -26,7 +29,7 @@ from dataclasses import dataclass
 import numpy as np
 import sounddevice as sd
 
-from . import config
+from . import appareils, config
 
 TAUX_HP = 48_000                                         # le flux duplex tourne en 48 kHz (natif sur Mac)
 FACTEUR = TAUX_HP // config.SAMPLE_RATE                  # 3
@@ -169,48 +172,162 @@ class Oreilles:
         if config.APPRENDRE_VOIX or voix.Empreinte.FICHIER.exists():
             self._empreinte = _charger("Reconnaissance de ta voix", voix.Empreinte)
 
+        # Sa bouche : le même objet du début à la fin (tts le garde), même quand le flux est rouvert sur un casque.
+        # `haut_parleur` vaut `enceinte` quand le flux duplex tourne, None en micro seul (alors il parle par afplay).
+        self.enceinte = HautParleur(self._enceinte_active)
         self.haut_parleur: HautParleur | None = None
         self._anti_echo = None
-        try:
-            self._ouvrir_duplex(voix)
-            self._stream.start()
-        except Exception as e:
-            print(f"   ⚠️  Flux micro + haut-parleur impossible ({e}) : micro seul, sans anti-écho.", flush=True)
-            self._ouvrir_micro_seul()
-            self._stream.start()
+        self._stream = None
+        self._verrou_flux = threading.RLock()   # la surveillance, la pause et la fermeture ne se marchent pas dessus
+        self._brut: "queue.Queue[tuple[np.ndarray, np.ndarray]]" = queue.Queue()
+        self._mic, self._ref = _Decimateur(), _Decimateur()
+        self._dernier_rappel = time.monotonic()  # le dernier bloc reçu du micro (s'il n'en vient plus, il est tombé)
+        self._branches: tuple = (None, None, None)  # les appareils du moment où le flux a été ouvert
+        micro, sortie = self._ouvrir()
+        print(f"   🎙  J'écoute par « {micro} », je réponds par « {sortie} ».", flush=True)
+        threading.Thread(target=self._traiter_duplex, daemon=True, name="jervis-son").start()
+        threading.Thread(target=self._surveiller, daemon=True, name="jervis-casque").start()
         self._resume()
 
     # --- Ouverture du son ---------------------------------------------------------------------------
 
-    def _ouvrir_duplex(self, voix) -> None:
+    def _enceinte_active(self) -> bool:
+        flux = self._stream
+        return self.haut_parleur is not None and flux is not None and bool(flux.active)
+
+    def _signature(self) -> tuple:
+        """(micro de macOS, sortie de macOS, micro choisi) : si ça change, un casque vient d'arriver ou de partir."""
+        defaut, sortie = appareils.par_defaut()
+        if defaut is None and sortie is None:
+            return (None, None, None)  # macOS ne répond pas : on ne sait pas
+        tous = appareils.tous() if (config.MICRO or "auto").strip().casefold() != "systeme" else []
+        return (defaut and defaut.id, sortie and sortie.id, appareils.choisir_micro(config.MICRO, defaut, tous))
+
+    @staticmethod
+    def _index_micro(nom: str | None) -> int | None:
+        """Le numéro PortAudio du micro qui porte ce nom (None : celui de macOS)."""
+        if not nom:
+            return None
+        for i, appareil in enumerate(sd.query_devices()):
+            if appareil["name"] == nom and appareil["max_input_channels"] > 0:
+                return i
+        return None
+
+    def _ouvrir(self) -> tuple[str, str]:
+        """Ouvre le flux sur les appareils du moment (duplex, sinon micro seul). Renvoie (micro, sortie)."""
+        from . import voix
+
+        self._branches = self._signature()
+        entree = self._index_micro(self._branches[2])
+        try:
+            self._ouvrir_duplex(voix, entree)
+            self._stream.start()
+        except Exception as e:
+            self._fermer_flux()
+            self._ouvrir_micro_seul(entree)
+            self._stream.start()  # (s'il rate aussi, la surveillance réessaiera, sans répéter ce message)
+            print(f"   ⚠️  Flux micro + haut-parleur impossible ({e}) : micro seul, sans anti-écho.", flush=True)
+        self._dernier_rappel = time.monotonic()
+        try:
+            micro = sd.query_devices(entree if entree is not None else sd.default.device[0])["name"]
+            sortie = sd.query_devices(kind="output")["name"] if self.haut_parleur else "afplay"
+        except Exception:
+            micro, sortie = "le micro", "le haut-parleur"
+        return micro, sortie
+
+    def _ouvrir_duplex(self, voix, entree: int | None = None) -> None:
         sortie = sd.query_devices(kind="output")
         canaux = max(1, min(2, int(sortie["max_output_channels"])))
-        self._brut: "queue.Queue[tuple[np.ndarray, np.ndarray]]" = queue.Queue()
-        self.haut_parleur = HautParleur(lambda: self._stream.active)
+        enceinte = self.enceinte
+        self._anti_echo = None
 
         def rappel(indata, outdata, frames, _temps, _statut) -> None:
-            ref = self.haut_parleur.remplir(frames)
+            self._dernier_rappel = time.monotonic()
+            ref = enceinte.remplir(frames)
             outdata[:] = ref[:, None]
             self._brut.put((indata[:, 0].copy(), ref))
 
-        self._stream = sd.Stream(samplerate=TAUX_HP, blocksize=BLOC_HP, channels=(1, canaux),
+        self._stream = sd.Stream(samplerate=TAUX_HP, blocksize=BLOC_HP, channels=(1, canaux), device=(entree, None),
                                  dtype="float32", callback=rappel)
         if config.ANTI_ECHO:
             # Le temps entre « envoyé au haut-parleur » et « revenu dans le micro » : latences de sortie + d'entrée.
+            # (Recalculé à chaque ouverture : des AirPods n'ont pas du tout la latence des haut-parleurs du Mac.)
             delai = int(1000 * sum(self._stream.latency))
             self._anti_echo = _charger("Anti-écho", lambda: voix.AntiEcho(delai))
         self._mic, self._ref = _Decimateur(), _Decimateur()
-        threading.Thread(target=self._traiter_duplex, daemon=True, name="jervis-son").start()
+        self.haut_parleur = enceinte
 
-    def _ouvrir_micro_seul(self) -> None:
+    def _ouvrir_micro_seul(self, entree: int | None = None) -> None:
         self.haut_parleur = None
         self._anti_echo = None
 
         def rappel(data, *_):
+            self._dernier_rappel = time.monotonic()
             self._ajouter(data[:, 0].copy())
 
-        self._stream = sd.InputStream(samplerate=config.SAMPLE_RATE, channels=1, dtype="int16",
+        self._stream = sd.InputStream(samplerate=config.SAMPLE_RATE, channels=1, dtype="int16", device=entree,
                                       blocksize=config.FRAME, callback=rappel)
+
+    def _fermer_flux(self) -> None:
+        """Ferme le flux sans attendre la fin du son (un appareil débranché ne la jouerait jamais)."""
+        flux, self._stream = self._stream, None
+        self.haut_parleur = None
+        if flux is not None:
+            flux.abort(ignore_errors=True)
+            flux.close(ignore_errors=True)
+
+    # --- Casque branché, micro tombé ------------------------------------------------------------------
+
+    MUET_S = 3.0          # plus aucun bloc du micro depuis ce temps : le flux est mort (appareil parti)
+    STABILISATION_S = 0.8  # macOS change la sortie puis le micro : on attend qu'il ait fini avant de rouvrir
+
+    def _a_rouvrir(self) -> str | None:
+        """Pourquoi il faut rouvrir le flux (None : tout va bien)."""
+        flux = self._stream
+        if flux is None or not flux.active:
+            return "le micro s'était arrêté"
+        if time.monotonic() - self._dernier_rappel > self.MUET_S:
+            return "le micro ne donnait plus rien"
+        signature = self._signature()
+        if signature != (None, None, None) and signature != self._branches:
+            return "nouveaux appareils son"
+        return None
+
+    def _rouvrir(self, raison: str) -> None:
+        with self._verrou_flux:
+            if self._ferme.is_set() or self.en_pause:
+                return
+            self._fermer_flux()
+            self.enceinte.arreter()  # la phrase en cours ne finira jamais sur l'ancien appareil : on la libère
+            try:
+                sd._terminate()
+            except Exception:
+                pass
+            sd._initialize()  # PortAudio relit la liste des appareils : il voit enfin le casque
+            micro, sortie = self._ouvrir()
+        print(f"   🎧 {raison[0].upper()}{raison[1:]} : je t'écoute par « {micro} », je réponds par « {sortie} ».",
+              flush=True)
+
+    def _surveiller(self) -> None:
+        """Fil à part : toutes les SURVEILLANCE_SON_S secondes, il regarde si le micro vit encore et si macOS
+        a changé d'appareils (casque, AirPods). Si oui, il rouvre le flux ; si ça rate, il réessaie au tour suivant."""
+        en_panne = False
+        while not self._ferme.wait(config.SURVEILLANCE_SON_S):
+            if self.en_pause:
+                continue
+            try:
+                raison = self._a_rouvrir()
+                if raison is None:
+                    continue
+                if raison == "nouveaux appareils son":
+                    self._ferme.wait(self.STABILISATION_S)
+                self._rouvrir(raison)
+                en_panne = False
+            except Exception as e:  # pas de micro du tout pour l'instant : on réessaie, sans remplir le journal
+                if not en_panne:
+                    print(f"   ⚠️  Plus de micro ({type(e).__name__}: {e}) : je réessaie toutes les "
+                          f"{config.SURVEILLANCE_SON_S:g} s.", flush=True)
+                en_panne = True
 
     def _traiter_duplex(self) -> None:
         """Fil à part : le rappel audio ne doit jamais attendre, donc le calcul se fait ici."""
@@ -302,13 +419,23 @@ class Oreilles:
 
     def pause(self, oui: bool) -> None:
         """Coupe vraiment le micro (plus rien n'est capté), ou le rallume. En pause, il parle via afplay."""
-        self.en_pause = oui
-        if oui:
-            self._stream.stop()
-            if self.haut_parleur:
-                self.haut_parleur.arreter()
-        else:
-            self._stream.start()
+        with self._verrou_flux:
+            self.en_pause = oui
+            if oui:
+                if self._stream is not None:
+                    self._stream.stop(ignore_errors=True)
+                self.enceinte.arreter()
+                return
+            self._dernier_rappel = time.monotonic()
+            try:
+                if self._stream is None or self._signature() not in {(None, None, None), self._branches}:
+                    raise RuntimeError("appareils changés pendant la pause")
+                self._stream.start()
+            except Exception:
+                try:
+                    self._rouvrir("micro rallumé")
+                except Exception:
+                    pass  # la surveillance réessaiera
 
     def _lire(self, arret: threading.Event | None, fin: float | None = None):
         """Le bloc suivant (propre, débruité, calme), ou None si on doit arrêter d'écouter (ou si `fin` est passée)."""
@@ -480,8 +607,7 @@ class Oreilles:
             return phrase
 
     def fermer(self) -> None:
-        self._ferme.set()  # libère les fils d'écoute en attente
-        if self.haut_parleur:
-            self.haut_parleur.arreter()
-        self._stream.stop()
-        self._stream.close()
+        self._ferme.set()  # libère les fils d'écoute (et la surveillance) en attente
+        with self._verrou_flux:
+            self.enceinte.arreter()
+            self._fermer_flux()

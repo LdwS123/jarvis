@@ -153,6 +153,13 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
   Dès que tu commences à parler, il baisse sa voix (comme quelqu'un qui t'entend) ; si ce n'était pas pour lui,
   il reprend normalement. Il retire sa propre voix du micro (anti-écho), mais avec un casque ou des AirPods ça
   reste encore plus fiable.
+- **Tu branches un casque ou tes AirPods : il t'écoute toujours.** Toutes les 1,5 s il demande à macOS quels
+  appareils son sont branchés (sans rien envoyer nulle part). Dès que ça change, ou si le micro tombe, il rouvre
+  son micro tout seul, sans redémarrer, et te répond dans le casque ; le journal dit « 🎧 … je t'écoute par
+  « Micro MacBook Air », je réponds par « AirPods… » ». Avec des AirPods (ou un casque Bluetooth, ou le micro de
+  ton iPhone), il garde le micro du Mac : le micro des AirPods les ferait passer en « qualité téléphone » tant
+  qu'il écoute (ta musique sonnerait mal). `JERVIS_MICRO=systeme` pour prendre quand même celui que macOS
+  choisit, ou un bout de son nom (`JERVIS_MICRO=Yeti`) pour un micro précis.
 - Il fait presque tout sans demander : ouvrir, créer, modifier, ranger, cliquer, coder. Il ne pose la question
   que pour ce qui ne se rattrape pas (voir « Ce qu'il te demande encore » plus bas). Réponds « oui » ou « non ».
 - **Il travaille en fond pendant que vous parlez** : jusqu'à 5 agents à la fois (des tâches indépendantes
@@ -799,6 +806,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_STT` | parakeet | `whisper` pour l'ancien moteur de transcription |
 | `JERVIS_DEUXIEME_AVIS` | oui | `non` = il ne réécoute plus en français les deux ou trois mots sortis en anglais (0,4 s de gagné sur ces phrases-là) |
 | `JERVIS_ANTI_ECHO` | oui | `non` pour le couper (par ex. si ton micro a déjà le sien) |
+| `JERVIS_MICRO` | auto | le micro quand tu branches un casque : `auto` = celui de macOS, sauf AirPods / Bluetooth / iPhone (alors celui du Mac) ; `systeme` = toujours celui de macOS ; ou un bout de son nom (`Yeti`) |
+| `JERVIS_SURVEILLANCE_SON_S` | 1.5 | toutes les combien de secondes il regarde si un casque a été branché ou si le micro est tombé |
 | `JERVIS_DEBRUITAGE` | detection | `tout` = débruite aussi ce qui est transcrit ; `non` = coupé |
 | `JERVIS_CHUCHOTEMENT` | oui | `non` = plus de gain, plus de second détecteur de voix ni de réponse plus basse (l'écoute d'avant) |
 | `JERVIS_GAIN_MAX` | 10 | combien il peut monter ton micro quand tu parles bas (×10 = +20 dB ; 16 s'il rate encore tes chuchotements) |

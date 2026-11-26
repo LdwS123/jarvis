@@ -395,7 +395,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     print(f"⏳ Démarrage du micro (anti-écho, débruitage{motcle}, fin de phrase)…", flush=True)
     oreilles = await asyncio.to_thread(Oreilles)
     etat.oreilles = oreilles
-    tts.brancher(oreilles.haut_parleur)  # sa voix passe par le flux du micro : l'anti-écho la connaît
+    tts.brancher(oreilles.enceinte)  # sa voix passe par le flux du micro : l'anti-écho la connaît
     print(f"⏳ Chargement de {stt.nom_moteur()}…", flush=True)
     await asyncio.to_thread(stt.prechauffer)
     micro = asyncio.Lock()  # une seule écoute à la fois (veille, réponse oui/non, guet pendant qu'il parle)
