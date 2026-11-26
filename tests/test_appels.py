@@ -221,7 +221,8 @@ async def gardien() -> dict:
     vu["cage : volume puis frappe"] = await cage(
         """osascript -e 'set volume 5' -e 'tell application "System Events" to keystroke "oui"'""", page=True)
     vu["cage : une adresse web"] = await cage('open "https://example.com/a?b=1"', page=True)
-    vu["cage : lancer une app"] = await cage('open -a "Spotify"', page=True)
+    vu["cage : lancer une app"] = await cage('open -a "Calculator"', page=True)
+    vu["cage : lancer une app inconnue"] = await cage('open -a "Spotifyy"', page=True)
     vu["cage : ouvrir un fichier"] = await cage("open ~/Downloads/facture.command", page=True)
     vu["cage : cd"] = await cage("cd ~/Documents", page=True)
     vu["cage : sa propre cage ouverte"] = await cage(
@@ -305,7 +306,17 @@ verifier("cage : le volume reste hors cage, sans question", vu["cage : volume"],
 verifier("cage : le volume suivi d'une frappe → demandé (plus de passe-droit par le début)",
          vu["cage : volume puis frappe"][:2], (A, D))
 verifier("cage : une adresse web s'ouvre hors cage", vu["cage : une adresse web"], (A, 0, False))
-verifier("cage : lancer une app, hors cage", vu["cage : lancer une app"], (A, 0, False))
+verifier("cage : lancer une app du système, hors cage", vu["cage : lancer une app"], (A, 0, False))
+verifier("cage : lancer une app qui n'est pas dans /Applications → demandé (un script a pu la poser)",
+         vu["cage : lancer une app inconnue"][:2], (A, D))
+verifier("cage : « open -a Calculator » s'ouvre par son chemin, pas par son nom",
+         (permissions.avec_chemin_app('open -a "Calculator"'), permissions.avec_chemin_app("open -a Calculator.app"),
+          permissions.app_du_systeme("../../tmp/x"), permissions.app_du_systeme(".Evil")),
+         ("open -a /System/Applications/Calculator.app", "open -a /System/Applications/Calculator.app", None, None))
+verifier("après une page : écrire dans une app (~/Applications, ~/Downloads, /Applications) → demandé",
+         [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c}) for c in (
+             "~/Applications/Evil.app/Contents/MacOS/Evil", "~/Downloads/Spotify.app/Contents/Info.plist",
+             "/Applications/X.APP/Contents/MacOS/x", "~/Documents/notes.application")], [True, True, True, False])
 verifier("cage : ouvrir un fichier après une page → demandé", vu["cage : ouvrir un fichier"][:2], (A, D))
 verifier("cage : un simple cd reste hors cage", vu["cage : cd"], (A, 0, False))
 verifier("cage : un sandbox-exec à lui « (allow default) » est encagé quand même", vu["cage : sa propre cage ouverte"][2],
@@ -382,6 +393,9 @@ if nue:
                            capture_output=True, text=True)
         verifier("cage réelle : un dossier parent protégé ne se renomme pas, on peut y écrire",
                  (parent.exists(), (parent / "x").exists()), (True, True))
+        en_cage(f"mkdir -p {t}/Evil.app/Contents; mkdir {t}/pret; mv {t}/pret {t}/Pret.app; touch {t}/a.application")
+        verifier("cage réelle : aucune app ne se pose (ni créée, ni renommée en .app), un .application oui",
+                 [(Path(t) / c).exists() for c in ("Evil.app", "Pret.app", "a.application")], [False, False, True])
         sp = Path(t).resolve() / "site-packages"
         sp.mkdir()
         en_cage(f"touch {sp}/evil.pth {t}/modele.pth")

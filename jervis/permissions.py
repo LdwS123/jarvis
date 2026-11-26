@@ -967,9 +967,41 @@ _ANODIN = re.compile(
 _OUVRE = re.compile(_COMMANDE + r"open\b(?!\s*\()")  # pas le open( de Python
 
 
+_OUVRE_APP = re.compile(r"""(open\s+-a\s+)("[\w .\-]+"|'[\w .\-]+'|[\w.\-]+)""", re.IGNORECASE)
+# Où « open -a » cherche une app sans question : les dossiers d'apps du système. Une app ailleurs (~/Downloads,
+# ~/Applications…) a pu être posée par un script : LaunchServices la trouverait par son nom et la lancerait hors cage.
+_DOSSIERS_APPS = (Path("/Applications"), Path("/Applications/Utilities"), Path("/System/Applications"),
+                  Path("/System/Applications/Utilities"))
+
+
+def app_du_systeme(nom: str) -> Path | None:
+    """Le chemin d'une app installée dans /Applications ou /System/Applications, d'après son nom ; sinon None."""
+    nom = nom.strip("\"'")
+    nom = nom[:-4] if nom.lower().endswith(".app") else nom
+    if not nom or nom.startswith(".") or "/" in nom:
+        return None
+    for dossier in _DOSSIERS_APPS:
+        app = dossier / f"{nom}.app"
+        if app.is_dir() and not app.is_symlink():
+            return app
+    return None
+
+
+def avec_chemin_app(commande: str) -> str:
+    """« open -a Spotify » → « open -a '/Applications/Spotify.app' » : c'est cette app-là qui s'ouvre, pas une
+    homonyme posée ailleurs que LaunchServices préférerait."""
+    m = _OUVRE_APP.search(commande)
+    if not m or not (app := app_du_systeme(m.group(2))):
+        return commande
+    return commande[:m.start(2)] + shlex.quote(str(app)) + commande[m.end(2):]
+
+
 def commande_anodine(commande: str) -> bool:
     commande = commande.strip()
-    return bool(commande) and bool(_ANODIN.fullmatch(commande))
+    if not commande or not _ANODIN.fullmatch(commande):
+        return False
+    m = _OUVRE_APP.search(commande)  # lancer une app : seulement une app du système, d'après son nom
+    return not m or app_du_systeme(m.group(2)) is not None
 
 
 def pilote_des_apps(outil: str, entree: dict[str, Any]) -> bool:
@@ -1011,7 +1043,8 @@ _STEVE_FICHIERS: tuple[str, ...] = ()
 # une cage qui ne lui ouvre que son dossier : le chemin vérifié ici ne compte pas, c'est macOS qui juge à l'écriture
 # (un lien posé entre-temps vers ~/.claude, une casse différente sur APFS n'y ouvrent rien).
 _SE_LANCE_MOTIFS = (r"/\.git/(.*/)?(config|config\.worktree|commondir|gitdir)(\.lock)?$", r"/\.git/(.*/)?(hooks|info)/",
-                    r"/\.git$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")
+                    r"/\.git$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$",
+                    r"\.app(/|$)")  # une app, où qu'elle soit : LaunchServices la trouverait, et l'ouvrirait hors cage
 COMMANDE_MONTREE_MAX = 300  # après une page lue, une commande demandée t'est montrée en entier, jusqu'à cette taille
 _MOT_SIMPLE = r"[\w./:@~+=,%-]+"  # ni guillemet, ni $, ni ; & | ` < > ( ) : rien que le shell réinterprète
 NOUVEAU_DEPOT = re.compile(rf"(?:cd[ \t]+({_MOT_SIMPLE})[ \t]*&&[ \t]*)?git[ \t]+(clone|init)((?:[ \t]+{_MOT_SIMPLE})*)")
@@ -1299,6 +1332,9 @@ class Gardien:
             decision = Decision.DEMANDER  # ce qui viendrait d'un mail ou d'une page ne s'inscrit pas sans toi
         if decision is Decision.NON and (motif := motif_interdit(outil, entree)):
             return PermissionResultDeny(message=motif)  # refusé d'office : pas de question, et il sait quoi faire à la place
+        if decision is Decision.OUI and deja_dehors and outil == "Bash" and commande_anodine(str(entree.get("command") or "")):
+            # la courte liste, hors cage ; une app, par son chemin dans /Applications (pas une homonyme posée ailleurs)
+            return PermissionResultAllow(updated_input={**entree, "command": avec_chemin_app(str(entree["command"]))})
         if decision is Decision.OUI and deja_dehors and outil == "Bash" and a_encager(str(entree.get("command") or "")):
             if Path(CAGE_EXEC).exists():  # seul, mais dans la cage (après ton oui à une question, sans)
                 return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]))})

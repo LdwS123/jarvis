@@ -384,13 +384,14 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
   - après une page ou un mail lus — et pour toute la suite de la conversation, jusqu'à ce qu'elle reparte à neuf
     après une pause — toute commande qui pilote une app (frappes, `osascript`, Raccourcis, `open` d'un fichier)
     t'est demandée, même en mode autonome. Seules exceptions, la commande entière et seule : le volume, Spotify ou
-    Music, ouvrir une adresse web, lancer une app ;
+    Music, ouvrir une adresse web, lancer une app de `/Applications` ou `/System/Applications` (par son chemin :
+    pas une homonyme posée ailleurs ; une app d'ailleurs t'est demandée) ;
   - les autres commandes, il les lance seul mais **dans une cage** de macOS (`sandbox-exec`) : un script dicté par
     une page, même maquillé (base64, `eval`, lancé en fond), n'y envoie aucun Apple Event, aucune frappe, n'ouvre
     aucune app, n'écrit ni dans `~/Library/Messages` ni dans ce qui se lance tout seul (LaunchAgents, cron, ton
     shell, `~/.ssh`, `~/.gitconfig`, les `.pth` de Python, le code de Steve et tout son `.git` — `git status` y
     marche, tes commits se font hors cage —, la config, les hooks et `info/` de n'importe quel dépôt, à toute
-    profondeur, sous-modules et worktrees compris, ni un fichier `.git` qui pointerait ailleurs, `~/.claude`), et ne
+    profondeur, sous-modules et worktrees compris, ni un fichier `.git` qui pointerait ailleurs, `~/.claude`), ne pose aucune app (`*.app`, où que ce soit), et ne
     renomme pas leurs dossiers parents pour en poser des faux. Un `git clone` ou `git init` ne marche donc pas en
     cage : après une page lue, il t'est demandé, s'il est seul et simple (un `cd` devant au plus, ni `;`, `$`,
     guillemets, ni option qui lance du code comme `-c`, `--upload-pack`, `--template` ou un transport `ext::`) et
