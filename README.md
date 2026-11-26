@@ -278,6 +278,7 @@ Ce qu'il faut savoir :
 | « C'est quoi la dernière version de httpx ? » | **PyPI** et **npm** : version, date, licence, lien : `chercher_paquet` |
 | « Qu'est-ce que dit la recherche sur la caféine et le sommeil ? » | **OpenAlex** (plus de 200 millions de publications) : titre, auteurs, revue, citations, lien vers le texte gratuit : `chercher_articles` |
 | « Il est quelle heure à San Francisco ? » | le fuseau vient d'Open-Meteo, l'heure est calculée sur le Mac (heure d'été comprise), avec le décalage avec Paris : `chercher_heure` |
+| « Où est l'ISS en ce moment ? », « donne-moi un verset au hasard », « les stats de Pikachu » | **toutes les API publiques gratuites** : il cherche dans son catalogue (public-apis, environ 2 500 API dont 1 200 sans clé, rangé sur le Mac) celle qui répond, lit sa doc, puis l'appelle (GET seulement, sans clé, jamais sur le Mac ni sur ton réseau) : `chercher_api`, puis `appeler_api` |
 | « Envoie un message à Léa : j'arrive dans 10 minutes » | il cherche Léa dans Contacts, puis te lit le message avant de l'envoyer |
 | « Rappelle-moi d'appeler maman demain à 18 h » | il crée un rappel dans Rappels, qui sonne aussi sur l'iPhone |
 | « Note mes idées : … » | il crée une note dans Notes |
@@ -301,7 +302,18 @@ Il réfléchit avant de répondre, autant que la question le demande : presque p
 beaucoup plus pour « organise ma semaine ». Il enchaîne seul les étapes et vérifie que ça a marché.
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos, et entreprises, adresses,
 produits, air, carburants, livres, musique, tech, séismes, traduction, séries, code, paquets, articles, heure)
-passent par des services gratuits, sans clé ni compte (`jervis/infos.py`, `jervis/infos2.py`) ; s'ils ne suffisent pas ou ne répondent pas, il cherche sur le web.
+passent par des services gratuits, sans clé ni compte (`jervis/infos.py`, `jervis/infos2.py`). Pour tout le reste, il
+a le catalogue des API publiques gratuites (`jervis/apis_publiques.json`, tiré de
+[public-apis](https://github.com/public-apis/public-apis), licence MIT) et un outil pour appeler n'importe laquelle
+(`jervis/apis.py`) ; s'ils ne suffisent pas ou ne répondent pas, il cherche sur le web.
+Pour remettre le catalogue à jour (de nouvelles API y entrent chaque semaine) :
+`cd ~/Jervis && .venv/bin/python -m jervis.apis`. Celles qui demandent une clé y sont aussi (`avec_cle`), mais
+il ne s'en sert pas : il prend une API sans clé.
+
+`appeler_api` ne fait que lire : une requête GET, sans clé, sans cookie, sous un nom générique. Il refuse le Mac et
+ton réseau (127.0.0.1 et le tableau de bord, ta box, 192.168…, 10…, les `.local`, l'adresse des métadonnées des
+nuages…) : chaque nom est résolu et chaque adresse vérifiée avant de partir, redirections comprises (3 au plus). Il
+garde au plus 1 Mo de la réponse et en rend 8 000 caractères (le JSON résumé : 15 éléments par liste).
 
 ### Ce qu'il retient tout seul
 
@@ -767,6 +779,7 @@ Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages
 Payer coupé, les numéros de carte, les CAPTCHA et ses publications (fausse notification, dossier temporaire) : `tests/test_paiements.py`.
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
 Ses autres outils d'infos (entreprises, adresses, produits… jusqu'à l'heure dans le monde), sans réseau : `tests/test_infos2.py`.
+Le catalogue des API et l'appel (aucune adresse du Mac ni du réseau, même par une redirection), sans réseau ni DNS : `tests/test_apis.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -783,6 +796,9 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   l'annuaire des entreprises, la Base Adresse Nationale, geo.api.gouv.fr, Open Food Facts, le site des prix des
   carburants, Open Library, Apple (iTunes), Hacker News (Algolia), l'USGS, MyMemory, TVmaze, GitHub, PyPI, npm et
   OpenAlex que le sujet, le lieu, la monnaie, le pays, le nom, le code-barres ou la phrase à traduire demandés (sans clé ni compte, sous un nom générique), jamais ta voix ni ta mémoire.
+- La recherche dans le catalogue des API se fait sur le Mac. `appeler_api` n'envoie à l'API choisie que l'adresse et
+  les paramètres de la question (une ville, un nom…), sous le même nom générique ; ses consignes lui interdisent
+  d'y mettre ton mail, ton adresse ou ta mémoire.
 - Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son lexique (`lexique.md`), ses recettes (`espace/savoir-faire/`), son graphe (`espace/graphe.db`,
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents

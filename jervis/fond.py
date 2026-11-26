@@ -25,7 +25,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ToolUseBlock, tool)
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import compteur, config, infos, infos2, outils
+from . import apis, compteur, config, infos, infos2, outils
 from .brain import EXPERT, _maintenant, carnet, documents, preparer_connecteurs
 from .permissions import Gardien, est_lecture
 
@@ -336,7 +336,8 @@ ETAT_RONDE = config.ESPACE / "ronde.json"
 
 # Ses outils d'infos lisent, mais sur Internet : un mail piégé lu pendant la ronde pourrait glisser tes données dans
 # la recherche envoyée. Comme le web, ils restent hors de sa ronde (Steve s'en sert quand tu lui parles).
-_INFOS = {f"mcp__{outils.NOM_SERVEUR}__{t.name}" for t in [*infos.OUTILS_INFOS, *infos2.OUTILS_INFOS2]}
+_INFOS = {f"mcp__{outils.NOM_SERVEUR}__{t.name}" for t in [*infos.OUTILS_INFOS, *infos2.OUTILS_INFOS2,
+                                                             *apis.OUTILS_APIS]}
 # Ce que seul Steve écrit pour les fois suivantes (voir _options) : ses agents de fond n'y touchent pas.
 ECRIT_PAR_STEVE = ("noter_lecon", "noter_mot", "noter_savoir_faire")
 
