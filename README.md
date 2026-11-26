@@ -388,9 +388,11 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
   - les autres commandes, il les lance seul mais **dans une cage** de macOS (`sandbox-exec`) : un script dicté par
     une page, même maquillé (base64, `eval`, lancé en fond), n'y envoie aucun Apple Event, aucune frappe, n'ouvre
     aucune app, n'écrit ni dans `~/Library/Messages` ni dans ce qui se lance tout seul (LaunchAgents, cron, ton
-    shell, `~/.ssh/authorized_keys`, le code de Steve, `~/.claude`). La cage ferme les services eux-mêmes (Apple
-    Events, LaunchServices, l'écran, les éléments de connexion) : une copie d'`open` ou d'`osascript` sous un autre
-    nom n'y arrive pas plus, et un `sandbox-exec` lancé dedans reste dans la cage. Fichiers, réseau, Python et son
+    shell, `~/.ssh`, le code de Steve, `~/.claude`), et ne renomme pas leurs dossiers parents pour en poser des faux.
+    La cage ferme les services eux-mêmes (Apple Events, LaunchServices, l'écran, les éléments de connexion,
+    Raccourcis, les actions d'apps, toute tâche confiée à launchd) : une copie d'`open` ou d'`osascript` sous un
+    autre nom, ou un script Python qui les appelle directement, n'y arrive pas plus, et un `sandbox-exec` lancé
+    dedans reste dans la cage. Fichiers, réseau, Python et son
     marchent comme avant ; une capture d'écran par `screencapture` non (il a ses outils du Mac pour ça) ;
   - écrire par Write ou Edit dans ce qui se lance tout seul (LaunchAgents, `.zshrc`, `~/.ssh`, le code de Steve) t'est
     demandé après une page lue ;

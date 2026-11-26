@@ -998,19 +998,26 @@ def _cage_profil() -> str:
     maison = Path.home().resolve()
     dossiers = [maison / "Library/Messages", maison / "Library/LaunchAgents", maison / ".claude",
                 maison / "Library/Application Support/com.apple.backgroundtaskmanagementagent",
-                _RACINE / "jervis", _RACINE / ".venv", _RACINE / "Jervis.app", _RACINE / ".git/hooks"]
+                _RACINE / "jervis", _RACINE / ".venv", _RACINE / "Jervis.app", _RACINE / ".git/hooks", maison / ".ssh"]
     fichiers = [maison / f for f in (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".bashrc", ".bash_profile",
-                                     ".profile", ".ssh/rc", ".ssh/authorized_keys", ".ssh/environment")]
+                                     ".profile")]
+    # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
+    # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
+    parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE, _RACINE / ".git"]
     sp = lambda chemins, quoi: " ".join(f'({quoi} "{c}")' for c in chemins)  # noqa: E731
-    # Le refus de process-exec ne vise que ces chemins (une copie du binaire y échappe) : ce qui ferme vraiment la
-    # porte, ce sont les services qu'il joint — Apple Events, l'écran, LaunchServices (lancer une app, ouvrir un
-    # fichier) et les éléments de connexion. Une copie d'open ou d'osascript n'arrive plus à rien.
+    # Le refus de process-exec ne vise que ces chemins (une copie du binaire y échappe, et Python appelle les mêmes
+    # services sans binaire) : ce qui ferme vraiment la porte, ce sont les services eux-mêmes — Apple Events,
+    # l'écran, LaunchServices (lancer une app, ouvrir un fichier), les éléments de connexion, Raccourcis et les
+    # actions d'apps (App Intents), et job-creation : aucune tâche confiée à launchd, qui tournerait hors cage.
     return ("(version 1)(allow default)"
-            "(deny appleevent-send)"
+            "(deny appleevent-send)(deny job-creation)"
             '(deny mach-lookup (global-name "com.apple.coreservices.appleevents")'
             ' (global-name "com.apple.coreservices.launchservicesd") (global-name-prefix "com.apple.lsd.")'
-            ' (global-name-prefix "com.apple.windowserver") (global-name-prefix "com.apple.backgroundtaskmanagement"))'
+            ' (global-name-prefix "com.apple.windowserver") (global-name-prefix "com.apple.backgroundtaskmanagement")'
+            ' (global-name-prefix "com.apple.shortcuts") (global-name-prefix "com.apple.WorkflowKit")'
+            ' (global-name-prefix "com.apple.siriactionsd") (global-name-prefix "com.apple.linkd"))'
             f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')})"
+            f"(deny file-write-unlink {sp(parents, 'literal')})"
             f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})")
 
 
@@ -1032,7 +1039,7 @@ def a_encager(commande: str) -> bool:
 SE_LANCE_PLUS_TARD = re.compile(
     r"Library/(?:LaunchAgents|LaunchDaemons|Messages)\b|com\.apple\.backgroundtaskmanagement|/\.claude/"
     r"|/\.(?:zshrc|zprofile|zshenv|zlogin|bashrc|bash_profile|profile)$|/\.git/hooks/"
-    r"|/\.ssh/(?:rc|authorized_keys|environment)$"
+    r"|/\.ssh/"
     r"|/Jervis/(?:jervis|\.venv|Jervis\.app)/", re.IGNORECASE)
 
 

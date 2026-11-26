@@ -300,8 +300,9 @@ verifier("cage : ouvrir un fichier après une page → demandé", vu["cage : ouv
 verifier("cage : un simple cd reste hors cage", vu["cage : cd"], (A, 0, False))
 verifier("cage : un sandbox-exec à lui « (allow default) » est encagé quand même", vu["cage : sa propre cage ouverte"][2],
          True)
-verifier("après une page : écrire dans ~/.ssh/authorized_keys → demandé",
-         permissions.ecrit_ce_qui_se_lance("Write", {"file_path": "~/.ssh/authorized_keys"}), True)
+verifier("après une page : écrire dans ~/.ssh (authorized_keys2, config…) → demandé",
+         [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": f"~/.ssh/{f}"})
+          for f in ("authorized_keys", "authorized_keys2", "config")], [True, True, True])
 verifier("cage : conversation neuve → plus de cage", vu["cage : conversation neuve"], (A, 0, False))
 verifier("après une page : écrire un LaunchAgent → demandé", vu["écrire un LaunchAgent"], (A, D))
 verifier("après une page : écrire dans son .zshrc → demandé", vu["écrire son .zshrc"], (A, D))
@@ -315,7 +316,25 @@ def en_cage(commande: str) -> subprocess.CompletedProcess:
     return subprocess.run(["/bin/zsh", "-c", permissions.encager(commande)], capture_output=True, text=True,
                           timeout=20)
 
-if Path(permissions.CAGE_EXEC).exists() and en_cage("true").returncode == 0:
+nue = Path(permissions.CAGE_EXEC).exists() and subprocess.run(
+    [permissions.CAGE_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"], capture_output=True).returncode == 0
+if nue:
+    # sandbox-exec tourne ici : le profil de Steve doit tourner aussi (une faute de syntaxe casserait toute commande)
+    verifier("cage réelle : le profil est accepté par macOS", en_cage("true").returncode, 0)
+    temoin = Path(permissions.__file__).resolve().parent.parent / ".temoin-de-cage"
+    r = en_cage(f"touch {temoin} && rm {temoin} && echo ok")
+    verifier("cage réelle : créer un fichier dans ~/Jervis reste permis (seul le dossier ne se renomme pas)",
+             r.stdout.strip(), "ok")
+    import tempfile  # noqa: E402
+    with tempfile.TemporaryDirectory() as t:
+        parent = Path(t).resolve() / "parent"
+        parent.mkdir()
+        r = subprocess.run([permissions.CAGE_EXEC, "-p", f'(version 1)(allow default)(deny file-write-unlink '
+                            f'(literal "{parent}"))', "/bin/zsh", "-c", f"touch {parent}/x; mv {parent} {t}/autre"],
+                           capture_output=True, text=True)
+        verifier("cage réelle : un dossier parent protégé ne se renomme pas, on peut y écrire",
+                 (parent.exists(), (parent / "x").exists()), (True, True))
+if nue and en_cage("true").returncode == 0:
     temoin = Path(permissions.__file__).resolve().parent.parent / ".git/hooks/temoin-de-cage"
     r = en_cage(f"echo ok; osascript -e 'return 1'; touch {temoin}")
     ecrit = temoin.exists()
