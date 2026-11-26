@@ -44,7 +44,11 @@ def numero_appelable(brut: Any) -> str | None:
         texte, chiffres = "+" + chiffres[2:], chiffres[2:]
     if not 2 <= len(chiffres) <= 15:
         return None
-    return ("+" if texte.startswith("+") else "") + chiffres
+    numero = ("+" if texte.startswith("+") else "") + chiffres
+    # « +33 0899… » (le 0 national gardé après l'indicatif) : le même numéro que « 0899… », il doit être vu surtaxé.
+    while numero.startswith("+330"):
+        numero = "+33" + numero[4:]
+    return numero
 
 
 def national(numero: str) -> str:

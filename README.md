@@ -376,7 +376,9 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
 - **Qui il écoute** : seulement toi, dans ta conversation avec toi-même. Un message de quelqu'un d'autre, un groupe,
   une réaction (« A aimé… ») ne sont jamais des ordres. Ses propres messages (ceux qui commencent par 🤖 ou ❓, et
   tout iMessage qu'il vient d'envoyer) ne sont jamais relus comme une demande : un texte copié d'une page ne
-  revient pas déguisé en ordre de toi. Les messages déjà là au démarrage sont ignorés.
+  revient pas déguisé en ordre de toi. Les messages déjà là au démarrage sont ignorés. Il n'envoie jamais d'iMessage
+  par un script (osascript, JXA) : seulement par son outil, qui note ce qui part. Et un message qui arrive pendant
+  qu'il lit une page ou un mail (ou moins de 20 s après) : il te demande d'abord « c'est bien toi qui l'as écrit ? ».
 - **Ce qui ne change pas** : les mêmes règles qu'au micro. Il ne paie jamais, les interdits tiennent, et ce qu'il
   demande d'habitude à voix haute, il te le demande par message. Il n'appelle personne depuis le Mac quand tu lui
   écris de l'iPhone : l'appel sonnerait sur le Mac, sans toi (appelle depuis l'iPhone, ou « Dis Siri, appelle … »).
@@ -394,8 +396,8 @@ l'appel** : il compose, c'est toi qui parles.
 - **Une fois** : sur le Mac, FaceTime → Réglages → « Appels depuis l'iPhone » ; sur l'iPhone, Réglages → Téléphone
   → Appels sur d'autres appareils → ton Mac. Les deux sur le même compte iCloud et le même Wi-Fi. Pour le clic,
   l'autorisation **Accessibilité** de Jervis (sans elle, il compose et te dit de cliquer sur « Appeler »).
-- **Jamais un numéro surtaxé** (081 à 089, les 118, les numéros courts payants, les satellites) : il refuse, ça
-  paie.
+- **Jamais un numéro surtaxé** (081 à 089, les 118, les numéros courts payants, les satellites), même écrit
+  « +33 0899… » : il refuse, ça paie.
 - **Toujours demandé** : un numéro d'urgence (« J'appelle le 17, la police. Je peux ? ») et un numéro lu dans une page,
   un mail ou le rapport d'un agent, même en mode autonome. « Appelle maman » sur ta demande part sans question.
 - `JERVIS_APPELS=non` coupe les appels ; `JERVIS_APPEL_AUTO=non` : il compose, et c'est toi qui cliques.
@@ -844,6 +846,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_IMESSAGE` | auto | Steve depuis ton iPhone : `auto` = tes adresses lues dans Messages ; `+336…,moi@icloud.com` = tes adresses à la main ; `non` = coupé |
 | `JERVIS_IMESSAGE_RELEVE_S` | 2 | toutes les combien de secondes il regarde si tu lui as écrit |
 | `JERVIS_IMESSAGE_PATIENCE_S` | 20 | une demande plus longue que ça : « Je m'en occupe… » part d'abord (0 = jamais) |
+| `JERVIS_IMESSAGE_MEFIANCE_S` | 20 | un iMessage arrivé pendant une page ou un mail lus, ou ce temps-là après : il te demande si c'est bien toi |
 | `JERVIS_QUESTION_IMESSAGE_S` | 600 | une question ❓ restée sans réponse ce temps-là : c'est non |
 | `JERVIS_APPELS` | oui | `non` = il n'appelle personne |
 | `JERVIS_APPEL_AUTO` | oui | il clique lui-même sur « Appeler » ; `non` = il compose, tu cliques |

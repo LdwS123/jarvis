@@ -184,6 +184,8 @@ ECRIT_RELECTURE_S = float(_env("ECRIT_RELECTURE_S", "120"))
 IMESSAGE = _env("IMESSAGE", "auto")
 IMESSAGE_RELEVE_S = float(_env("IMESSAGE_RELEVE_S", "2"))       # il relit tes messages toutes les 2 s
 IMESSAGE_PATIENCE_S = float(_env("IMESSAGE_PATIENCE_S", "20"))  # pas fini en 20 s : « Je m'en occupe… » (0 = jamais)
+# Un iMessage arrivé pendant qu'il lit une page ou un mail, ou moins de 20 s après : il te demande si c'est bien toi.
+IMESSAGE_MEFIANCE_S = float(_env("IMESSAGE_MEFIANCE_S", "20"))
 QUESTION_IMESSAGE_S = float(_env("QUESTION_IMESSAGE_S", "600"))  # une question sans réponse en 10 min vaut non
 
 # --- Appels par l'iPhone (appels.py) ------------------------------------------------------------------------

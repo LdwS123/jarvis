@@ -13,7 +13,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ResultMessage, StreamEvent, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
 from . import comptes, compteur, config, graphe, lecons, lexique, naturel, outils, savoir_faire
-from .permissions import Gardien, lit_dehors
+from .permissions import Gardien, lit_dehors, lu_dehors_depuis, noter_lecture_dehors
 
 # Ce que tu lui dis à voix haute pendant qu'il travaille : il le lit à la fin de l'outil en cours, sans s'arrêter.
 # Un code tiré au hasard à chaque lancement, connu de ses seules consignes : une page ou un mail qui recopierait
@@ -611,6 +611,12 @@ class Cerveau:
                 self._par_ecrit, self._confirmer_ecrit = False, None
                 self._gardien.a_distance = False
 
+    def lu_dehors(self) -> bool:
+        """Vrai s'il travaille sur un texte venu d'ailleurs (une page, un mail), ou vient d'en lire un : un iMessage
+        de « toi » qui arrive là a pu être écrit par lui, sous la dictée de ce texte (distance.py le fait confirmer)."""
+        return ((self._verrou.locked() and self._gardien.contenu_externe)
+                or lu_dehors_depuis() < config.IMESSAGE_MEFIANCE_S)
+
     async def _demander(self, texte: str, ecrit: Callable[[str], None] | None) -> str:
         par_ecrit = ecrit is not None
         if not par_ecrit:  # les mots qu'il entend mal chez toi (lexique.py) ; ce que tu tapes reste tel quel
@@ -750,6 +756,7 @@ class Cerveau:
                             utilises[bloc.id] = bloc.name.split("__")[-1]
                             if lit_dehors(bloc.name):
                                 self._gardien.contenu_externe = True
+                                noter_lecture_dehors()
                             a_la_ligne = True
                 elif isinstance(message, UserMessage) and isinstance(message.content, list):
                     for bloc in message.content:  # un outil qui a échoué : de quoi en tirer une leçon

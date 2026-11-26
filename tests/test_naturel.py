@@ -385,6 +385,7 @@ class FauxCerveau:
     def fin_de_conversation(self): pass
     def couper(self, tout=False): self._interrompu = True
     def pas_lus(self): return ""
+    def lu_dehors(self): return False
 
     def glisser(self, texte):
         if not self.au_travail or self._interrompu:

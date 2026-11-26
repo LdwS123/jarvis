@@ -10,6 +10,8 @@ Qui peut lui donner un ordre ? Seulement toi : la conversation avec toi-même n'
 Apple), et chaque message reçu doit venir d'une de tes adresses. Un message d'un autre, un groupe, une réaction
 (« A aimé… ») ne comptent jamais. Ses propres réponses commencent par 🤖 et ce qu'il vient d'envoyer est noté : il
 ne se relit jamais lui-même (pas de boucle, et un texte venu d'une page ne revient pas comme un ordre de toi).
+Un message qui arrive pendant qu'il lit une page ou un mail (ou juste après) a pu être écrit par lui, sous la
+dictée de ce texte : il te demande d'abord si c'est bien toi (`suspect`, Cerveau.lu_dehors).
 
 Il faut l'Accès complet au disque pour « Jervis » (comme pour les codes reçus par SMS).
 """
@@ -103,8 +105,9 @@ class Boite:
 
     def __init__(self, envoyer: Callable[[str, str], Awaitable[tuple[int, str]]], base: Path | None = None,
                  adresses: str | None = None, accord: Callable[[str], bool | None] = accord_simple,
-                 journal: Callable[[str], None] = print) -> None:
+                 journal: Callable[[str], None] = print, suspect: Callable[[], bool] | None = None) -> None:
         self._envoyer = envoyer
+        self._suspect = suspect or (lambda: False)
         self._base = base or comptes.CHAT_DB
         reglage = (config.IMESSAGE if adresses is None else adresses).strip()
         # « auto » : ses adresses sont lues dans la base ; sinon, la liste que tu as donnée (« +336…, moi@icloud.com »).
@@ -119,7 +122,8 @@ class Boite:
         self.adresse = ""                     # où répondre : le fil de ton dernier message
         self._vus: deque[tuple[str, float]] = deque(maxlen=20)
         self._question: asyncio.Future | None = None
-        self.arrivees: asyncio.Queue[str] = asyncio.Queue()
+        # (ton texte, arrivé pendant qu'il lisait une page ou un mail ?) : alors il te demande si c'est bien toi
+        self.arrivees: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
         self.erreur = ""                      # pourquoi il ne lit pas (l'accès au disque…) ; "" s'il lit
 
     # --- lire la base --------------------------------------------------------------------------------------
@@ -203,10 +207,11 @@ class Boite:
         dit = False
         while True:
             for texte in await asyncio.to_thread(self.lire):
+                suspect = self._suspect()
                 if self._question is not None and not self._question.done():
-                    self._question.set_result(texte)
+                    self._question.set_result((texte, suspect))
                 else:
-                    self.arrivees.put_nowait(texte)
+                    self.arrivees.put_nowait((texte, suspect))
             if self.erreur and not dit:
                 self._journal(f"   📱 Je ne lis pas tes iMessages : il me faut l'Accès complet au disque (Réglages → "
                               f"Confidentialité et sécurité). ({self.erreur})")
@@ -233,7 +238,7 @@ class Boite:
         try:
             if not await self.envoyer(f"{question} (réponds oui ou non)", QUESTION):
                 return False
-            texte = await asyncio.wait_for(asyncio.shield(futur), delai or config.QUESTION_IMESSAGE_S)
+            texte, suspect = await asyncio.wait_for(asyncio.shield(futur), delai or config.QUESTION_IMESSAGE_S)
         except asyncio.TimeoutError:
             await self.envoyer("Pas de réponse : je n'ai rien fait.")
             return False
@@ -241,7 +246,7 @@ class Boite:
             self._question = None
         accord = self._accord(texte)
         if accord is None:
-            self.arrivees.put_nowait(texte)
+            self.arrivees.put_nowait((texte, suspect))
         return bool(accord)
 
 
@@ -249,17 +254,25 @@ async def servir(boite: Boite, demander: Callable[..., Awaitable[str]], relire: 
                  journal: Callable[[str], None] = print) -> None:
     """Ta demande arrive, il la fait (`demander` : Cerveau.demander, venu d'iMessage), et te répond dans le fil.
     Si elle prend du temps, un « je m'en occupe » part d'abord. Quand tu ne lui écris plus (ECRIT_RELECTURE_S),
-    `relire` : il relit l'échange pour sa mémoire, comme après le chat du tableau de bord."""
+    `relire` : il relit l'échange pour sa mémoire, comme après le chat du tableau de bord.
+    Un message arrivé pendant qu'il lisait une page ou un mail : il te demande d'abord si c'est bien toi."""
     a_relire = False
     while True:
         try:
-            texte = await (asyncio.wait_for(boite.arrivees.get(), config.ECRIT_RELECTURE_S) if a_relire and relire
-                           else boite.arrivees.get())
+            texte, suspect = await (asyncio.wait_for(boite.arrivees.get(), config.ECRIT_RELECTURE_S)
+                                    if a_relire and relire else boite.arrivees.get())
         except asyncio.TimeoutError:
             a_relire = False
             relire()
             continue
         a_relire = True
+        if suspect:  # il lisait une page ou un mail : ce message a pu partir de lui, sous la dictée de ce texte
+            journal(f"   📱 Message arrivé pendant une lecture du dehors, je te demande si c'est toi : {texte[:120]}")
+            court = texte if len(texte) <= 200 else texte[:199] + "…"
+            if not await boite.demander(f"Ce message est arrivé pendant que je lisais une page ou un mail : c'est "
+                                        f"bien toi qui l'as écrit ? « {court} »"):
+                await boite.envoyer("Je l'ignore.")
+                continue
         journal(f"🧑 Toi (iPhone) : {texte}")
         travail = asyncio.ensure_future(demander(texte, ecrit=lambda _morceau: None,
                                                  confirmer_ecrit=boite.demander, origine="iMessage"))

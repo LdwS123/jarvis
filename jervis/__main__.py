@@ -990,7 +990,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             print(ligne, flush=True)  # le journal : le tableau de bord y relit l'échange
         boite = distance.Boite(envoyer=lambda adresse, texte: outils._applescript(outils._IMESSAGE, adresse, texte),
                                accord=lambda t: a if (a := lire_accord(t)) is not None else distance.accord_simple(t),
-                               journal=noter)  # (accord_simple connaît le 👍 tapé)
+                               journal=noter, suspect=cerveau.lu_dehors)  # (accord_simple connaît le 👍 tapé)
         iphone = [asyncio.create_task(boite.relever()), asyncio.create_task(distance.servir(
             boite, cerveau.demander, journal=noter,
             relire=lambda: None if discussion["active"] else cerveau.fin_de_conversation()))]

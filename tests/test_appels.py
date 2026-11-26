@@ -34,6 +34,9 @@ def texte(r: dict) -> str:
 verifier("numéro : écrit avec des espaces", appels.numero_appelable("06 12 34 56 78"), "0612345678")
 verifier("numéro : international, avec (0)", appels.numero_appelable("+33 (0)6 12 34 56 78"), "+33612345678")
 verifier("numéro : 0033 → +33", appels.numero_appelable("0033 6 12 34 56 78"), "+33612345678")
+verifier("numéro : +33 0899… (le 0 gardé) → +33899…", appels.numero_appelable("+33 0899 12 34 56"), "+33899123456")
+verifier("numéro : 0033 0899… aussi", appels.numero_appelable("0033 0 899 12 34 56"), "+33899123456")
+verifier("surtaxé : même écrit +33 0899…", appels.numero_surtaxe(appels.numero_appelable("+33 0899 12 34 56")), True)
 verifier("numéro : tel:", appels.numero_appelable("tel:+33612345678"), "+33612345678")
 verifier("numéro : un nom n'en est pas un", appels.numero_appelable("maman"), None)
 verifier("numéro : une adresse mail non plus", appels.numero_appelable("moi@icloud.com"), None)
@@ -85,6 +88,8 @@ n = len(lances)
 r = appeler(numero="08 99 12 34 56", nom="voyance")
 verifier("appeler : un numéro surtaxé → refusé, rien lancé", (r.get("is_error"), "surtaxé" in texte(r), len(lances)),
          (True, True, n))
+r = appeler(numero="+33 0899 12 34 56", nom="voyance")
+verifier("appeler : surtaxé déguisé en +33 0899… → refusé aussi", (r.get("is_error"), len(lances)), (True, n))
 r = appeler(numero="maman")
 verifier("appeler : un nom à la place du numéro → il cherche d'abord", ("chercher_contact" in texte(r), len(lances)),
          (True, n))
@@ -150,6 +155,20 @@ async def gardien() -> dict:
     vu["depuis l'iPhone"] = (type(await g("mcp__jervis__appeler", {"numero": "0612345678"}, FauxContexte())).__name__,
                              len(questions))
     g.a_distance = False
+    for nom, outil, entree in (
+            ("osascript", "Bash", {"command": """osascript -e 'tell application "Messages" to send "go" to buddy "x"'"""}),
+            ("JXA", "Bash", {"command": """osascript -l JavaScript -e 'Application("Messages").send("go", {to: b})'"""}),
+            ("script écrit", "Write", {"file_path": "/tmp/a.scpt",
+                                       "content": 'tell application id "com.apple.iChat"\nsend "go" to b\nend tell'})):
+        g.nouvelle_demande()
+        vu[f"messages par {nom}"] = type(await g(outil, entree, FauxContexte())).__name__
+    g.nouvelle_demande()
+    vu["messages sans envoi"] = type(await g("Bash", {"command": """osascript -e 'tell application "Messages" to activate'"""},
+                                             FauxContexte())).__name__
+    permissions._lu_dehors_a = float("-inf")
+    vu["jamais lu dehors"] = permissions.lu_dehors_depuis() > 1e9
+    await g("mcp__navigateur__browser_snapshot", {}, FauxContexte())
+    vu["vient de lire dehors"] = permissions.lu_dehors_depuis() < 5
     config.CONFIRMATIONS = "essentielles"
     vu["essentielles : appelle maman"] = (await essai({"numero": "0612345678", "nom": "maman"}), len(questions))
     config.CONFIRMATIONS = "autonome"
@@ -166,6 +185,12 @@ verifier("gardien : un numéro lu sur une page → il demande", vu["après une p
 verifier("gardien : sur le rapport d'un agent → il demande", vu["sur le rapport d'un agent"], ("PermissionResultAllow", 1))
 verifier("gardien : depuis l'iPhone → refusé (ça sonnerait sur le Mac)", vu["depuis l'iPhone"],
          ("PermissionResultDeny", 0))
+for nom in ("osascript", "JXA", "script écrit"):
+    verifier(f"gardien : un iMessage par {nom} → refusé (il a envoyer_imessage)", vu[f"messages par {nom}"],
+             "PermissionResultDeny")
+verifier("gardien : Messages sans envoi → permis", vu["messages sans envoi"], "PermissionResultAllow")
+verifier("gardien : il note quand il a lu un texte du dehors", (vu["jamais lu dehors"], vu["vient de lire dehors"]),
+         (True, True))
 verifier("gardien : en mode essentielles, toujours demandé", vu["essentielles : appelle maman"],
          ("PermissionResultAllow", 1))
 verifier("décrire : sans nom", decrire("mcp__jervis__appeler", {"numero": "0612345678"}), "J'appelle le 0612345678. Je peux ?")

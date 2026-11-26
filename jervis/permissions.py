@@ -7,6 +7,7 @@ une commande shell, un outil Gmail ou Agenda, une page web, un clic dans une app
 import asyncio
 import re
 import subprocess
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
@@ -902,6 +903,36 @@ def lit_dehors(outil: str) -> bool:
     return not _INTERNES.match(outil)
 
 
+# Quand lui (ou un agent de fond) a lu un texte venu d'ailleurs pour la dernière fois : un iMessage de « toi » qui
+# arrive juste après a pu être écrit par lui, sous la dictée d'une page piégée (distance.py le fait confirmer).
+_lu_dehors_a = float("-inf")
+
+
+def noter_lecture_dehors() -> None:
+    global _lu_dehors_a
+    _lu_dehors_a = time.monotonic()
+
+
+def lu_dehors_depuis() -> float:
+    """Secondes depuis le dernier texte venu d'ailleurs (l'infini s'il n'en a jamais lu)."""
+    return time.monotonic() - _lu_dehors_a
+
+
+# Envoyer un iMessage par un script (osascript, JXA, un fichier .scpt) : refusé, il a son outil envoyer_imessage.
+# Ce que l'outil envoie est noté (distance.noter_envoi) et n'est jamais relu comme un ordre de toi ; un script, si :
+# c'est la porte par laquelle une page piégée se ferait passer pour toi dans ta conversation avec toi-même.
+_MESSAGES_PAR_SCRIPT = re.compile(
+    r"""(application\s+(id\s+)?["']?|Application\(\s*["'])(Messages|com\.apple\.(iChat|MobileSMS))\b""",
+    re.IGNORECASE)
+
+
+def envoie_par_messages(outil: str, entree: dict[str, Any]) -> bool:
+    if outil not in {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"}:
+        return False
+    texte = " ".join(str(v) for v in entree.values())
+    return bool(_MESSAGES_PAR_SCRIPT.search(texte)) and bool(re.search(r"\bsend\b", texte, re.IGNORECASE))
+
+
 class Gardien:
     """Branche la politique sur le SDK (c'est le `can_use_tool`).
 
@@ -948,11 +979,15 @@ class Gardien:
                 comptes.apres_collage()
         if motif := motif_paiement(outil, entree):
             return PermissionResultDeny(message=motif)
+        if envoie_par_messages(outil, entree):
+            return PermissionResultDeny(message="Pas d'iMessage par un script : utilise l'outil envoyer_imessage (ce "
+                                                "qu'il envoie est noté, et jamais relu comme un ordre de lui).")
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)
         if lit_dehors(outil):
             self.contenu_externe = True
+            noter_lecture_dehors()
         if outil == "mcp__jervis__noter_mot" and (self.contenu_externe or self.mefiance):
             # Son lexique réécrit ce que tu dis avant que Claude le lise : il ne s'apprend que de ta bouche, jamais
             # d'un mail, d'une page ou d'un agent, et quel que soit le mode (même autonome, pas de question : non).
