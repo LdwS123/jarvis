@@ -695,7 +695,9 @@ Licence : gratuit pour un usage personnel, payant pour une entreprise.
 Slack, Discord… prennent ton micro, macOS le dit (CoreAudio, sans rien ouvrir ni enregistrer pour ça) : Steve ne
 dit plus un mot, ses annonces attendent la fin, et si tu l'appelles par son nom il te répond **par écrit**
 (notification et chat du tableau de bord). Le micro libéré depuis 8 secondes, l'appel est fini : il reprend.
-`JERVIS_MODE_REUNION=non` le coupe.
+`JERVIS_MODE_REUNION=non` le coupe. Ce qu'il entend pendant un appel peut venir d'un participant, pas de toi :
+il peut lire et répondre, mais **pour agir (un message, un rappel, un fichier…) il te demande un clic** dans le
+chat, même en mode autonome.
 
 **Le compte rendu, à ta demande.** « Steve, fais le compte rendu », « prends des notes », « take notes » : il
 écoute la réunion et la **transcrit sur le Mac**, par morceaux d'une trentaine de secondes coupés dans un blanc.
@@ -718,7 +720,9 @@ retrouve.
 - **Les transcriptions** vont dans `espace/reunions/` (un fichier texte daté, horodaté, avec la langue de chaque
   morceau). Le son n'est pas gardé (`JERVIS_REUNION_GARDER_SON=oui` pour garder un `.wav` à côté).
 - **Préviens les autres** : transcrire une réunion se fait avec l'accord de tout le monde. Il te le rappelle à
-  chaque compte rendu.
+  chaque compte rendu, et une notification s'affiche dès qu'il commence à écouter. Ton micro en pause (menu Steve),
+  il refuse : pas de compte rendu dans ton dos. Et s'il vient de lire une page ou un mail, il te demande avant
+  d'écouter.
 - `JERVIS_REUNION_AUTO=oui` : un compte rendu de chaque appel, sans le demander.
 
 ### Ton bureau : fenêtres, modes, musique, dossiers, santé du Mac

@@ -307,7 +307,7 @@ verifier("permissions : le plan seul se lit sans demander",
 verifier("permissions : ce qui rend un texte d'ailleurs (fichiers, sélection) n'est pas « interne »",
          [permissions.lit_dehors(f"mcp__jervis__{n}") for n in ("chercher_fichiers", "texte_selectionne",
                                                                  "ranger_dossier", "mode", "ranger_fenetres")],
-         [True, True, True, False, False])
+         [True, True, True, True, False])  # (un mode relaie le titre d'un morceau, la sortie d'un raccourci)
 verifier("permissions : un mode et une règle de rangement s'écrivent pour plus tard",
          {"definir_mode", "noter_regle_rangement"} <= permissions.ECRIT_POUR_PLUS_TARD, True)
 noms = {t.name for t in outils.OUTILS}

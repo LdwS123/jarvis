@@ -1014,9 +1014,12 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         elif config.APPEL_REPONSE == "ecrit" and len(commande) >= 3:
             n = chat.MESSAGERIE.ajouter("steve", "", fini=False)
             try:
+                # Une voix dans l'appel peut être celle d'un participant (les haut-parleurs) : il lit, mais n'agit
+                # qu'avec ton oui, par un clic dans le chat (personne dans l'appel ne peut cliquer à ta place).
                 reponse = await cerveau.demander(
                     commande, ecrit=lambda morceau: chat.MESSAGERIE.completer(n, morceau),
-                    confirmer_ecrit=lambda question: chat.MESSAGERIE.demander(question, config.QUESTION_ECRITE_S))
+                    confirmer_ecrit=lambda question: chat.MESSAGERIE.demander(question, config.QUESTION_ECRITE_S),
+                    origine="entendu pendant un appel", en_appel=True)
             except Exception as e:
                 reponse = f"⚠️ Je n'ai pas pu répondre ({e!r})."
             reponse = reponse or "OK."
@@ -1054,6 +1057,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         return True
 
     reunion.REUNIONS.brancher_micro = brancher_micro
+    # Chaque compte rendu qui commence se voit : une notification, même s'il a été lancé sans un mot de toi.
+    reunion.REUNIONS.prevenir = lambda texte: asyncio.run_coroutine_threadsafe(notifier(config.PRENOM, texte), boucle)
     reunion.REUNIONS.annoncer = lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("faire", texte))
     sante = threading.Event()  # (posé à l'arrêt : la surveillance de la santé du Mac s'arrête)
     surveillance = reunion.Surveillance(appel_commence, appel_fini)

@@ -605,6 +605,7 @@ class Cerveau:
         self._a_rappeler = False                     # Claude Code vient d'être relancé : lui redonner le fil
         self._verrou = asyncio.Lock()                # une demande à la fois (ta voix et le chat écrit se relaient)
         self._par_ecrit = False                      # la demande en cours vient du chat écrit
+        self._en_appel = False                       # … ou a été entendue pendant un appel (Gardien.en_appel)
         self._confirmer_ecrit: Callable[[str], Awaitable[bool]] | None = None  # ses boutons Oui / Non
         self._au_travail = False                     # la réponse dite en cours a déjà lancé un outil
         self._glisses: list[str] = []                # ce que tu as dit par-dessus, pas encore lu par Claude
@@ -620,11 +621,13 @@ class Cerveau:
         await preparer_connecteurs(self._client, attente_max, self._journal)
 
     async def demander(self, texte: str, ecrit: Callable[[str], None] | None = None,
-                       confirmer_ecrit: Callable[[str], Awaitable[bool]] | None = None, origine: str = "écrit") -> str:
+                       confirmer_ecrit: Callable[[str], Awaitable[bool]] | None = None, origine: str = "écrit",
+                       en_appel: bool = False) -> str:
         """Envoie ta phrase et prononce chaque morceau de réponse dès qu'il arrive. Renvoie la réponse.
         Par écrit (le chat du tableau de bord) : `ecrit` reçoit le texte au fil de l'eau, sans un mot à voix haute,
         et ses questions oui/non passent par `confirmer_ecrit` (des boutons) au lieu du micro. `origine` dit d'où
-        vient ce texte écrit : « écrit » (le tableau de bord) ou « iMessage » (ton iPhone, loin du Mac)."""
+        vient ce texte écrit : « écrit » (le tableau de bord) ou « iMessage » (ton iPhone, loin du Mac).
+        `en_appel` : entendu pendant un appel (peut-être la voix d'un participant) : il ne fait que lire sans ton oui."""
         assert self._client is not None, "appelle demarrer() d'abord"
         if ecrit is None and self._verrou.locked() and self._par_ecrit:
             await self._parler("Je finis ce que tu m'as écrit, une seconde.")
@@ -632,11 +635,12 @@ class Cerveau:
             self._par_ecrit = ecrit is not None
             self._confirmer_ecrit = confirmer_ecrit if ecrit is not None else None
             self._gardien.a_distance = ecrit is not None and origine == "iMessage"
+            self._en_appel = en_appel
             try:
                 return await self._demander(f"({origine}) {texte}" if ecrit is not None else texte, ecrit)
             finally:
                 self._par_ecrit, self._confirmer_ecrit = False, None
-                self._gardien.a_distance = False
+                self._gardien.a_distance = self._en_appel = False
 
     def lu_dehors(self) -> bool:
         """Vrai s'il travaille sur un texte venu d'ailleurs (une page, un mail), ou vient d'en lire un : un iMessage
@@ -648,7 +652,7 @@ class Cerveau:
         par_ecrit = ecrit is not None
         if not par_ecrit:  # les mots qu'il entend mal chez toi (lexique.py) ; ce que tu tapes reste tel quel
             texte = lexique.corriger(texte)
-        self._gardien.nouvelle_demande(mefiance=bool(_RAPPORT.match(texte)))
+        self._gardien.nouvelle_demande(mefiance=bool(_RAPPORT.match(texte)), en_appel=self._en_appel)
         self._interrompu = False
         self._au_travail, self._glisses, self._muet, self._non_dit = False, [], False, False
         await couper_intrus(self._client)  # au cas où un connecteur serait arrivé en retard

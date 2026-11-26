@@ -861,8 +861,9 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        r"ranger_cle_api|"
                        # Le compte rendu et le bureau : ils ne rendent que « c'est fait » (reunion.py, bureau.py).
                        # (lire_compte_rendu, ranger_dossier, chercher_fichiers, texte_selectionne… rendent un texte
-                       # venu d'ailleurs : ils n'y sont pas.)
-                       r"commencer_compte_rendu|finir_compte_rendu|mode|definir_mode|ranger_fenetres|"
+                       # venu d'ailleurs : ils n'y sont pas, ni mode, qui relaie le titre d'un morceau et la sortie
+                       # d'un raccourci.)
+                       r"commencer_compte_rendu|finir_compte_rendu|definir_mode|ranger_fenetres|"
                        r"noter_regle_rangement|annuler_rangement|ouvrir_fichier)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
@@ -1315,14 +1316,17 @@ class Gardien:
         self.dehors_dans_le_fil = False
         # La demande vient de ton iPhone, par iMessage (distance.py) : tu n'es pas devant le Mac.
         self.a_distance = False
+        # La demande a été entendue pendant un appel : elle peut venir d'un participant (sa voix dans les
+        # haut-parleurs). Alors, même en mode autonome, il ne fait que lire sans ton oui (par écrit, un clic).
+        self.en_appel = False
         self._verrou = asyncio.Lock()  # une question à la fois, même si les appels arrivent ensemble
         self._reponses: dict[str, bool] = {}
         self._apps_vues: set[str] = set()
         self._vu_cette_demande = False
 
-    def nouvelle_demande(self, mefiance: bool = False) -> None:
+    def nouvelle_demande(self, mefiance: bool = False, en_appel: bool = False) -> None:
         self._reponses.clear()
-        self.mefiance, self.contenu_externe = mefiance, False
+        self.mefiance, self.contenu_externe, self.en_appel = mefiance or en_appel, False, en_appel
         # Les apps vues juste avant restent valables (« clique sur OK » juste après), jusqu'au prochain see.
         self._vu_cette_demande = False
 
@@ -1390,6 +1394,10 @@ class Gardien:
             # Des frappes, un script d'app, un « open » de fichier, ou un fichier qui se lancera tout seul plus tard
             # (LaunchAgents, ton shell, le code de Steve) après une page lue : même en autonome.
             decision = Decision.DEMANDER
+        if decision is Decision.OUI and outil == "mcp__jervis__commencer_compte_rendu" and deja_dehors:
+            decision = Decision.DEMANDER  # écouter une réunion : jamais sous la dictée d'une page ou d'un mail
+        if decision is Decision.OUI and self.en_appel and not est_lecture(outil):
+            decision = Decision.DEMANDER  # entendu pendant un appel : peut-être un participant, pas toi
         prudent = config.CONFIRMATIONS != "autonome"   # en mode autonome : plus de questions que pour l'argent
         if prudent and decision is Decision.OUI and self.mefiance and not est_lecture(outil):
             decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même

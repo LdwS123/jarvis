@@ -344,6 +344,7 @@ class Reunions:
         # son micro n'écoute pas (en pause) : alors il en ouvre un à lui.
         self.brancher_micro: Callable[[Callable[[np.ndarray], None] | None], bool] | None = None
         self.annoncer: Callable[[str], None] | None = None
+        self.prevenir: Callable[[str], None] | None = None  # une notification à chaque compte rendu qui commence
         self.dossier: Path | None = None              # (les tests le changent)
         self.transcrire = None                       # (les tests passent un faux)
         self.ouvrir_prise: Callable[[str | None, Callable], Any] = Prise
@@ -361,7 +362,13 @@ class Reunions:
                     branche = self.brancher_micro(lambda bloc: self._recevoir(cr, bloc, "micro"))
                 except Exception:
                     branche = False
-            if not branche:
+            if self.brancher_micro is not None and not branche:
+                # Tu as mis son micro en pause : il n'en ouvre pas un autre dans ton dos.
+                cr.finir(attente=1)
+                cr.fichier.unlink(missing_ok=True)
+                return ("Ton micro est en pause : je n'écoute rien, réunion comprise. Relance l'écoute (menu Steve), "
+                        "puis redemande-moi le compte rendu.")
+            if not branche:  # (sans Steve autour : il ouvre le micro lui-même)
                 try:
                     micro = appareils.choisir_micro(config.MICRO, appareils.par_defaut()[0], appareils.tous())
                     self._prises.append(self.ouvrir_prise(micro, lambda bloc: self._recevoir(cr, bloc, "micro")))
@@ -380,6 +387,12 @@ class Reunions:
             self.en_cours = cr
         moteur = _moteur_long()
         print(f"📝 Compte rendu commencé : « {cr.titre} » ({moteur}, en local) → {cr.fichier}", flush=True)
+        if self.prevenir is not None:
+            try:
+                self.prevenir(f"📝 J'écoute et je transcris la réunion « {cr.titre} » (en local). « Fin du compte "
+                              "rendu » pour l'arrêter.")
+            except Exception:
+                pass
         suite = f" (attention : {', '.join(erreurs)})" if erreurs else ""
         return (f"J'écoute la réunion et je la transcris en local, dans toutes les langues{suite}. "
                 "Préviens les autres que tu prends des notes.")

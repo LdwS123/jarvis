@@ -198,12 +198,21 @@ class FaussePrise:
         self.ferme = True
 
 
-R.brancher_micro = lambda f: False  # micro de Steve en pause : il en ouvre un à lui
+R.brancher_micro = lambda f: False  # micro de Steve en pause : il n'en ouvre pas un autre dans ton dos
 R.ouvrir_prise = FaussePrise
+avant = set((TMP / "reunions2").glob("*"))
+verifier("réunions : micro en pause → il refuse, sans ouvrir de micro ni laisser de fichier",
+         (R.commencer("En pause").startswith("Ton micro est en pause"), prises, R.en_cours,
+          set((TMP / "reunions2").glob("*")) == avant), (True, [], None, True))
+R.brancher_micro = None  # sans Steve autour : il ouvre le micro lui-même
+prevenu: list[str] = []
+R.prevenir = prevenu.append
 config.REUNION_SON_DU_MAC = "BlackHole 2ch"
 R.commencer("Au casque")
-verifier("réunions : micro en pause → il ouvre le sien, plus le son du Mac au casque",
+verifier("réunions : sans Steve → il ouvre son micro, plus le son du Mac au casque",
          [p.appareil for p in prises], ["Micro du Mac", "BlackHole 2ch"])
+verifier("réunions : chaque compte rendu qui commence se voit (notification)",
+         (len(prevenu), "Au casque" in prevenu[0]), (1, True))
 R.finir()
 verifier("réunions : les prises sont fermées", all(p.ferme for p in prises), True)
 config.REUNION_SON_DU_MAC = ""
@@ -244,6 +253,52 @@ verifier("permissions : commencer et finir ne rendent que « c'est fait »",
          [False, False])
 verifier("permissions : la transcription, elle, est un texte venu d'ailleurs",
          permissions.lit_dehors("mcp__jervis__lire_compte_rendu"), True)
+
+
+class Contexte:
+    pass
+
+
+async def gardien() -> dict:
+    questions: list[str] = []
+
+    async def repondre(question: str) -> bool:
+        questions.append(question)
+        return True
+
+    vu: dict = {}
+
+    async def essai(nom: str, outil: str, entree: dict, **demande) -> None:
+        questions.clear()
+        g = permissions.Gardien(repondre)  # une conversation neuve : rien de lu au-dehors avant
+        g.nouvelle_demande(**demande)
+        await g(outil, entree, Contexte())
+        vu[nom] = len(questions)
+
+    config.CONFIRMATIONS = "autonome"
+    rappel = {"titre": "Envoyer le devis", "quand": "demain 9 h"}
+    await essai("autonome : un rappel, sans question", "mcp__jervis__creer_rappel", rappel)
+    await essai("entendu en appel : un rappel → ton oui", "mcp__jervis__creer_rappel", rappel, en_appel=True)
+    await essai("entendu en appel : lire, sans question", "mcp__jervis__chercher_fichiers", {"texte": "devis"},
+                en_appel=True)
+    await essai("compte rendu demandé par toi : sans question", "mcp__jervis__commencer_compte_rendu", {})
+    questions.clear()
+    g = permissions.Gardien(repondre)
+    g.nouvelle_demande()
+    await g("mcp__navigateur__browser_snapshot", {}, Contexte())  # il vient de lire une page…
+    await g("mcp__jervis__commencer_compte_rendu", {"titre": "x"}, Contexte())
+    vu["compte rendu après une page lue → ton oui"] = len(questions)
+    return vu
+
+
+v = asyncio.run(gardien())
+verifier("gardien : en autonome, un rappel se fait seul", v["autonome : un rappel, sans question"], 0)
+verifier("gardien : entendu pendant un appel (peut-être un participant) → il demande",
+         v["entendu en appel : un rappel → ton oui"], 1)
+verifier("gardien : … mais lire reste libre", v["entendu en appel : lire, sans question"], 0)
+verifier("gardien : le compte rendu que tu demandes part seul", v["compte rendu demandé par toi : sans question"], 0)
+verifier("gardien : jamais sous la dictée d'une page", v["compte rendu après une page lue → ton oui"], 1)
+
 c = brain._consignes(ecran=False)
 verifier("consignes : il sait se taire en appel et faire le compte rendu",
          all(m in c for m in ("commencer_compte_rendu", "finir_compte_rendu", "dans chaque langue")), True)
