@@ -224,6 +224,8 @@ panne = None
 outils.MEMOIRE, outils.JOURNAL = tmp / "memoire.md", tmp / "conversations.jsonl"
 config.FICHIER_GRAPHE = tmp / "graphe.db"   # jamais le vrai graphe
 outils.lecons.FICHIER = tmp / "lecons.md"   # ni le vrai carnet (sinon « tout » dépend de son existence)
+outils.lexique.FICHIER = tmp / "lexique.md"           # ni son vrai lexique : la fausse corbeille, elle,
+outils.savoir_faire.DOSSIER = tmp / "savoir-faire"    # efface pour de bon (ni ses vraies recettes)
 graphe_vide = []
 
 

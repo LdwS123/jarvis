@@ -416,7 +416,8 @@ const ETATS = {
   ecoute:    { phrase: "je t'écoute",    aide: "",                                      couleur: C.cyan,   vitesse: .35 },
   reflechit: { phrase: "je réfléchis",   aide: "",                                      couleur: C.cyan,   vitesse: 1.7 },
   parle:     { phrase: "je parle",       aide: "coupe-moi quand tu veux",               couleur: C.braise, vitesse: .45 },
-  pause:     { phrase: "micro coupé",    aide: "je n'entends plus rien",                couleur: C.brume,  vitesse: 0 },
+  reunion:   { phrase: "tu es en appel", aide: `je me tais ; « ${PRENOM}, fais le compte rendu »`, couleur: C.brume, vitesse: .1 },
+  pause:     { phrase: "micro coupé",   aide: "je n'entends plus rien",                couleur: C.brume,  vitesse: 0 },
   erreur:    { phrase: "en panne",       aide: "regarde le journal technique",          couleur: C.alerte, vitesse: 0 },
   eteint:    { phrase: "éteint",         aide: `relance ${PRENOM} depuis la barre des menus`, couleur: C.brume, vitesse: 0 },
 };

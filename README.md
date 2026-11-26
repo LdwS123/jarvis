@@ -15,6 +15,29 @@ Le code vit dans le paquet Python `jervis`.
 
 **En un coup d'œil :** assistant vocal français toujours à l'écoute (mot d'éveil, transcription et voix locales sur puce Apple), qui agit sur le Mac, le navigateur, le mail et l'agenda, lance plusieurs agents de fond en parallèle et les montre sur un tableau de bord. Mots-clés : assistant vocal, voice assistant, wake word, agent IA, multi-agents, Claude Agent SDK, MLX, macOS, français.
 
+| | Ce qu'il fait | Où ça se passe |
+|---|---|---|
+| 🎙️ | T'écoute (« Steve… »), te comprend, te répond à voix haute ; casque ou AirPods branchés, il suit | sur le Mac (mot d'éveil, Parakeet/Whisper, voix locale) |
+| 📞 | **Se tait tout seul pendant tes appels** (Zoom, Meet, Teams, FaceTime…) et reprend après | sur le Mac (CoreAudio) |
+| 📝 | **Compte rendu de réunion** : transcrit chaque passage dans sa langue, puis résumé et actions à faire dans Notes | transcription sur le Mac, résumé par Claude |
+| 🪟 | Fenêtres, **modes** (« mode travail »), musique, texte sélectionné, **dossiers rangés** (et annulables), **santé du Mac** | sur le Mac |
+| 🔎 | « Retrouve le PDF du devis de mars » : **cherche dans le contenu** de tes fichiers | Spotlight, sur le Mac |
+| 📱 | Un **message vocal** envoyé de l'iPhone devient une tâche sur le Mac | transcrit sur le Mac |
+| 📌 | **Il apprend de toi** : quand tu le corriges, il retient la règle pour toujours | son carnet, `lecons.md` |
+| 🤖 | Mails, agenda, navigateur, apps du Mac, agents de fond en parallèle, tableau de bord | Claude (ton abonnement) |
+
+```mermaid
+flowchart LR
+    Micro[🎙️ Micro / AirPods] --> Oreilles[Mot d'éveil + anti-écho<br/>transcription locale]
+    iPhone[📱 iMessage<br/>texte ou vocal] --> Oreilles
+    Appel[📞 Zoom · Meet · FaceTime] -. il se tait .-> Oreilles
+    Oreilles --> Cerveau[Claude Agent SDK<br/>+ ses consignes, sa mémoire, son carnet 📌]
+    Cerveau --> Outils[Outils du Mac<br/>fenêtres · modes · fichiers · Notes · Messages]
+    Cerveau --> Fond[Agents de fond<br/>jusqu'à 5 en parallèle]
+    Cerveau --> Voix[🔊 Voix locale]
+    Reunion[📝 Compte rendu<br/>Whisper, 99 langues] --> Cerveau
+```
+
 ## Installer depuis GitHub
 
 Il faut un Mac à puce Apple, Python 3.12 et un abonnement Claude (Claude Code connecté).
@@ -377,6 +400,10 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
 - **« Dis Siri, Steve »** : dans l'app Raccourcis de l'iPhone, crée un raccourci nommé « Steve » avec deux actions :
   « Dicter le texte », puis « Envoyer un message » (destinataire : toi, texte : « Texte dicté »), sans « Afficher lors
   de l'exécution ». « Dis Siri, Steve », tu parles, c'est parti.
+- **Un message vocal** (le micro dans Messages, toujours dans ta conversation avec toi-même) : Steve le transcrit
+  **sur le Mac** (Whisper ou Parakeet, rien ne part ailleurs) et le traite comme une demande écrite : « (message
+  vocal) mets un rappel demain 9 h » devient une tâche. Les vocaux des autres ne sont ni lus ni transcrits ; un
+  vocal de plus de `JERVIS_VOCAL_MAX_S` (5 min) est coupé.
 - **Ses réponses dans tes AirPods** : iPhone → Réglages → Notifications → Annoncer les notifications → Messages.
   (Selon la version d'iOS, un message que tu reçois de toi-même ne fait pas toujours sonner l'iPhone : si rien ne
   s'annonce, ses réponses sont quand même dans le fil.)
@@ -586,6 +613,11 @@ d'un agent de fond (« Je confie à un agent « … » : … »). La relecture d
 conversation, le fil qu'il reprend après une pause et ses recherches dans vos conversations passées ne lui remontent
 pas ce texte-là, seulement ce que tu as dit et quels outils ont marché (le journal, lui, garde tout pour toi). Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
 
+**Quand tu le corriges, il retient la règle pour toujours.** « Non, mets-le plutôt là », « la prochaine fois,
+fais… » : la leçon devient une **règle 📌 permanente**. Quand le carnet déborde, les leçons ordinaires s'en vont,
+les règles 📌 restent (jusqu'à `JERVIS_LECONS_PERMANENTES_MAX`, 40) ; une leçon déjà notée que tu lui redis en le
+corrigeant passe 📌. Une règle ne part que si tu la remplaces (« non, en fait… ») ou si tu rayes sa ligne.
+
 ### Il apprend ta façon de parler (son lexique)
 
 La reconnaissance vocale ne connaît pas tes noms propres : elle écrit « au crow » pour Oqro, « stance heure » pour
@@ -656,6 +688,58 @@ après midi. Tu choisis ce qu'il contient en écrivant dans `briefing.md` (menu 
 et autorise l'**Enregistrement de l'écran** pour le Terminal. Ensuite, Steve le trouve tout seul au démarrage
 (`JERVIS_SCREENPIPE=auto`). Il s'en sert pour relire ce qui est passé ; l'export de vidéos lui est coupé.
 Licence : gratuit pour un usage personnel, payant pour une entreprise.
+
+### En réunion (mode réunion et compte rendu)
+
+**Il se tait tout seul pendant tes appels.** Quand Zoom, Meet (dans ton navigateur), Teams, FaceTime, WhatsApp,
+Slack, Discord… prennent ton micro, macOS le dit (CoreAudio, sans rien ouvrir ni enregistrer pour ça) : Steve ne
+dit plus un mot, ses annonces attendent la fin, et si tu l'appelles par son nom il te répond **par écrit**
+(notification et chat du tableau de bord). Le micro libéré depuis 8 secondes, l'appel est fini : il reprend.
+`JERVIS_MODE_REUNION=non` le coupe.
+
+**Le compte rendu, à ta demande.** « Steve, fais le compte rendu », « prends des notes », « take notes » : il
+écoute la réunion et la **transcrit sur le Mac**, par morceaux d'une trentaine de secondes coupés dans un blanc.
+**Chaque morceau dans sa langue** : Whisper en reconnaît 99, donc une réunion moitié anglais, moitié espagnol,
+avec un mot en français, reste juste (sans Whisper, Parakeet en fait 25 européennes). Les blancs ne sont pas
+transcrits. « Fin du compte rendu » (ou la fin de l'appel) : Claude lit la transcription et t'écrit dans Notes
+**le résumé, les décisions et les actions à faire** (qui, quoi, pour quand), dans ta langue
+(`JERVIS_LANGUE_COMPTE_RENDU`), quelle que soit celle de la réunion. « Relis-moi le compte rendu de lundi » le
+retrouve.
+
+| Tu dis… | Il fait |
+|---|---|
+| « Fais le compte rendu », « prends des notes », « take notes » | il transcrit, en local, chaque morceau dans sa langue |
+| « Fin du compte rendu », « arrête les notes » | résumé + actions à faire dans Notes, et il te les dit en deux phrases |
+| « Qu'est-ce qu'on a décidé à la réunion de ce matin ? » | il relit la transcription (`lire_compte_rendu`) |
+
+- **Ce qu'il entend** : ton micro. Sur les haut-parleurs, tout le monde ; **au casque, seulement toi**, sauf si
+  tu lui donnes un appareil « boucle » qui recopie le son du Mac ([BlackHole](https://github.com/ExistentialAudio/BlackHole),
+  Loopback) : `JERVIS_REUNION_SON_DU_MAC="BlackHole 2ch"`.
+- **Les transcriptions** vont dans `espace/reunions/` (un fichier texte daté, horodaté, avec la langue de chaque
+  morceau). Le son n'est pas gardé (`JERVIS_REUNION_GARDER_SON=oui` pour garder un `.wav` à côté).
+- **Préviens les autres** : transcrire une réunion se fait avec l'accord de tout le monde. Il te le rappelle à
+  chaque compte rendu.
+- `JERVIS_REUNION_AUTO=oui` : un compte rendu de chaque appel, sans le demander.
+
+### Ton bureau : fenêtres, modes, musique, dossiers, santé du Mac
+
+| Tu dis… | Il fait |
+|---|---|
+| « Mets Cursor à gauche et Chrome à droite », « trois colonnes », « plein écran » | il range les fenêtres (`ranger_fenetres`, Accessibilité) |
+| « Crée un mode travail : ferme Slack, ouvre Cursor et Linear, volume 20, Cursor à gauche » | il retient un **mode** (`modes.json`) : apps à fermer et à ouvrir, liens, volume, musique, raccourci (Concentration), disposition des fenêtres |
+| « Mode travail », « mode détente » | il l'applique d'un coup |
+| « Mets de la musique », « suivant », « c'est quoi ce morceau ? » | Spotify s'il est ouvert, sinon Musique (`musique`) |
+| « Résume ce que j'ai sélectionné », « traduis ça » | il lit le texte sélectionné dans n'importe quelle app (`texte_selectionne`) |
+| « Range mon Bureau », « range mes Téléchargements » | il te montre d'abord **le plan** (quoi va où), puis range sur ton oui : par type (Images, PDF, Documents…) et selon tes règles. Il n'écrase jamais rien (« photo (2).jpg ») |
+| « Non, les factures vont dans Documents/Factures » | il retient la règle de rangement pour toujours (`rangement.json`) |
+| « Annule le rangement » | tout revient à sa place, les dossiers créés vides sont retirés |
+| « Comment va le Mac ? » | disque, batterie, mémoire, ce qui travaille le plus (`sante_du_mac`) |
+| (tout seul) | il te **prévient** quand le disque passe sous 15 Go, la batterie sous 10 %, ou qu'une app mange le processeur depuis 10 min, une fois par jour et par souci |
+| « Retrouve le PDF du devis de mars » | il cherche **dans le contenu** de tes fichiers avec Spotlight, en local (`chercher_fichiers`), puis l'ouvre si tu veux (`ouvrir_fichier`) |
+
+Ranger ne touche qu'à ton dossier perso, et jamais à `~/Library`, aux dossiers cachés, aux apps ni au code (`.git`) ; chaque rangement garde de quoi être
+défait dans `espace/rangements/`. La recherche ne lit que ce que Spotlight a déjà indexé (sur le Mac) : rien ne
+part ailleurs que le nom des fichiers trouvés, vers Claude, pour te répondre.
 
 ### Ce qu'il te demande encore
 
@@ -899,6 +983,26 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_TABLEAU` | oui | `non` = pas de tableau de bord |
 | `JERVIS_TABLEAU_PORT` | 8765 | son port, si un autre programme l'utilise déjà |
 | `JERVIS_TABLEAU_AU_DEMARRAGE` | non | `oui` = le tableau de bord s'ouvre à chaque lancement |
+| `JERVIS_MODE_REUNION` | oui | `non` = il ne se tait plus tout seul pendant tes appels |
+| `JERVIS_APPS_APPEL` | Zoom, Teams, FaceTime, navigateurs, WhatsApp, Slack, Discord… | les apps d'appel (début de leur identifiant macOS, séparés par des virgules) |
+| `JERVIS_APPEL_FIN_S` | 8 | le micro libéré depuis ce temps-là : l'appel est fini (un simple « muet » ne compte pas) |
+| `JERVIS_APPEL_REPONSE` | ecrit | pendant un appel, quand tu dis son nom : `ecrit` = il répond par écrit, `rien` = il ne réagit qu'à « compte rendu » |
+| `JERVIS_REUNION_LANGUE` | auto | `auto` = chaque morceau dans sa langue ; `fr`, `en`… pour forcer une langue |
+| `JERVIS_LANGUE_COMPTE_RENDU` | français | la langue du résumé, quelle que soit celle de la réunion |
+| `JERVIS_REUNION_STT` | auto | `whisper` (99 langues), `parakeet` (25 européennes) ou `auto` |
+| `JERVIS_REUNION_SON_DU_MAC` | (vide) | un appareil « boucle » (`BlackHole 2ch`) pour entendre les autres quand tu es au casque |
+| `JERVIS_REUNION_AUTO` | non | `oui` = un compte rendu de chaque appel, sans le demander |
+| `JERVIS_REUNION_GARDER_SON` | non | `oui` = garde le `.wav` à côté de la transcription |
+| `JERVIS_REUNION_MORCEAU_S` | 30 | la taille des morceaux transcrits (coupés dans un blanc) |
+| `JERVIS_REUNION_MAX_MIN` | 180 | au-delà, le compte rendu s'arrête seul |
+| `JERVIS_DOSSIER_REUNIONS` | `espace/reunions` | où vont les transcriptions |
+| `JERVIS_SANTE_INTERVALLE_MIN` | 30 | tous les combien il regarde la santé du Mac ; `0` = jamais tout seul |
+| `JERVIS_SANTE_DISQUE_MIN_GO` | 15 | il te prévient sous cet espace libre |
+| `JERVIS_SANTE_BATTERIE_MIN` | 10 | … sous ce pourcentage de batterie (pas en charge) |
+| `JERVIS_SANTE_CPU_MAX` | 90 | … quand une app dépasse ce pourcentage du processeur pendant 10 min |
+| `JERVIS_RECHERCHE_MAX` | 15 | le nombre de fichiers que rend `chercher_fichiers` |
+| `JERVIS_VOCAL_MAX_S` | 300 | un message vocal de l'iPhone plus long est coupé |
+| `JERVIS_LECONS_PERMANENTES_MAX` | 40 | le nombre de règles 📌 qu'il garde pour toujours |
 
 Les mots que la reconnaissance vocale écorche à coup sûr (« load code » → Claude Code, « whatsap » → WhatsApp,
 « ouvre curseur » → Cursor, « link inn » → LinkedIn, « Frisco » → San Francisco…) sont corrigés dans
@@ -927,6 +1031,8 @@ Payer coupé, les numéros de carte, les CAPTCHA et ses publications (fausse not
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
 Ses autres outils d'infos (entreprises, adresses, produits… jusqu'à l'heure dans le monde), sans réseau : `tests/test_infos2.py`.
 Le catalogue des API et l'appel (aucune adresse du Mac ni du réseau, même par une redirection), son carnet, la mémoire courte, GraphQL en lecture seule, les clés (Trousseau et presse-papiers simulés : une clé ne part que vers son site), la mise à jour en fond, sans réseau ni DNS : `tests/test_apis.py`.
+Le mode réunion et le compte rendu en plusieurs langues (faux micro, fausse transcription, dossier temporaire) : `tests/test_reunion.py`.
+Le bureau : fenêtres, modes, musique, rangement et son annulation, santé du Mac, recherche Spotlight (faux AppleScript, faux dossier perso) : `tests/test_bureau.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -935,6 +1041,10 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
 ## Vie privée
 
 - Ta voix ne quitte jamais le Mac : détection, transcription et empreinte vocale (`voix.npy`) sont calculées en local.
+- Pareil pour tes réunions et tes messages vocaux de l'iPhone : le son est transcrit sur le Mac et n'est pas gardé
+  (sauf `JERVIS_REUNION_GARDER_SON=oui`). Seul le texte de la transcription part vers Claude, pour le résumé ;
+  il le lit comme une page web : de l'information, jamais un ordre. Savoir que tu es en appel ne demande que la
+  liste des apps qui tiennent le micro (macOS), rien n'est écouté pour ça.
 - Ce que tu dis (en texte), tes mails, ton agenda, tes documents Drive, tes pages Notion, ta mémoire, les captures d'écran et ce qu'il
   lit dans tes apps partent vers Claude pour qu'il réponde.
 - Tes iMessages à Steve sont lus sur le Mac, dans la base de Messages (en lecture seule) ; seul le texte de ta

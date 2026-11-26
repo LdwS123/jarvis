@@ -15,14 +15,20 @@ dictée de ce texte, comme un message qui reprend un texte passé par ses outils
 toi (`suspect`, Cerveau.lu_dehors). Et pendant qu'une question ❓ attend ta réponse, rien de ce qui pourrait écrire
 dans Messages ne tourne (permissions.QuestionEnCours) : ton « oui » ne peut venir que de toi.
 
+Un message vocal (le micro dans Messages) : transcrit sur le Mac, comme ce que tu lui dis (Whisper, dans ta langue),
+puis fait comme un message écrit, marqué « (message vocal) ». Le son ne quitte pas le Mac.
+
 Il faut l'Accès complet au disque pour « Jervis » (comme pour les codes reçus par SMS).
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sqlite3
+import subprocess
+import tempfile
 import time
 from collections import deque
 from pathlib import Path
@@ -36,6 +42,9 @@ TEXTE_MAX = 4000            # un message plus long : coupé (Messages en accepte
 ADRESSES_S = 300            # ses adresses à toi, relues dans la base toutes les 5 minutes
 DOUBLE_S = 5                # le même texte deux fois en 5 s : les deux copies d'un message à soi-même
 ENVOYES_S = 900             # ce qu'il a envoyé lui-même pendant 15 min : jamais relu comme un ordre
+VOCAL = "(message vocal) "   # le début d'une demande dictée en message vocal
+ATTENTE_SON_S = 15          # le fichier d'un vocal pas encore téléchargé : attendu jusqu'à 15 s
+SONS = (".caf", ".m4a", ".amr", ".aac", ".mp3", ".wav", ".opus")
 
 # Ce qu'il a envoyé par iMessage (ses réponses, et tout envoyer_imessage) : (texte réduit, quand).
 _envoyes: deque[tuple[str, float]] = deque(maxlen=200)
@@ -94,6 +103,34 @@ _OUI = re.compile(r"^\W*(oui|ouais|ouep|yes|yep|ok|okay|vas[- ]y|go|d'accord|dac
 _NON = re.compile(r"^\W*(non|nan|no|nope|stop|annule|laisse|surtout pas|pas maintenant|attends|👎)(?!\w)", re.IGNORECASE)
 
 
+def est_un_son(nom: str, mime: str | None = None, uti: str | None = None) -> bool:
+    """Une pièce jointe qui est un son (le message vocal de Messages est un .caf)."""
+    return ((mime or "").startswith("audio/") or "audio" in (uti or "").casefold()
+            or nom.casefold().endswith(SONS))
+
+
+def transcrire_vocal(chemin: Path) -> str:
+    """Le message vocal en texte, sur le Mac : afconvert (livré avec macOS) le met en WAV 16 kHz mono, puis
+    Whisper le transcrit dans la langue où tu as parlé. Au-delà de VOCAL_MAX_S secondes : coupé."""
+    import wave
+
+    import numpy as np
+
+    from . import stt
+    with tempfile.TemporaryDirectory() as dossier:
+        wav = Path(dossier) / "vocal.wav"
+        subprocess.run(["afconvert", "-f", "WAVE", "-d", f"LEI16@{config.SAMPLE_RATE}", "-c", "1", str(chemin),
+                        str(wav)], check=True, capture_output=True, timeout=60)
+        with wave.open(str(wav), "rb") as f:
+            audio = np.frombuffer(f.readframes(int(config.VOCAL_MAX_S * config.SAMPLE_RATE)), dtype=np.int16)
+    morceaux = []
+    pas = 30 * config.SAMPLE_RATE  # Whisper lit 30 s à la fois
+    for debut in range(0, len(audio), pas):
+        texte, _ = stt.transcrire_morceau(audio[debut:debut + pas])
+        morceaux.append(texte)
+    return " ".join(t for t in morceaux if t).strip()
+
+
 def accord_simple(texte: str) -> bool | None:
     """Oui → True, non → False, autre chose → None (__main__ passe sa lecture plus fine, lire_accord)."""
     if _NON.search(texte):
@@ -107,8 +144,10 @@ class Boite:
 
     def __init__(self, envoyer: Callable[[str, str], Awaitable[tuple[int, str]]], base: Path | None = None,
                  adresses: str | None = None, accord: Callable[[str], bool | None] = accord_simple,
-                 journal: Callable[[str], None] = print, suspect: Callable[[], bool] | None = None) -> None:
+                 journal: Callable[[str], None] = print, suspect: Callable[[], bool] | None = None,
+                 transcrire: Callable[[Path], str] = transcrire_vocal) -> None:
         self._envoyer = envoyer
+        self._transcrire = transcrire
         self._suspect = suspect or (lambda: False)
         self._base = base or comptes.CHAT_DB
         reglage = (config.IMESSAGE if adresses is None else adresses).strip()
@@ -168,6 +207,7 @@ class Boite:
                 self._dernier, self.erreur = max(self._dernier, dernier), ""
                 return []
             lignes = self._nouveaux(lien, self._dernier, dernier)
+            sons = self._sons(lien, [l[6] for l in lignes if not comptes.texte_message(l[0], l[1]).strip(" ￼")])
             self._dernier, self.erreur = dernier, ""
         except sqlite3.Error as e:
             self.erreur = str(e)
@@ -175,13 +215,15 @@ class Boite:
         finally:
             lien.close()
         textes = []
-        for texte, corps, date, de_moi, qui, fil in lignes:
+        for texte, corps, date, de_moi, qui, fil, numero in lignes:
             if not de_moi and cle(qui) not in self._a_moi:
                 continue  # quelqu'un d'autre dans le fil : jamais un ordre
+            quand = date / 1e9 if date > 1e11 else float(date)  # en nanosecondes depuis macOS 10.13
             texte = " ".join(comptes.texte_message(texte, corps).replace("￼", " ").split())
+            if not texte and numero in sons:
+                texte = self._ecouter(*sons[numero], quand)
             if not texte or vient_de_lui(texte):
                 continue
-            quand = date / 1e9 if date > 1e11 else float(date)  # en nanosecondes depuis macOS 10.13
             if any(t == texte and abs(quand - q) < DOUBLE_S for t, q in self._vus):
                 continue  # la copie « reçue » du message que ton iPhone vient d'envoyer
             self._vus.append((texte, quand))
@@ -192,7 +234,8 @@ class Boite:
     def _nouveaux(self, lien: sqlite3.Connection, apres: int, jusqua: int) -> list[tuple]:
         fils = {r: a for r, a in self._fils}
         marques = ",".join("?" * len(fils))
-        base = ("SELECT m.text, m.attributedBody, m.date, m.is_from_me, COALESCE(h.id, ''), j.chat_id FROM message m "
+        base = ("SELECT m.text, m.attributedBody, m.date, m.is_from_me, COALESCE(h.id, ''), j.chat_id, m.ROWID "
+                "FROM message m "
                 "JOIN chat_message_join j ON j.message_id = m.ROWID LEFT JOIN handle h ON m.handle_id = h.ROWID "
                 f"WHERE j.chat_id IN ({marques}) AND m.ROWID > ? AND m.ROWID <= ?")
         try:  # ni les réactions (« A aimé… »), ni les changements de nom ou de photo du fil
@@ -201,7 +244,42 @@ class Boite:
                                   (*fils, apres, jusqua)).fetchall()
         except sqlite3.Error:
             lignes = lien.execute(base + " ORDER BY m.ROWID", (*fils, apres, jusqua)).fetchall()
-        return [(*l[:5], fils[l[5]]) for l in lignes]
+        return [(*l[:5], fils[l[5]], l[6]) for l in lignes]
+
+    def _sons(self, lien: sqlite3.Connection, messages: list[int]) -> dict[int, tuple[Path, int]]:
+        """{message : (le fichier son, sa taille)} pour les messages sans texte qui portent un son."""
+        if not messages:
+            return {}
+        try:
+            lignes = lien.execute(
+                "SELECT j.message_id, a.filename, a.mime_type, a.uti, COALESCE(a.total_bytes, 0) FROM attachment a "
+                "JOIN message_attachment_join j ON j.attachment_id = a.ROWID "
+                f"WHERE j.message_id IN ({','.join('?' * len(messages))})", messages).fetchall()
+        except sqlite3.Error:
+            return {}  # une base sans pièces jointes (ou d'une autre forme) : pas de vocal
+        return {m: (Path(os.path.expanduser(f)), taille) for m, f, mime, uti, taille in lignes
+                if f and est_un_son(f, mime, uti)}
+
+    def _ecouter(self, chemin: Path, taille: int, quand: float) -> str:
+        """Le message vocal transcrit, une seule fois (la copie reçue du même son, quelques secondes après, est
+        sautée avant d'être transcrite)."""
+        cle_son = f"🎤{taille}"
+        if taille and any(t == cle_son and abs(quand - q) < DOUBLE_S for t, q in self._vus):
+            return ""
+        self._vus.append((cle_son, quand))
+        for _ in range(int(ATTENTE_SON_S * 2)):  # le son arrive parfois un peu après le message
+            if chemin.exists():
+                break
+            time.sleep(0.5)
+        try:
+            texte = self._transcrire(chemin)
+        except Exception as e:  # un son illisible (pas encore téléchargé, format inconnu) : il le dit, sans tomber
+            self._journal(f"   📱 Message vocal pas compris ({type(e).__name__}: {e})")
+            return ""
+        if not texte:
+            self._journal("   📱 Message vocal : je n'ai rien entendu.")
+            return ""
+        return VOCAL + texte
 
     async def relever(self) -> None:
         """Toutes les IMESSAGE_RELEVE_S secondes : tes nouveaux messages vont dans la file (ou répondent à sa

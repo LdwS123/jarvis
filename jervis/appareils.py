@@ -82,8 +82,13 @@ def _taille(objet: int, selecteur: str, portee: str = "glob") -> int:
 
 
 def _nom(objet: int) -> str:
+    return _chaine(objet, "lnam")
+
+
+def _chaine(objet: int, selecteur: str) -> str:
+    """Une propriété texte (CFString) : le nom d'un appareil (lnam), l'identifiant d'une app (pbid)…"""
     _, cf = _bibliotheques()
-    ref = _lire(objet, "lnam", ctypes.c_void_p)
+    ref = _lire(objet, selecteur, ctypes.c_void_p)
     if not ref:  # (un pointeur nul ferait planter CoreFoundation)
         return ""
     tampon = ctypes.create_string_buffer(512)

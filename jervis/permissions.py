@@ -372,6 +372,8 @@ def _maison(action: str, entree: dict[str, Any], a_confirmer: set[str]) -> Decis
     les modes, comme pour les lire."""
     if action == "mettre_a_la_corbeille" and any(FICHIERS_SECRETS.search(c) for c in chemins_a_jeter(entree)):
         return Decision.DEMANDER
+    if action == "ranger_dossier" and entree.get("appliquer"):  # déplacer tes fichiers : toi d'abord (pas le plan)
+        return Decision.DEMANDER
     return Decision.DEMANDER if action in a_confirmer else Decision.OUI
 # Dans le navigateur : exécuter du code, envoyer un fichier, toucher aux cookies et sessions → il demande.
 # (Avant de payer, commander, envoyer… il doit aussi appeler demander_accord : voir brain.py.)
@@ -856,14 +858,20 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        # Son lexique et ses recettes : ce qu'il a écrit lui-même (lexique.py, savoir_faire.py).
                        r"noter_mot|noter_savoir_faire|chercher_savoir_faire|"
                        # Une clé d'API rangée dans le Trousseau : il ne lit que « c'est rangé » (apis.py).
-                       r"ranger_cle_api)"
+                       r"ranger_cle_api|"
+                       # Le compte rendu et le bureau : ils ne rendent que « c'est fait » (reunion.py, bureau.py).
+                       # (lire_compte_rendu, ranger_dossier, chercher_fichiers, texte_selectionne… rendent un texte
+                       # venu d'ailleurs : ils n'y sont pas.)
+                       r"commencer_compte_rendu|finir_compte_rendu|mode|definir_mode|ranger_fenetres|"
+                       r"noter_regle_rangement|annuler_rangement|ouvrir_fichier)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
 # Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre
 # agent (le brief d'une tâche de fond, qui pourrait faire passer l'ordre d'un mail piégé) : après un texte venu
 # d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui, en voyant le texte exact.
 ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce", "lancer_tache_de_fond",
-                         "noter_publication", "noter_mot", "noter_savoir_faire"}
+                         "noter_publication", "noter_mot", "noter_savoir_faire", "definir_mode",
+                         "noter_regle_rangement"}
 # Ce qu'il te lit de ces outils avant de dire oui, et jusqu'où. Ce qui s'exécute est ce texte-là, mot pour mot :
 # au-delà de la limite, il ne coupe pas en douce, il refuse et redit plus court.
 A_MONTRER: dict[str, dict[str, int]] = {
@@ -875,6 +883,9 @@ A_MONTRER: dict[str, dict[str, int]] = {
     "noter_publication": {"projet": 60, "site": 100, "lien": 300, "resume": 200},
     "noter_mot": {"entendu": 40, "voulu": 40},
     "noter_savoir_faire": {"titre": 80, "quand": 200, "etapes": 1500},
+    "definir_mode": {"nom": 40, "ouvrir": 200, "fermer": 200, "liens": 400, "raccourci": 60, "musique": 100,
+                     "fenetres": 20},
+    "noter_regle_rangement": {"motif": 60, "dossier": 120},
 }
 
 

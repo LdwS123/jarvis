@@ -276,5 +276,38 @@ verifier("« efface tout » : le lexique et les recettes partent à la corbeille
          (lexique.FICHIER in jetes, savoir_faire.DOSSIER in jetes), (True, True))
 outils.a_oublier = None
 
+
+# --- 6. Les règles 📌 : quand tu le corriges, il retient pour toujours --------------------------------------------
+lecons.FICHIER = TMP / "lecons-regles.md"
+config.LECONS_MAX, config.LECONS_PERMANENTES_MAX = 3, 2
+verifier("une correction devient une règle permanente",
+         lecons.noter_lecon("Les factures vont dans Documents/Factures, pas sur le Bureau", "Fichiers",
+                            permanente_=True), "Règle permanente notée.")
+for n in ("première", "deuxième", "troisième", "quatrième", "cinquième"):
+    lecons.noter_lecon(f"Leçon ordinaire numéro {n} pour remplir le carnet")
+carnet = lecons._lire()
+verifier("le carnet déborde : la règle 📌 reste, les vieilles leçons partent",
+         (len(carnet), lecons.permanente(carnet[0]), "factures" in carnet[0].casefold(), "première" in lecons.lire_lecons()),
+         (4, True, True, False))
+verifier("une leçon déjà connue devient règle permanente",
+         lecons.noter_lecon("leçon ordinaire numéro cinquième pour remplir le carnet !", permanente_=True),
+         "Je le savais déjà : c'est maintenant une règle permanente.")
+verifier("… marquée 📌 dans le fichier, une seule fois",
+         [l for l in lecons._lire() if "cinquième" in l][0].startswith(f"- {lecons.PERMANENTE}["), True)
+verifier("… et la redire n'y change rien", lecons.noter_lecon("Leçon ordinaire numéro cinquième pour remplir le carnet",
+                                                              permanente_=True), "Je le savais déjà.")
+lecons.noter_lecon("Une troisième règle, la plus récente de toutes", permanente_=True)
+regles = [l for l in lecons._lire() if lecons.permanente(l)]
+verifier("au-delà de LECONS_PERMANENTES_MAX, la plus ancienne règle s'en va",
+         (len(regles), any("factures" in l.casefold() for l in regles)), (2, False))
+verifier("une règle peut être remplacée",
+         lecons.noter_lecon("Une règle toute neuve qui remplace la récente", remplace="la plus récente",
+                            permanente_=True), "Règle permanente notée (et 1 ancienne(s) leçon(s) remplacée(s)).")
+verifier("l'outil propose « permanente »",
+         "permanente" in lecons.outil_noter_lecon.input_schema["properties"], True)
+r = asyncio.run(lecons.outil_noter_lecon.handler({"lecon": "Les rendez-vous perso vont dans l'agenda Maison",
+                                                   "permanente": True}))
+verifier("… et l'outil la note comme règle", r["content"][0]["text"], "Règle permanente notée.")
+
 print(f"{total - len(echecs)}/{total} vérifications passent")
 os._exit(1 if echecs else 0)

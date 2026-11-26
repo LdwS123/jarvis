@@ -159,6 +159,8 @@ class Oreilles:
         self._ferme = threading.Event()
         self.en_pause = False
         self.niveau = 0.0  # le volume de ce que le micro capte (pour le tableau de bord)
+        # Le compte rendu de réunion (reunion.py) reçoit ici chaque bloc, après l'anti-écho et avant tout gain.
+        self.enregistrement = None
 
         self._motcle = (_charger(f"« {config.PHRASE_MOTCLE} »", voix.MotCle)
                         if config.DETECTION != "whisper" and config.MOTCLE_MODELE else None)
@@ -358,6 +360,11 @@ class Oreilles:
     def _ajouter(self, propre: np.ndarray) -> None:
         x = propre.astype(np.float32) / 32768.0
         self.niveau = float(np.sqrt(x.dot(x) / max(1, len(x))))
+        if (enregistrer := self.enregistrement) is not None:
+            try:
+                enregistrer(propre)
+            except Exception:  # un compte rendu en panne ne doit jamais rendre Steve sourd
+                self.enregistrement = None
         calme = self._calme()
         if self._gain:
             propre = self._gain.traiter(propre, figer=not calme)

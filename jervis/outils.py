@@ -22,7 +22,8 @@ from urllib.parse import quote
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import apis, appels, comptes, compteur, config, distance, graphe, infos, infos2, lecons, lexique, savoir_faire
+from . import (apis, appels, bureau, comptes, compteur, config, distance, graphe, infos, infos2, lecons, lexique,
+               reunion, savoir_faire)
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -975,6 +976,8 @@ OUTILS.extend(infos.OUTILS_INFOS)  # actualité, météo, change, Wikipédia, jo
 OUTILS.extend(infos2.OUTILS_INFOS2)  # entreprises, adresses, produits, air, carburants, livres… (infos2.py)
 OUTILS.extend(apis.OUTILS_APIS)  # toutes les API publiques gratuites : le catalogue, l'appel, les clés (apis.py)
 OUTILS.extend(appels.OUTILS_APPELS)  # appeler par l'iPhone depuis le Mac, et raccrocher (appels.py)
+OUTILS.extend(reunion.OUTILS_REUNION)  # le compte rendu de réunion, transcrit sur le Mac (reunion.py)
+OUTILS.extend(bureau.OUTILS_BUREAU)  # fenêtres, modes, musique, sélection, rangement, santé, fichiers
 if graphe.ACTIF:
     OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)
 

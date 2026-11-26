@@ -409,3 +409,50 @@ SEUIL_VOIX_CHUCHOTE = float(_env("SEUIL_VOIX_CHUCHOTE", "0.3"))  # ressemblance 
 VOLUME_CHUCHOTE = float(_env("VOLUME_CHUCHOTE", "0.35"))  # sa voix quand tu viens de chuchoter (1 = comme d'habitude)
 # Taille max d'un message de Claude Code : une capture d'écran (outil « see ») dépasse le 1 Mo par défaut.
 TAMPON_MAX = 64 * 1024 * 1024
+
+# --- Réunions (reunion.py) ---------------------------------------------------
+# Mode réunion : il voit que tu es en appel (Zoom, Meet, Teams, FaceTime, WhatsApp…) parce qu'une de ces apps
+# écoute ton micro (macOS le dit, sans rien ouvrir). Pendant l'appel il ne parle plus du tout : ses annonces
+# attendent la fin, et si tu l'appelles par son nom, il répond par écrit (notification + chat). JERVIS_MODE_REUNION=non
+# pour le couper.
+MODE_REUNION = _env("MODE_REUNION", "oui").lower() not in {"non", "off", "0"}
+# Les apps d'appel (le début de leur identifiant macOS). Les navigateurs y sont : un onglet Meet qui prend le micro.
+APPS_APPEL = [a.strip() for a in _env(
+    "APPS_APPEL", "us.zoom.xos,com.microsoft.teams,com.apple.FaceTime,com.apple.avconferenced,com.google.Chrome,"
+                  "com.apple.Safari,com.apple.WebKit,org.mozilla.firefox,company.thebrowser,com.brave.Browser,"
+                  "com.microsoft.edgemac,net.whatsapp.WhatsApp,com.hnc.Discord,com.tinyspeck.slackmacgap,"
+                  "com.skype,com.cisco.webex,ru.keepcoder.Telegram,org.whispersystems.signal-desktop").split(",")
+              if a.strip()]
+APPEL_SURVEILLANCE_S = float(_env("APPEL_SURVEILLANCE_S", "2"))  # il regarde toutes les 2 s
+APPEL_FIN_S = float(_env("APPEL_FIN_S", "8"))  # le micro libéré depuis 8 s : l'appel est fini (pas un simple « muet »)
+# Pendant un appel, quand tu dis son nom : "ecrit" (il répond par écrit), "rien" (il ne réagit qu'à « compte rendu »).
+APPEL_REPONSE = _env("APPEL_REPONSE", "ecrit").lower()
+# Compte rendu : il transcrit la réunion en local, morceau par morceau, en détectant la langue de chaque morceau
+# (Whisper, 99 langues ; Parakeet s'il n'est pas là : 25 langues européennes).
+DOSSIER_REUNIONS = Path(os.path.expanduser(_env("DOSSIER_REUNIONS", str(DOSSIER / "espace" / "reunions"))))
+REUNION_STT = _env("REUNION_STT", "auto").lower()          # auto | whisper | parakeet
+REUNION_LANGUE = _env("REUNION_LANGUE", "auto").lower()    # auto = chaque morceau dans sa langue ; sinon "fr", "en"…
+LANGUE_COMPTE_RENDU = _env("LANGUE_COMPTE_RENDU", "français")  # la langue du résumé, quelle que soit celle de la réunion
+REUNION_MORCEAU_S = float(_env("REUNION_MORCEAU_S", "30"))  # transcrit par morceaux de ~30 s (coupés dans un blanc)
+REUNION_MAX_MIN = float(_env("REUNION_MAX_MIN", "180"))     # au-delà, il s'arrête seul
+REUNION_GARDER_SON = _env("REUNION_GARDER_SON", "non").lower() in {"oui", "on", "1"}  # garder le .wav à côté
+# Le son du Mac (ce que disent les autres) quand tu es au casque : le nom d'un appareil « boucle » (BlackHole,
+# Loopback…) à enregistrer en plus du micro. Vide : seulement le micro (qui les entend sur les haut-parleurs).
+REUNION_SON_DU_MAC = _env("REUNION_SON_DU_MAC", "")
+REUNION_AUTO = _env("REUNION_AUTO", "non").lower() in {"oui", "on", "1"}  # compte rendu de chaque appel, sans le demander
+
+# --- Le bureau (bureau.py) ---------------------------------------------------
+FICHIER_MODES = DOSSIER / "modes.json"            # tes modes (« mode travail ») : apps, liens, volume, raccourci
+FICHIER_RANGEMENT = DOSSIER / "rangement.json"    # tes règles de rangement (« les factures vont dans… »)
+DOSSIER_ANNULER_RANGEMENT = DOSSIER / "espace" / "rangements"  # de quoi défaire le dernier rangement
+# Santé du Mac : il te prévient de lui-même (une fois par jour et par souci) quand le disque, la batterie ou la
+# mémoire coincent. JERVIS_SANTE_INTERVALLE_MIN=0 pour ne jamais vérifier seul.
+SANTE_INTERVALLE_MIN = float(_env("SANTE_INTERVALLE_MIN", "30"))
+SANTE_DISQUE_MIN_GO = float(_env("SANTE_DISQUE_MIN_GO", "15"))
+SANTE_BATTERIE_MIN = int(_env("SANTE_BATTERIE_MIN", "10"))
+SANTE_CPU_MAX = float(_env("SANTE_CPU_MAX", "90"))   # une app à plus de 90 % du processeur pendant 10 min
+
+# --- Recherche dans tes fichiers, messages vocaux, règles -----------------------
+RECHERCHE_MAX = int(_env("RECHERCHE_MAX", "15"))      # résultats de chercher_fichiers
+VOCAL_MAX_S = float(_env("VOCAL_MAX_S", "300"))       # un message vocal iPhone plus long : coupé à 5 min
+LECONS_PERMANENTES_MAX = int(_env("LECONS_PERMANENTES_MAX", "40"))  # tes règles « pour toujours » (📌)

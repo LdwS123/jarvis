@@ -15,10 +15,10 @@ import threading
 import time
 import unicodedata
 
-from . import chat, compteur, config, oral, tts, voix_locale
+from . import bureau, chat, compteur, config, oral, reunion, tts, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
-from .fond import Evenement, Programmateur, Standard, Taches, outils_fond
+from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond
 
 NOM = re.compile(config.NOM, re.IGNORECASE)
 # Ce qui précède son nom quand on l'appelle (avec ce que la transcription en fait : « Hey » → « Yes », « Dit », « І »…).
@@ -294,7 +294,7 @@ def est_interruption(entendu: str, dit: str) -> bool:
 class Etat:
     """Ce qu'il fait, pour l'icône de la barre des menus."""
     ICONES = {"demarre": "⏳", "veille": "🎙", "ecoute": "👂", "reflechit": "💭", "parle": "🗣",
-              "pause": "⏸", "erreur": "⚠️"}
+              "pause": "⏸", "reunion": "📞", "erreur": "⚠️"}
 
     def __init__(self) -> None:
         self.nom = "demarre"
@@ -345,6 +345,8 @@ async def mode_texte(muet: bool) -> None:
     standard, taches, programmateur, outils_en_plus = _equipe()
     cerveau = Cerveau(parler, confirmer, outils_en_plus=outils_en_plus, anticiper=None if muet else tts.anticiper)
     await cerveau.demarrer()
+    # Un compte rendu (avec son propre micro ici) qui finit seul : Claude en fait le résumé.
+    reunion.REUNIONS.annoncer = lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("faire", texte))
     horloge = asyncio.create_task(programmateur.tourner())
     threading.Thread(target=lire_clavier, daemon=True).start()
     print(f"{config.PRENOM} est prêt. Tape ta demande (Ctrl+D pour quitter).")
@@ -382,6 +384,8 @@ async def mode_texte(muet: bool) -> None:
                     cerveau.fin_de_conversation()
     finally:
         horloge.cancel()
+        reunion.REUNIONS.annoncer = None
+        await asyncio.to_thread(reunion.REUNIONS.finir)
         await taches.arreter()
         await cerveau.arreter()
 
@@ -661,6 +665,10 @@ async def mode_vocal(etat: Etat | None = None) -> None:
 
     async def parler(texte: str, interruptible: bool = True) -> None:
         patience = texte in config.PHRASES_PATIENCE
+        if appel["en_cours"]:  # tu es en appel : pas un mot à voix haute, il l'écrit (chat + notification)
+            if not patience:
+                await ecrire_pendant_l_appel(texte)
+            return
         if interruptible and guet["tache"] is not None:
             # Tant que tu parles, il ne prend pas la parole : il attend que tu aies fini (jamais plus de
             # RETENUE_MAX_S : une télé allumée ne doit pas le rendre muet). Un « Voyons… » ne vaut pas l'attente.
@@ -698,6 +706,11 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             await suspendre_guet()  # libère le micro avant qu'on l'écoute à nouveau
 
     async def confirmer(question: str) -> bool:
+        if appel["en_cours"]:
+            # En appel, jamais de oui à voix haute : un « oui » dit à tes collègues ne doit rien confirmer.
+            print(f"🤖 {config.PRENOM} (écrit, en appel) : {question}", flush=True)
+            await notifier(config.PRENOM, f"Question (réponds dans le tableau de bord) : {question}")
+            return await chat.MESSAGERIE.demander(question, config.QUESTION_ECRITE_S)
         reprendre = await suspendre_guet()  # le micro sert à entendre ton oui ou non
         try:
             await parler(question, interruptible=False)
@@ -823,6 +836,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         """La suite de la conversation, sans son nom. Toux, bruit ou phrase vide : il continue d'écouter.
         Une tâche qui finit pendant ce temps : il te le dit au premier blanc, puis la conversation continue.
         Rien pendant le délai : petit son doux, il repasse en veille. `annonce` : ce qu'il vient de t'annoncer."""
+        if appel["en_cours"]:  # un appel a commencé : la conversation s'arrête là, sans un son
+            discussion["active"] = False
+            return None
         tts.bip()
         etat("ecoute")
         if discussion["active"]:
@@ -834,6 +850,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         fin = time.monotonic() + delai
         while (reste := fin - time.monotonic()) > 0:
             suite, _ = await entendre(reste, arret=standard.sonnerie)
+            if appel["en_cours"]:
+                discussion["active"] = False
+                return None
             if suite is None:
                 if not standard.sonnerie.is_set():
                     break
@@ -964,6 +983,81 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             # éventuelle (« arrête tout ») passe par le chat, une seule fois
         return bool(reste_apres_stop(texte))
 
+    async def ecrire_pendant_l_appel(texte: str) -> None:
+        print(f"🤖 {config.PRENOM} (écrit, en appel) : {texte}", flush=True)
+        chat.MESSAGERIE.ajouter("steve", texte)
+        await notifier(config.PRENOM, texte)
+
+    async def pendant_l_appel() -> None:
+        """Tu es en appel : il n'écoute que son nom (jusqu'à la fin de l'appel) et ne dit rien. « Steve, fais le
+        compte rendu » / « arrête le compte rendu » sont compris sur place ; le reste, il te répond par écrit."""
+        if not standard.en_attente():
+            standard.sonnerie.clear()  # (la sonnerie qui l'a sorti de la veille au début de l'appel)
+        etat("reunion")
+        texte, reveil = await entendre(None, veille=True, arret=appel["fini"])
+        if not texte:
+            return
+        commande = extraire_commande(texte)
+        if commande is None:
+            if not reveil:
+                return  # on parle dans l'appel, pas à lui
+            commande = SALUTATION.sub("", texte).strip(" ,.!?")
+        print(f"🧑 Toi (pendant l'appel) : {texte}", flush=True)
+        quoi = reunion.commande_reunion(commande)
+        if quoi == "commencer":
+            await ecrire_pendant_l_appel(await asyncio.to_thread(
+                reunion.REUNIONS.commencer, f"Appel {reunion.noms(appel['apps'])}"))
+        elif quoi == "finir":
+            cr = await asyncio.to_thread(reunion.REUNIONS.finir, True)  # le résumé suit, par écrit
+            await ecrire_pendant_l_appel("Compte rendu arrêté : je t'écris le résumé." if cr
+                                         else "Aucun compte rendu en cours.")
+        elif config.APPEL_REPONSE == "ecrit" and len(commande) >= 3:
+            n = chat.MESSAGERIE.ajouter("steve", "", fini=False)
+            try:
+                reponse = await cerveau.demander(
+                    commande, ecrit=lambda morceau: chat.MESSAGERIE.completer(n, morceau),
+                    confirmer_ecrit=lambda question: chat.MESSAGERIE.demander(question, config.QUESTION_ECRITE_S))
+            except Exception as e:
+                reponse = f"⚠️ Je n'ai pas pu répondre ({e!r})."
+            reponse = reponse or "OK."
+            chat.MESSAGERIE.fermer(n, reponse)
+            print(f"🤖 {config.PRENOM} (écrit, en appel) : {' ⏎ '.join(reponse.split(chr(10)))}", flush=True)
+            await notifier(config.PRENOM, reponse)
+
+    boucle = asyncio.get_running_loop()
+    appel: dict = {"en_cours": False, "apps": [], "fini": threading.Event()}
+
+    def appel_commence(apps: list[str]) -> None:  # (fil de la surveillance)
+        appel.update(en_cours=True, apps=apps)
+        appel["fini"].clear()
+        print(f"📞 En appel ({reunion.noms(apps)}) : je me tais. Dis « {config.PRENOM}, fais le compte rendu » "
+              "si tu veux que je le transcrive.", flush=True)
+        boucle.call_soon_threadsafe(tts.taire)   # il se tait, même au milieu d'une phrase
+        standard.sonnerie.set()                  # et sort de la veille pour passer en mode réunion
+        if config.REUNION_AUTO and reunion.REUNIONS.en_cours is None:
+            reunion.REUNIONS.commencer(f"Appel {reunion.noms(apps)}")
+
+    def appel_fini() -> None:  # (fil de la surveillance)
+        appel["en_cours"] = False
+        appel["fini"].set()
+        print("📞 Appel fini : je reprends.", flush=True)
+        if reunion.REUNIONS.en_cours is not None:
+            reunion.REUNIONS.finir(annoncer=True)  # le résumé arrive par le standard, dit au premier blanc
+
+    def brancher_micro(recevoir) -> bool:
+        if recevoir is None:
+            oreilles.enregistrement = None
+            return True
+        if oreilles.en_pause:
+            return False  # micro en pause : le compte rendu ouvre le sien
+        oreilles.enregistrement = recevoir
+        return True
+
+    reunion.REUNIONS.brancher_micro = brancher_micro
+    reunion.REUNIONS.annoncer = lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("faire", texte))
+    sante = threading.Event()  # (posé à l'arrêt : la surveillance de la santé du Mac s'arrête)
+    surveillance = reunion.Surveillance(appel_commence, appel_fini)
+
     standard, taches, programmateur, outils_en_plus = _equipe()
     etat.taches = taches
     cerveau = Cerveau(parler, confirmer, outils_en_plus=outils_en_plus,
@@ -1000,11 +1094,19 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         print(f"   🔐 Autorisations de macOS à me donner : {noms}. Menu {n} → « Autorisations… », "
               f"ou dis « {n}, vérifie tes autorisations ».", flush=True)
     await parler(config.ANNONCE, interruptible=False)
+    if config.MODE_REUNION:
+        surveillance.demarrer()  # (après l'annonce : le standard et Claude sont prêts)
+    # La santé du Mac : un souci (disque plein, batterie, une app qui s'emballe) est dit une fois par jour.
+    bureau.surveiller_sante(lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("annonce", texte)),
+                            sante)
     print(f"👂 Parle-moi en disant « {n} » : « Hey {n} », « Salut {n} », « {n}, ouvre Cursor »… "
           "(Ctrl+C pour quitter)", flush=True)
 
     try:
         while True:
+            if appel["en_cours"]:
+                await pendant_l_appel()
+                continue
             if standard.en_attente():
                 if oreilles.en_pause:  # micro en pause = ne pas déranger : ça attendra que tu le rallumes
                     await asyncio.sleep(1)
@@ -1051,6 +1153,10 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         print(f"💰 Aujourd'hui : {compteur.dollars(compteur.aujourdhui())} en équivalent prix API "
               "(sur ton abonnement, ça compte dans tes limites, tu ne le paies pas en plus).")
         horloge.cancel()
+        surveillance.arreter()
+        sante.set()
+        reunion.REUNIONS.annoncer = None
+        await asyncio.to_thread(reunion.REUNIONS.finir)
         chat.MESSAGERIE.debrancher()
         chat.MESSAGERIE.urgence = None
         par_ecrit.cancel()

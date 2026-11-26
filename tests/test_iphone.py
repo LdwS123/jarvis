@@ -285,12 +285,75 @@ verifier("suspect : un message qui reprend le texte de ses outils → il demande
 verifier("pas suspect : hors lecture, pas de question", vu["pas suspect : direct"], ["🤖 Demain : soleil, 18°."])
 verifier("journal : tes messages (iPhone)", "🧑 Toi (iPhone) : Météo demain" in journal, True)
 
+# --- Les messages vocaux --------------------------------------------------------------------------------------
+verifier("son : le .caf de Messages, un audio/…, un uti audio", [distance.est_un_son("Audio Message.caf"),
+                                                                distance.est_un_son("x", "audio/amr"),
+                                                                distance.est_un_son("x", None, "public.audio")],
+         [True] * 3)
+verifier("son : une photo n'en est pas un", distance.est_un_son("IMG_1.heic", "image/heic", "public.heic"), False)
+lien.executescript(
+    "CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, filename TEXT, mime_type TEXT, uti TEXT, total_bytes INTEGER);"
+    "CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);")
+n_piece = 0
+
+
+def vocal(fil: int, de_moi: int, qui: int, nom: str, taille: int, mime: str = "audio/x-caf") -> Path:
+    """Un message vocal : un message sans texte (le « ￼ » de la pièce jointe) et son fichier son."""
+    global n_piece
+    n_piece += 1
+    son = TMP / nom
+    son.write_bytes(b"caff" + b"\0" * taille)
+    ecrire(fil, "￼", de_moi, qui)
+    lien.execute("INSERT INTO attachment VALUES (?, ?, ?, ?, ?)", (n_piece, str(son), mime, "com.apple.coreaudio-format",
+                                                                   taille))
+    lien.execute("INSERT INTO message_attachment_join VALUES (?, ?)", (n_message, n_piece))
+    lien.commit()
+    return son
+
+
+entendus: list[Path] = []
+paroles = {"texte": "Rappelle-moi d'acheter du pain à 18 h", "panne": False}
+
+
+def faux_transcrire(chemin: Path) -> str:
+    entendus.append(chemin)
+    if paroles["panne"]:
+        raise RuntimeError("format inconnu")
+    return paroles["texte"]
+
+
+journal.clear()
+oreille = distance.Boite(faux_envoi, base=base, adresses="auto", journal=journal.append, transcrire=faux_transcrire)
+oreille.lire()
+son1 = vocal(1, 1, 1, "Audio Message.caf", 4000)
+vocal(1, 0, 1, "Audio Message copie.caf", 4000)   # la copie reçue du même son
+verifier("vocal : ton message vocal devient une demande écrite", oreille.lire(),
+         ["(message vocal) Rappelle-moi d'acheter du pain à 18 h"])
+verifier("vocal : transcrit une seule fois (pas la copie)", entendus, [son1])
+vocal(1, 0, 2, "Lea.caf", 5000)                 # Léa, dans ton fil
+vocal(2, 0, 2, "Lea2.caf", 6000)                # Léa, dans son fil
+verifier("vocal : le son de quelqu'un d'autre n'est ni lu ni même transcrit", (oreille.lire(), len(entendus)), ([], 1))
+paroles["panne"] = True
+vocal(1, 1, 1, "Casse.caf", 7000)
+verifier("vocal : un son illisible → rien, et le journal le dit",
+         (oreille.lire(), any("Message vocal pas compris" in l for l in journal)), ([], True))
+paroles.update(panne=False, texte="")
+vocal(1, 1, 1, "Muet.caf", 8000)
+verifier("vocal : rien d'entendu → rien", (oreille.lire(), any("je n'ai rien entendu" in l for l in journal)), ([], True))
+paroles["texte"] = "Mets la musique"
+ecrire(1, "￼", 1, 1)                       # une photo seule
+lien.execute("INSERT INTO attachment VALUES (?, ?, ?, ?, ?)", (99, str(TMP / "IMG.heic"), "image/heic", "public.heic", 9))
+lien.execute("INSERT INTO message_attachment_join VALUES (?, ?)", (n_message, 99))
+lien.commit()
+verifier("vocal : une photo seule n'est pas un message vocal", oreille.lire(), [])
+
 # --- Le tableau de bord et les consignes ------------------------------------------------------------------
 echanges = tableau.lire_journal(f"🧑 Toi (iPhone) : Météo demain\n🤖 {config.PRENOM} (iPhone) : Soleil ⏎ 18°\n")
 verifier("tableau : l'échange par iPhone s'affiche comme un écrit", echanges["echanges"],
          [{"qui": "toi", "texte": "Météo demain", "ecrit": True}, {"qui": "steve", "texte": "Soleil\n18°", "ecrit": True}])
 c = brain._consignes(ecran=False)
 verifier("consignes : il sait ce qu'est « (iMessage) … »", "« (iMessage) … »" in c, True)
+verifier("consignes : et un message vocal", "(message vocal)" in c, True)
 verifier("consignes : un rapport de ronde venu par iMessage reste un rapport",
          bool(brain._RAPPORT.match("(iMessage) (ta ronde) rien")), True)
 

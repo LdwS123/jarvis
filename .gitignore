@@ -27,3 +27,7 @@ voix_choisie.txt
 # Ce qu’il a appris de ta voix, et les sauvegardes de tes réglages
 lexique.md
 sauvegardes/
+
+# Tes modes et tes règles de rangement (les comptes rendus, eux, sont dans espace/)
+modes.json
+rangement.json

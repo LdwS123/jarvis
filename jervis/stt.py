@@ -193,3 +193,41 @@ def _prechauffer() -> None:
             print(f"   ⚠️  Parakeet indisponible ({type(e).__name__}: {e}) : je passe à Whisper.", flush=True)
             _moteur = "whisper"
     transcrire(silence)
+
+
+# --- Les longs enregistrements (réunions, messages vocaux), dans toutes les langues ----------------------
+
+# Ce que Whisper « entend » dans un blanc ou une musique : des génériques de vidéos, dans toutes les langues.
+HALLUCINATIONS = re.compile(r"amara\.org|sous-titr|merci d'avoir regardé|abonnez-vous|thanks? for watching|"
+                            r"subtitles? by|please subscribe|untertitel|продолжение следует|字幕", re.IGNORECASE)
+
+
+def moteur_long() -> str:
+    """Le moteur des longs enregistrements : Whisper s'il est là (99 langues, la langue de chaque morceau),
+    sinon Parakeet (25 langues européennes). JERVIS_REUNION_STT impose l'un des deux."""
+    if config.REUNION_STT in {"whisper", "parakeet"}:
+        return config.REUNION_STT
+    return "whisper" if _whisper_en_cache() else "parakeet"
+
+
+def transcrire_morceau(audio_int16: np.ndarray, langue: str | None = None) -> tuple[str, str]:
+    """Un morceau de réunion ou un message vocal (jusqu'à ~30 s) : (texte, langue détectée, « fr », « en »…,
+    « » si le moteur ne la dit pas). `langue` = None : il la devine à chaque morceau (une réunion en deux langues
+    reste juste). Un blanc, une musique : ("", "")."""
+    return _sur_le_fil_mlx(_transcrire_morceau, audio_int16, langue)
+
+
+def _transcrire_morceau(audio_int16: np.ndarray, langue: str | None) -> tuple[str, str]:
+    if len(audio_int16) < config.SAMPLE_RATE // 2:
+        return "", ""
+    if moteur_long() == "whisper":
+        import mlx_whisper
+
+        resultat = mlx_whisper.transcribe(_flottant(audio_int16), path_or_hf_repo=config.WHISPER_MODEL,
+                                          language=langue, condition_on_previous_text=False, temperature=0.0)
+        texte, langue_vue = resultat.get("text", "").strip(), str(resultat.get("language") or langue or "")
+    else:
+        texte, langue_vue = _transcrire_parakeet(audio_int16, False), langue or ""
+    if not texte or HALLUCINATIONS.search(texte):
+        return "", ""
+    return texte, langue_vue
