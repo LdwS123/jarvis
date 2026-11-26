@@ -312,7 +312,7 @@ il ne s'en sert pas : il prend une API sans clé.
 
 `appeler_api` ne fait que lire : une requête GET, sans clé, sans cookie, sous un nom générique. Il refuse le Mac et
 ton réseau (127.0.0.1 et le tableau de bord, ta box, 192.168…, 10…, les `.local`, l'adresse des métadonnées des
-nuages…) : chaque nom est résolu et chaque adresse vérifiée avant de partir, redirections comprises (3 au plus). Il
+nuages…) : chaque nom est résolu une seule fois, l'adresse vérifiée, et la requête part vers cette adresse-là (un nom qui changerait d'adresse entre-temps ne le ramène pas chez toi), redirections comprises (3 au plus), jamais par un proxy. Il
 garde au plus 1 Mo de la réponse et en rend 8 000 caractères (le JSON résumé : 15 éléments par liste).
 
 ### Ce qu'il retient tout seul

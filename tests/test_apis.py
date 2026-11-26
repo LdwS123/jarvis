@@ -152,7 +152,7 @@ apis._adresses = faux_dns
 
 def repondre(requete: httpx.Request) -> httpx.Response:
     VUES.append(requete)
-    reponse = REPONSES.get((requete.url.host, requete.url.path))
+    reponse = REPONSES.get((requete.headers["host"].split(":")[0], requete.url.path))
     if callable(reponse):
         reponse = reponse(requete)
     if reponse is None:
@@ -217,26 +217,53 @@ verifier("JSON : un long texte coupé", (len(lu["texte"]), lu["texte"][-1]), (50
 verifier("JSON : 8 niveaux au plus", lu["profond"]["a"]["b"]["c"]["d"]["e"]["f"], {"g": "…"})
 verifier("JSON : compact (pas d'espaces perdus)", corps.startswith('{"races":["race 0","race 1"'), True)
 
+verifier("la requête part vers l'adresse vérifiée, le nom dans Host et dans le certificat TLS",
+         (requete.url.host, requete.headers["host"], requete.extensions.get("sni_hostname")),
+         ("93.184.216.34", "api.exemple.org", "api.exemple.org"))
+
+# Le « DNS rebinding » : le nom donne une adresse publique à la vérification, puis 127.0.0.1. Résolu une seule fois,
+# la requête part vers l'adresse vérifiée.
+tours = {"n": 0}
+
+
+async def dns_changeant(hote: str, port: int) -> list[str]:
+    if hote == "change.exemple.org":
+        tours["n"] += 1
+        return ["93.184.216.34"] if tours["n"] == 1 else ["127.0.0.1"]
+    return await faux_dns(hote, port)
+
+
+apis._adresses = dns_changeant
+REPONSES[("change.exemple.org", "/x")] = (200, {"ok": 1})
+VUES.clear()
+appeler(apis.appeler_api, url="http://change.exemple.org:8080/x")
+verifier("DNS rebinding : une seule résolution, vers l'adresse vérifiée",
+         (tours["n"], str(VUES[-1].url), VUES[-1].headers["host"], "sni_hostname" in VUES[-1].extensions),
+         (1, "http://93.184.216.34:8080/x", "change.exemple.org:8080", False))
+apis._adresses = faux_dns
+
 REPONSES[("api.exemple.org", "/champs")] = (200, {f"c{i}": i for i in range(70)})
 lu = json.loads(texte(appeler(apis.appeler_api, url="https://api.exemple.org/champs")).rsplit("\n", 1)[0])
 verifier("JSON : 60 champs par objet, le reste compté", (len(lu), lu["…"]), (61, "10 autres champs"))
 
 REPONSES[("cdn.exemple.org", "/liste")] = (200, [1, 2, 3])
 r = appeler(apis.appeler_api, url="https://cdn.exemple.org/liste")
-verifier("une adresse IPv6 publique passe", texte(r), f"[1,2,3]\n{DEHORS}")
+verifier("une adresse IPv6 publique passe", (texte(r), str(VUES[-1].url)),
+         (f"[1,2,3]\n{DEHORS}", "https://[2606:4700::6810:84e5]/liste"))
 
 # Les redirections : suivies, mais chacune vérifiée.
 REPONSES[("api.exemple.org", "/vieux")] = httpx.Response(301, headers={"location": "/nouveau?x=1"})
 REPONSES[("api.exemple.org", "/nouveau")] = (200, {"ok": True})
 VUES.clear()
 r = appeler(apis.appeler_api, url="https://api.exemple.org/vieux", params={"q": "a"})
-verifier("redirection relative suivie", (texte(r), [str(v.url) for v in VUES]),
-         (f'{{"ok":true}}\n{DEHORS}', ["https://api.exemple.org/vieux?q=a", "https://api.exemple.org/nouveau?x=1"]))
+verifier("redirection relative suivie", (texte(r), [(str(v.url), v.headers["host"]) for v in VUES]),
+         (f'{{"ok":true}}\n{DEHORS}', [("https://93.184.216.34/vieux?q=a", "api.exemple.org"),
+                                       ("https://93.184.216.34/nouveau?x=1", "api.exemple.org")]))
 REPONSES[("api.exemple.org", "/rebond")] = httpx.Response(302, headers={"location": "http://127.0.0.1:8765/etat"})
 VUES.clear()
 r = appeler(apis.appeler_api, url="https://api.exemple.org/rebond")
 verifier("une redirection vers le Mac : refusée, jamais suivie",
-         (r.get("is_error"), "jamais sur le Mac" in texte(r), [v.url.host for v in VUES]),
+         (r.get("is_error"), "jamais sur le Mac" in texte(r), [v.headers["host"] for v in VUES]),
          (True, True, ["api.exemple.org"]))
 REPONSES[("api.exemple.org", "/vers-box")] = httpx.Response(307, headers={"location": "http://box.exemple.org/admin"})
 VUES.clear()

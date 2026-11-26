@@ -167,8 +167,10 @@ async def _adresses(hote: str, port: int) -> list[str]:
     return [i[4][0] for i in infos_ip]
 
 
-async def verifier_adresse(url: str) -> None:
-    """Lève Interdit si `url` ne mène pas à un serveur public d'Internet."""
+async def verifier_adresse(url: str) -> str:
+    """L'adresse IP publique où aller pour `url` ; lève Interdit si elle ne mène pas à un serveur public d'Internet.
+    La requête part ensuite vers cette adresse-là, pas vers le nom : un nom qui changerait d'adresse entre la
+    vérification et l'envoi (« DNS rebinding ») ne peut pas le ramener sur le Mac."""
     try:
         morceaux = urlsplit(url)
         port = morceaux.port or (443 if morceaux.scheme == "https" else 80)
@@ -191,6 +193,7 @@ async def verifier_adresse(url: str) -> None:
             raise httpx.ConnectError(f"{hote} est introuvable") from None
     if not ips or not all(ip.is_global and not ip.is_multicast for ip in ips):
         raise Interdit("Je ne vais que sur Internet, jamais sur le Mac ni sur ton réseau.")
+    return str(ips[0])
 
 
 def _elaguer(x: Any, profondeur: int = 0) -> Any:
@@ -225,22 +228,31 @@ def _lisible(corps: bytes, type_: str) -> str:
 
 
 async def appeler(url: str, params: dict[str, Any] | None = None) -> tuple[int, str]:
-    """GET `url` (ses paramètres ajoutés), en suivant au plus 3 redirections, chacune vérifiée."""
+    """GET `url` (ses paramètres ajoutés), en suivant au plus 3 redirections, chacune vérifiée. Chaque requête part
+    vers l'adresse IP vérifiée (le nom reste dans l'en-tête Host et dans le certificat TLS demandé), et jamais par un
+    proxy réglé dans l'environnement."""
     async with httpx.AsyncClient(timeout=config.INFOS_DELAI_S, follow_redirects=False, transport=infos.TRANSPORT,
+                                 trust_env=False,
                                  headers={"User-Agent": infos.AGENT, "Accept": "application/json, */*;q=0.5"}) as client:
         for _ in range(REDIRECTIONS_MAX + 1):
-            await verifier_adresse(url)
-            async with client.stream("GET", url, params=params) as r:
+            ip = await verifier_adresse(url)
+            demande = httpx.URL(url).copy_merge_params(params) if params else httpx.URL(url)
+            requete = client.build_request(
+                "GET", demande.copy_with(host=ip), headers={"Host": demande.netloc.decode("ascii")},
+                extensions={"sni_hostname": demande.host} if demande.scheme == "https" else {})
+            r = await client.send(requete, stream=True)
+            try:
                 if r.is_redirect and r.headers.get("location"):
-                    url, params = urljoin(str(r.url), r.headers["location"]), None
+                    url, params = urljoin(str(demande), r.headers["location"]), None
                     continue
                 corps = b""
                 async for morceau in r.aiter_bytes():
                     corps += morceau
                     if len(corps) >= OCTETS_MAX:
                         break
-                texte = _lisible(corps[:OCTETS_MAX], r.headers.get("content-type", "").casefold())
-                return r.status_code, texte
+                return r.status_code, _lisible(corps[:OCTETS_MAX], r.headers.get("content-type", "").casefold())
+            finally:
+                await r.aclose()
     raise Interdit(f"Plus de {REDIRECTIONS_MAX} redirections : je m'arrête là.")
 
 
