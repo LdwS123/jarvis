@@ -441,6 +441,15 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             if phrase is None:
                 return None, False
             chrono["fn"] = phrase.par_touche
+            # fn tenue du début à la fin de ta parole (pas juste tapée au passage) : en appel, ça vaut ta voix.
+            # Ta parole : l'enregistrement, moins le son gardé d'avant elle et le silence d'après (0,3 s de marge).
+            if phrase.par_touche:
+                maintenant = time.monotonic()
+                debut_parole = maintenant - len(phrase.audio) / config.SAMPLE_RATE + config.AVANT_PAROLE_S
+                chrono["fn_tenue"] = touche.FN.tenue_tout_du_long(debut_parole + 0.3,
+                                                                  maintenant - phrase.silence - 0.3)
+            else:
+                chrono["fn_tenue"] = False
             if phrase.par_touche:
                 touche.FN.phrase_prise()  # sa remontée, après coup, ne relancera pas d'écoute
             if vocal.en_cours():
@@ -1031,8 +1040,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 return  # on parle dans l'appel, pas à lui
             commande = SALUTATION.sub("", texte).strip(" ,.!?")
         print(f"🧑 Toi (pendant l'appel) : {texte}", flush=True)
-        # fn enfoncée pendant ta phrase : c'est toi, au clavier (personne dans l'appel ne peut appuyer à ta place)
-        confiance = bool(chrono.get("fn")) or appel_de_confiance(chrono.get("voix"), oreilles.voix_connue)
+        # fn tenue pendant toute ta phrase : c'est toi, au clavier (personne dans l'appel ne peut appuyer à ta
+        # place). Un fn tapé au vol, pendant qu'un participant parle, ne suffit pas.
+        confiance = bool(chrono.get("fn_tenue")) or appel_de_confiance(chrono.get("voix"), oreilles.voix_connue)
         quoi = reunion.commande_reunion(commande)
         if quoi == "commencer":
             await ecrire_pendant_l_appel(await asyncio.to_thread(

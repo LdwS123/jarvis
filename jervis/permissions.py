@@ -197,11 +197,18 @@ def dossier_sensible(chemin: str) -> bool:
     return premier == "library" or premier.startswith(".")
 
 
+def _choix_dock(entree: dict[str, Any]) -> str:
+    """Ce qu'il choisit dans le menu d'une icône du Dock (et l'action elle-même)."""
+    return " ".join(str(entree.get(c) or "") for c in ("action", "select", "item", "path", "menu_item"))
+
+
 def _mac_confiance(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> Decision:
     if action == "see":
         return Decision.DEMANDER if APPS_SECRETES.search(nom_app(entree.get("app_target"))) else Decision.OUI
     if action == "dialog":
         return Decision.DEMANDER if GESTE_LOURD.search(str(entree.get("button") or "")) else Decision.OUI
+    if action == "dock":  # un clic droit dans le Dock (« Vider la corbeille » sur la corbeille, « Supprimer ») :
+        return Decision.DEMANDER if GESTE_LOURD.search(_choix_dock(entree)) else Decision.OUI  # comme un menu
     if action not in GESTES_MAC:
         return Decision.OUI
     apps = {(_app_devant() or INCONNUE) if a == INCONNUE else a for a in cibles_mac(action, entree, apps_vues)}
@@ -303,6 +310,8 @@ def _mac_essentiel(action: str, entree: dict[str, Any], apps_vues: Iterable[str]
         return Decision.DEMANDER if APPS_SECRETES.search(nom_app(entree.get("app_target"))) else Decision.OUI
     if action == "dialog":
         return Decision.DEMANDER if GESTE_DEFINITIF.search(str(entree.get("button") or "")) else Decision.OUI
+    if action == "dock":  # un clic droit dans le Dock (« Vider la corbeille » sur la corbeille, « Supprimer ») :
+        return Decision.DEMANDER if GESTE_DEFINITIF.search(_choix_dock(entree)) else Decision.OUI  # comme un menu
     if action not in GESTES_MAC:  # regarder, ouvrir, fermer, quitter, presse-papiers…
         return Decision.OUI
     apps = cibles_mac(action, entree, apps_vues)

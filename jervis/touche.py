@@ -45,6 +45,7 @@ class Fn:
         self._appui: float | None = None  # fn enfoncée depuis (seule jusqu'ici), sinon None
         self._autre = False               # une autre touche pendant qu'elle est enfoncée
         self._relachee = -math.inf        # la dernière fois qu'elle est remontée, seule
+        self._appui_precedent = math.inf  # … et quand cet appui-là avait commencé
         self._ignorer_relache = False     # la phrase dite fn enfoncée est déjà prise : sa remontée ne compte pas
 
     def evenement(self, genre: int, code: int = 0, drapeaux: int = 0) -> None:
@@ -66,9 +67,9 @@ class Fn:
         if self._appui is None:
             return
         seule = not self._autre and maintenant - self._appui <= TENUE_MAX_S
-        self._appui = None
+        self._appui_fini, self._appui = self._appui, None
         if seule:
-            self._relachee = maintenant
+            self._relachee, self._appui_precedent = maintenant, self._appui_fini
             if self._ignorer_relache:
                 self._ignorer_relache = False
             else:
@@ -79,6 +80,13 @@ class Fn:
         if self._appui is not None and not self._autre and self._horloge() - self._appui <= TENUE_MAX_S:
             return True
         return self._relachee >= depuis
+
+    def tenue_tout_du_long(self, debut: float, fin: float) -> bool:
+        """fn enfoncée (seule) avant `debut` et jusqu'à `fin` au moins, sans lâcher : la preuve que c'est toi qui
+        parlais pendant tout ce temps (pendant un appel, un fn tapé au vol pendant qu'un autre parle ne l'est pas)."""
+        if self._appui is not None:
+            return not self._autre and self._appui <= debut and self._horloge() - self._appui <= TENUE_MAX_S
+        return self._appui_precedent <= debut and self._relachee >= fin
 
     def prendre(self) -> bool:
         """fn a-t-elle été tapée (et pas encore prise) ? La prend : la prochaine veille ne la verra plus."""

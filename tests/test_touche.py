@@ -97,6 +97,17 @@ verifier("remontée pendant ta phrase (commencée avant)", fn.tenue_depuis(h.t -
 verifier("remontée avant ta phrase : ce n'était pas pour elle", fn.tenue_depuis(h.t - 0.5), False)
 fn, h = jouer(FN_BAS, (touche.TOUCHE,), 1.0)
 verifier("fn+une touche, encore enfoncée : pas pour ta phrase", fn.tenue_depuis(h.t - 2), False)
+# Pendant un appel, seul fn tenu de bout en bout vaut ta voix (t = 100 au départ ; ta parole de 101 à 104)
+for nom, evenements, attendu in [
+    ("tenue avant ta parole et lâchée après", (0.5, FN_BAS, 4.0, FN_HAUT, 0.5), True),
+    ("encore enfoncée à la fin, depuis avant", (0.5, FN_BAS, 4.5), True),
+    ("enfoncée en cours de route", (2.0, FN_BAS, 3.0, FN_HAUT), False),
+    ("tapée au vol pendant qu'un autre parle", (2.0, FN_BAS, 0.2, FN_HAUT, 2.0), False),
+    ("lâchée avant la fin", (0.5, FN_BAS, 1.5, FN_HAUT, 3.0), False),
+    ("fn+une touche, tenue tout du long", (0.5, FN_BAS, (touche.TOUCHE,), 4.0), False),
+]:
+    fn, h = jouer(*evenements)
+    verifier(f"appel : fn {nom}", fn.tenue_tout_du_long(101.0, 104.0), attendu)
 fn, h = jouer(FN_BAS, 50.0)
 verifier("coincée depuis 50 s : pas pour ta phrase", fn.tenue_depuis(h.t - 2), False)
 fn, h = jouer()

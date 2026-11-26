@@ -124,8 +124,8 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
 - Tu peux aussi dire juste « Salut Steve » ou « Hey Steve », attendre le bip, puis parler.
 - **Ou la touche fn (🌐), sans rien dire** : tape fn puis parle (le bip, et il attend ta demande), ou garde-la
   enfoncée pendant ta phrase (ta phrase est la demande, telle quelle). fn avec une autre touche (fn+F1, fn+flèche)
-  reste ton raccourci et ne le réveille pas. Pendant un appel, fn vaut ta voix : ce que tu dis en la tenant est
-  de toi, pas d'un participant. Une fois : Réglages Système → Clavier → « Appuyer sur 🌐 » → **Ne rien faire**
+  reste ton raccourci et ne le réveille pas. Pendant un appel, fn tenue du début à la fin de ta phrase vaut ta
+  voix (ce que tu dis est de toi, pas d'un participant) ; un fn tapé au vol ne suffit pas. Une fois : Réglages Système → Clavier → « Appuyer sur 🌐 » → **Ne rien faire**
   (sinon macOS ouvre aussi la dictée ou les émojis), et l'autorisation **Surveillance de l'entrée** pour Jervis.
   `JERVIS_TOUCHE_FN=non` l'éteint. Seuls « fn descend / fn remonte / une autre touche » sont lus, rien de ce que
   tu tapes.

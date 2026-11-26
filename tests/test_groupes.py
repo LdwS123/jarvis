@@ -289,6 +289,13 @@ verifier("par défaut, la méfiance est là", vraie_mefiance, True)
 verifier("les gestes sont rouverts (glisser, sélectionner, espaces, Dock)", any(
     o.endswith(("__drag", "__select_text", "__space", "__dock")) for o in outils.OUTILS_MAC_COUPES), False)
 verifier("glisser compte comme un geste", "drag" in permissions.GESTES_MAC, True)
+D = permissions.Decision
+for politique in (permissions.politique_confiance, permissions.politique_essentielle):
+    verifier(f"{politique.__name__} : ouvrir une app du Dock, seul",
+             politique("mcp__mac__dock", {"action": "launch", "app": "Safari"}), D.OUI)
+    verifier(f"{politique.__name__} : « Vider la corbeille » dans le Dock, il demande",
+             politique("mcp__mac__dock", {"action": "right-click", "app": "Corbeille", "select": "Vider la corbeille"}),
+             D.DEMANDER)
 
 # Les fonctions de macOS qu'il appelle pour taper existent (aucune touche n'est envoyée ici)
 cg = ax._graphiques()
