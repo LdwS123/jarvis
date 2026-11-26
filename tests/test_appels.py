@@ -303,6 +303,14 @@ verifier("cage : un sandbox-exec à lui « (allow default) » est encagé quand 
 verifier("après une page : écrire dans ~/.ssh (authorized_keys2, config…) → demandé",
          [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": f"~/.ssh/{f}"})
           for f in ("authorized_keys", "authorized_keys2", "config")], [True, True, True])
+verifier("après une page : git (~/.gitconfig, .git/config), fish, .zlogout, un .pth de python → demandé",
+         [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c}) for c in (
+             "~/.gitconfig", str(permissions._RACINE / ".git/config"), "~/.config/fish/config.fish", "~/.zlogout",
+             "/opt/homebrew/lib/python3.12/site-packages/evil.pth", "~/Library/Python/3.12/lib/python/x.py")],
+         [True] * 6)
+verifier("après une page : un modèle .pth dans Documents, ~/.zshrc.bak → sans question",
+         [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c})
+          for c in ("~/Documents/modele.pth", "~/.zshrc.bak")], [False, False])
 verifier("cage : conversation neuve → plus de cage", vu["cage : conversation neuve"], (A, 0, False))
 verifier("après une page : écrire un LaunchAgent → demandé", vu["écrire un LaunchAgent"], (A, D))
 verifier("après une page : écrire dans son .zshrc → demandé", vu["écrire son .zshrc"], (A, D))
@@ -334,6 +342,16 @@ if nue:
                            capture_output=True, text=True)
         verifier("cage réelle : un dossier parent protégé ne se renomme pas, on peut y écrire",
                  (parent.exists(), (parent / "x").exists()), (True, True))
+        sp = Path(t).resolve() / "site-packages"
+        sp.mkdir()
+        en_cage(f"touch {sp}/evil.pth {t}/modele.pth")
+        verifier("cage réelle : un .pth dans site-packages refusé, un modèle .pth ailleurs permis",
+                 ((sp / "evil.pth").exists(), (Path(t) / "modele.pth").exists()), (False, True))
+    config_git = permissions._RACINE / ".git/config"
+    avant = config_git.read_bytes()
+    r = en_cage(f": >> {config_git} && echo ecrit")  # n'ajoute rien, même si c'était permis
+    verifier("cage réelle : .git/config refusé (core.hooksPath lancerait du code au prochain git)",
+             ("ecrit" in r.stdout, config_git.read_bytes() == avant), (False, True))
 if nue and en_cage("true").returncode == 0:
     temoin = Path(permissions.__file__).resolve().parent.parent / ".git/hooks/temoin-de-cage"
     r = en_cage(f"echo ok; osascript -e 'return 1'; touch {temoin}")

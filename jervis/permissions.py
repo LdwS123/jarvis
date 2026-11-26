@@ -71,7 +71,7 @@ BASH_LOURD = re.compile(
 # Ce qui se relance tout seul (démarrage, shell, tâches planifiées) : y écrire, c'est s'installer pour de bon.
 PERSISTANCE = re.compile(
     r"(LaunchAgents|LaunchDaemons|StartupItems|login ?items?|/etc/|\.(zshrc|zshenv|zprofile|zlogin|zlogout|bashrc"
-    r"|bash_profile|bash_login|profile|gitconfig)\b|\.config/(fish|git)\b|\.git/hooks|\.pth\b|sitecustomize|usercustomize"
+    r"|bash_profile|bash_login|profile|gitconfig)\b|\.config/(fish|git)\b|\.git/(hooks|config)\b|\.pth\b|sitecustomize|usercustomize"
     r"|crontab|periodic/"
     # écrire (>, tee, cp, mv, ln) dans un fichier caché du dossier perso ou dans ~/Library
     r"|(>|\b(tee|cp|mv|ln|install|rsync)\b)[^|;&]*(~|\$HOME|\$\{HOME\}|/Users/[^/\s]+)/(\.|Library/))",
@@ -993,14 +993,27 @@ _CAGE_INTERDITS = ("/usr/bin/open", "/usr/bin/osascript", "/bin/launchctl", "/us
                    "/usr/bin/batch", "/usr/bin/shortcuts", "/usr/bin/automator")
 _RACINE = Path(__file__).resolve().parent.parent  # ~/Jervis
 
+# Ce qui se lance tout seul plus tard, hors de toute cage (au démarrage, à l'ouverture d'un terminal, au prochain
+# git ou python, au prochain lancement de Steve) — une seule liste, pour la cage et pour Write/Edit.
+_SE_LANCE_DOSSIERS = ("Library/Messages", "Library/LaunchAgents", ".claude", ".ssh", ".config/git", ".config/fish",
+                      "Library/Python", "Library/Application Support/com.apple.backgroundtaskmanagementagent")
+_SE_LANCE_FICHIERS = (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".bashrc", ".bash_profile",
+                      ".bash_login", ".profile", ".gitconfig")
+_STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git/hooks")
+_STEVE_FICHIERS = (".git/config",)  # core.hooksPath, core.fsmonitor : du code au prochain git
+_SE_LANCE_MOTIFS = (r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")  # lus à chaque démarrage de python
+
+
+def _se_lance_chemins() -> tuple[list[Path], list[Path]]:
+    maison = Path.home().resolve()
+    return ([maison / d for d in _SE_LANCE_DOSSIERS] + [_RACINE / d for d in _STEVE_DOSSIERS],
+            [maison / f for f in _SE_LANCE_FICHIERS] + [_RACINE / f for f in _STEVE_FICHIERS])
+
 
 def _cage_profil() -> str:
     maison = Path.home().resolve()
-    dossiers = [maison / "Library/Messages", maison / "Library/LaunchAgents", maison / ".claude",
-                maison / "Library/Application Support/com.apple.backgroundtaskmanagementagent",
-                _RACINE / "jervis", _RACINE / ".venv", _RACINE / "Jervis.app", _RACINE / ".git/hooks", maison / ".ssh"]
-    fichiers = [maison / f for f in (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".bashrc", ".bash_profile",
-                                     ".profile")]
+    dossiers, fichiers = _se_lance_chemins()
+    motifs = " ".join(f'(regex #"{m}")' for m in _SE_LANCE_MOTIFS)
     # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
     # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
     parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE, _RACINE / ".git"]
@@ -1016,7 +1029,7 @@ def _cage_profil() -> str:
             ' (global-name-prefix "com.apple.windowserver") (global-name-prefix "com.apple.backgroundtaskmanagement")'
             ' (global-name-prefix "com.apple.shortcuts") (global-name-prefix "com.apple.WorkflowKit")'
             ' (global-name-prefix "com.apple.siriactionsd") (global-name-prefix "com.apple.linkd"))'
-            f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')})"
+            f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')} {motifs})"
             f"(deny file-write-unlink {sp(parents, 'literal')})"
             f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})")
 
@@ -1034,13 +1047,12 @@ def a_encager(commande: str) -> bool:
     return not (commande_anodine(commande) or re.fullmatch(r"cd(?:\s+[^\s;&|`$<>()]+)?", commande))
 
 
-# Ce qui se lance tout seul plus tard, hors de toute cage (au démarrage, à l'ouverture d'un terminal, au prochain
-# lancement de Steve) : après un texte venu d'ailleurs, écrire là par Write ou Edit, c'est toi qui dis oui.
-SE_LANCE_PLUS_TARD = re.compile(
-    r"Library/(?:LaunchAgents|LaunchDaemons|Messages)\b|com\.apple\.backgroundtaskmanagement|/\.claude/"
-    r"|/\.(?:zshrc|zprofile|zshenv|zlogin|bashrc|bash_profile|profile)$|/\.git/hooks/"
-    r"|/\.ssh/"
-    r"|/Jervis/(?:jervis|\.venv|Jervis\.app)/", re.IGNORECASE)
+# Après un texte venu d'ailleurs, écrire par Write ou Edit dans ce qui se lance tout seul, c'est toi qui dis oui
+# (les mêmes chemins que la cage, plus les LaunchAgents/LaunchDaemons du système).
+SE_LANCE_PLUS_TARD = re.compile("|".join(
+    [r"Library/(?:LaunchAgents|LaunchDaemons|Messages)\b", r"com\.apple\.backgroundtaskmanagement"]
+    + [re.escape(str(d)) + r"(?:/|$)" for d in _se_lance_chemins()[0]]
+    + [re.escape(str(f)) + "$" for f in _se_lance_chemins()[1]] + list(_SE_LANCE_MOTIFS)), re.IGNORECASE)
 
 
 def ecrit_ce_qui_se_lance(outil: str, entree: dict[str, Any]) -> bool:
