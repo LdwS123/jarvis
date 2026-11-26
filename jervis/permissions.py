@@ -5,6 +5,7 @@ une commande shell, un outil Gmail ou Agenda, une page web, un clic dans une app
 """
 
 import asyncio
+import os
 import re
 import shlex
 import subprocess
@@ -980,9 +981,14 @@ def app_du_systeme(nom: str) -> Path | None:
     nom = nom[:-4] if nom.lower().endswith(".app") else nom
     if not nom or nom.startswith(".") or "/" in nom:
         return None
+    voulu = f"{nom}.app".casefold()
     for dossier in _DOSSIERS_APPS:
-        app = dossier / f"{nom}.app"
-        if app.is_dir() and not app.is_symlink():
+        try:
+            # le vrai nom sur le disque, pas celui de la commande : APFS ouvrirait Calculator.app pour « calculator »
+            vrai = next((e.name for e in os.scandir(dossier) if e.name.casefold() == voulu), None)
+        except OSError:
+            continue
+        if vrai and (app := dossier / vrai).is_dir() and not app.is_symlink():
             return app
     return None
 
@@ -1104,10 +1110,34 @@ def _sbpl(chemin: Path) -> str:
     return str(chemin).replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _sans_casse(motif: str) -> str:
+    """« \\.app$ » → « \\.[aA][pP][pP]$ » : APFS ne distingue pas Evil.APP d'Evil.app, la cage non plus (on ne compte
+    pas sur la façon dont macOS compare ses regex)."""
+    sortie, echappe, classe = [], False, False
+    for c in motif:
+        if echappe:
+            sortie.append(c)
+            echappe = False
+        elif c == "\\":
+            sortie.append(c)
+            echappe = True
+        elif c == "[":
+            sortie.append(c)
+            classe = True
+        elif c == "]":
+            sortie.append(c)
+            classe = False
+        elif c.isalpha() and not classe:
+            sortie.append(f"[{c.lower()}{c.upper()}]")
+        else:
+            sortie.append(c)
+    return "".join(sortie)
+
+
 def _cage_profil(permis: Path | None = None) -> str:
     maison = Path.home().resolve()
     dossiers, fichiers = _se_lance_chemins()
-    motifs = " ".join(f'(regex #"{m}")' for m in _SE_LANCE_MOTIFS)
+    motifs = " ".join(f'(regex #"{_sans_casse(m)}")' for m in _SE_LANCE_MOTIFS)
     # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
     # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
     parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE]

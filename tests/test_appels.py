@@ -311,8 +311,12 @@ verifier("cage : lancer une app qui n'est pas dans /Applications → demandé (u
          vu["cage : lancer une app inconnue"][:2], (A, D))
 verifier("cage : « open -a Calculator » s'ouvre par son chemin, pas par son nom",
          (permissions.avec_chemin_app('open -a "Calculator"'), permissions.avec_chemin_app("open -a Calculator.app"),
-          permissions.app_du_systeme("../../tmp/x"), permissions.app_du_systeme(".Evil")),
-         ("open -a /System/Applications/Calculator.app", "open -a /System/Applications/Calculator.app", None, None))
+          permissions.app_du_systeme("../../tmp/x"), permissions.app_du_systeme(".Evil"),
+          permissions.app_du_systeme("calculator")),
+         ("open -a /System/Applications/Calculator.app", "open -a /System/Applications/Calculator.app", None, None,
+          permissions.Path("/System/Applications/Calculator.app")))
+verifier("cage : ses motifs ignorent la casse (APFS), lettre par lettre",
+         permissions._sans_casse(r"/\.git/(.*/)?(hooks)/[^/]*\.app$"), r"/\.[gG][iI][tT]/(.*/)?([hH][oO][oO][kK][sS])/[^/]*\.[aA][pP][pP]$")
 verifier("après une page : écrire dans une app (~/Applications, ~/Downloads, /Applications) → demandé",
          [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c}) for c in (
              "~/Applications/Evil.app/Contents/MacOS/Evil", "~/Downloads/Spotify.app/Contents/Info.plist",
@@ -393,9 +397,12 @@ if nue:
                            capture_output=True, text=True)
         verifier("cage réelle : un dossier parent protégé ne se renomme pas, on peut y écrire",
                  (parent.exists(), (parent / "x").exists()), (True, True))
-        en_cage(f"mkdir -p {t}/Evil.app/Contents; mkdir {t}/pret; mv {t}/pret {t}/Pret.app; touch {t}/a.application")
-        verifier("cage réelle : aucune app ne se pose (ni créée, ni renommée en .app), un .application oui",
-                 [(Path(t) / c).exists() for c in ("Evil.app", "Pret.app", "a.application")], [False, False, True])
+        (Path(t) / "maj/.GIT/hooks").mkdir(parents=True)
+        en_cage(f"mkdir -p {t}/Evil.app/Contents {t}/Evil2.APP/Contents; mkdir {t}/pret; mv {t}/pret {t}/Pret.aPp;"
+                f" touch {t}/a.application {t}/maj/.GIT/hooks/pre-commit")
+        verifier("cage réelle : aucune app ne se pose (.app, .APP, ni renommée), un .application oui ; .GIT/hooks non",
+                 [(Path(t) / c).exists() for c in ("Evil.app", "Evil2.APP", "Pret.aPp", "a.application",
+                                                   "maj/.GIT/hooks/pre-commit")], [False, False, False, True, False])
         sp = Path(t).resolve() / "site-packages"
         sp.mkdir()
         en_cage(f"touch {sp}/evil.pth {t}/modele.pth")
