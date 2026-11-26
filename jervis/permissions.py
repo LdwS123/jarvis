@@ -22,7 +22,7 @@ from typing import Any, Awaitable, Callable, Iterable
 from claude_agent_sdk import tool
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
-from . import appels, comptes, config
+from . import appels, comptes, config, extras
 
 
 class Decision(Enum):
@@ -36,6 +36,8 @@ def politique(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = (),
     """Décide pour un appel d'outil, selon config.CONFIRMATIONS (« autonome » par défaut, puis « confiance »,
     « essentielles » et « toutes », du moins au plus prudent)."""
     mode = mode or config.CONFIRMATIONS
+    if extras.extra_de(outil):  # un serveur gratuit en plus (extras.py) : lire passe seul, le reste se demande
+        return Decision.OUI if extras.est_lecture(outil) else Decision.DEMANDER
     if mode == "autonome":
         return politique_autonome(outil, entree, apps_vues)
     if mode == "toutes":
@@ -954,7 +956,7 @@ def tel_que_montre(action: str, entree: dict[str, Any]) -> tuple[dict[str, Any],
 
 
 def est_lecture(outil: str) -> bool:
-    return bool(LECTURES.search(nom_action(outil)))
+    return bool(LECTURES.search(nom_action(outil))) or extras.est_lecture(outil)
 
 
 def lit_dehors(outil: str) -> bool:
@@ -1093,8 +1095,10 @@ _SE_LANCE_DOSSIERS = ("Library/Messages", "Library/LaunchAgents", ".claude", ".s
                       "Library/Python", "Library/Application Support/com.apple.backgroundtaskmanagementagent")
 _SE_LANCE_FICHIERS = (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".bashrc", ".bash_profile",
                       ".bash_login", ".profile", ".gitconfig")
-_STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git")  # .git : hooks, config (core.hooksPath), info, commondir…
-_STEVE_FICHIERS: tuple[str, ...] = ("autorisations.json", "autorisations.tmp")  # tes règles 📌 : que par toi
+_STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git",  # .git : hooks, config (core.hooksPath), info, commondir…
+                   "espace/dev")  # ses serveurs (les pid qu'il arrête), les journaux de tests qu'il relit, touches.json
+_STEVE_FICHIERS: tuple[str, ...] = ("autorisations.json", "autorisations.tmp",  # tes règles 📌 : que par toi
+                                    "mcp.json")  # tes serveurs MCP : chacun lance son programme au démarrage
 # Dans la cage, ~/Jervis/.git est fermé en entier (objets, branches, index compris : rien d'y glisser pour plus tard)
 # et git y lit sans rien écrire (GIT_OPTIONAL_LOCKS=0 : git status marche). Tes commits se font hors cage.
 # Partout, dans tout dépôt, à toute profondeur (sous-modules, worktrees) : la config (core.fsmonitor, core.hooksPath
@@ -1215,14 +1219,55 @@ def _plie(chemin: str) -> str:
     return chemin.casefold()
 
 
-def _cage_profil(permis: Path | None = None) -> str:
+# Dans la cage seulement (Write/Edit n'y voient rien) : là où vivent les programmes que Steve et toi lancez plus tard
+# hors cage, et leurs caches qui se relisent sans vérifier — un paquet glissé dans ~/.npm/_npx, c'est un serveur MCP
+# de Steve au prochain démarrage ; une extension gh, un outil uv, un binaire de cargo… La cage leur donne les siens.
+_CAGE_OUTILS = ("/opt/homebrew", "/usr/local", "~/.local", "~/.config", "~/.npm", "~/.cache", "~/.cargo", "~/.rustup",
+                "~/go", "~/.bun", "~/.deno", "~/.nvm", "~/.volta", "~/.pyenv", "~/.asdf", "~/.yarn", "~/Library/pnpm",
+                "~/Library/Caches/pip", "~/Library/Caches/Yarn", "~/Library/Caches/pnpm", "~/Library/Caches/ms-playwright")
+# Dans un projet, ce qu'un lanceur de tests écrit sans jamais le relancer comme du code : ces caches-là restent permis.
+_CAGE_JETABLES = (r"/(\.pytest_cache|\.ruff_cache|\.mypy_cache|\.hypothesis|htmlcov|coverage|test-results"
+                  r"|playwright-report|blob-report)(/|$)", r"/\.coverage(\.[^/]*)?$", r"/node_modules/\.vite/vitest(/|$)")
+
+
+def cage_env() -> dict[str, str]:
+    """Ce que la cage donne à une commande : un TMPDIR et des caches à elle (npm, uv, pip, cargo, go, bun, yarn,
+    pnpm), que rien hors cage ne relit ; pas de .pyc à côté du code."""
+    a_part = Path(tempfile.gettempdir()).resolve() / "jervis-cage"
+    (a_part / "tmp").mkdir(parents=True, exist_ok=True)
+    noms = {"TMPDIR": "tmp", "npm_config_cache": "npm", "npm_config_store_dir": "pnpm", "UV_CACHE_DIR": "uv",
+            "UV_TOOL_DIR": "uv-outils", "UV_PYTHON_INSTALL_DIR": "uv-python", "PIP_CACHE_DIR": "pip",
+            "CARGO_HOME": "cargo-home", "CARGO_TARGET_DIR": "cargo", "GOPATH": "go", "GOCACHE": "go-cache",
+            "BUN_INSTALL_CACHE_DIR": "bun", "YARN_CACHE_FOLDER": "yarn"}
+    return {**{cle: str(a_part / nom) for cle, nom in noms.items()}, "PYTHONDONTWRITEBYTECODE": "1",
+            "MPLBACKEND": "Agg", "GIT_OPTIONAL_LOCKS": "0"}
+
+
+def _projets_fermes() -> tuple[list[Path], list[Path]]:
+    """Pour les tests et serveurs encagés : tes dépôts (ce qu'ils écriraient se relancerait hors cage, à tes prochains
+    tests) et son dossier de dev ; ~/Jervis/espace reste ouvert (sa mémoire, ses notes : du texte)."""
+    from . import dev  # (dev importe ce module)
+    try:
+        depots = [d.resolve() for d in dev.trouver_depots()]
+    except OSError:
+        depots = []
+    return [*depots, _RACINE], [_RACINE / "espace"]
+
+
+def _cage_profil(permis: Path | None = None, projets: bool = False) -> str:
     maison = Path.home().resolve()
     dossiers, fichiers = _se_lance_chemins()
+    outils = [Path(os.path.expanduser(c)).resolve() for c in _CAGE_OUTILS] + [config.DOSSIER_DEV.resolve()]
+    sp = lambda chemins, quoi: " ".join(f'({quoi} "{_sbpl(c)}")' for c in chemins)  # noqa: E731
+    projets_fermes = ""
+    if projets:  # ses tests, son serveur : rien dans tes projets que des caches jetables
+        fermes, ouverts = _projets_fermes()
+        jetables = " ".join(f'(regex #"{_sans_casse(m)}")' for m in _CAGE_JETABLES)
+        projets_fermes = f"(deny file-write* {sp(fermes, 'subpath')})(allow file-write* {sp(ouverts, 'subpath')} {jetables})"
     motifs = " ".join(f'(regex #"{_sans_casse(m)}")' for m in _SE_LANCE_MOTIFS)
     # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
     # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
     parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE]
-    sp = lambda chemins, quoi: " ".join(f'({quoi} "{_sbpl(c)}")' for c in chemins)  # noqa: E731
     # Le refus de process-exec ne vise que ces chemins (une copie du binaire y échappe, et Python appelle les mêmes
     # services sans binaire) : ce qui ferme vraiment la porte, ce sont les services eux-mêmes — Apple Events,
     # l'écran, LaunchServices (lancer une app, ouvrir un fichier), les éléments de connexion, Raccourcis et les
@@ -1234,7 +1279,9 @@ def _cage_profil(permis: Path | None = None) -> str:
             ' (global-name-prefix "com.apple.windowserver") (global-name-prefix "com.apple.backgroundtaskmanagement")'
             ' (global-name-prefix "com.apple.shortcuts") (global-name-prefix "com.apple.WorkflowKit")'
             ' (global-name-prefix "com.apple.siriactionsd") (global-name-prefix "com.apple.linkd"))'
-            f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')} {motifs})"
+            + projets_fermes
+            # (après : ce qui se lance tout seul reste fermé, même dans un cache permis ou dans espace/)
+            + f"(deny file-write* {sp(dossiers, 'subpath')} {sp(outils, 'subpath')} {sp(fichiers, 'literal')} {motifs})"
             f"(deny file-write-unlink {sp(parents, 'literal')})"
             f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})"
             + (f'(allow file-write* (subpath "{_sbpl(permis)}"))' if permis else ""))  # en dernier : il l'emporte
@@ -1244,7 +1291,8 @@ def encager(commande: str, permis: Path | None = None) -> str:
     """La même commande, dans la cage (même shell, même dossier, même sortie) ; permis : le seul dossier qu'elle peut
     écrire en entier, .git compris (le nouveau dépôt d'un git clone ou git init que tu as accepté)."""
     profil = shlex.quote(_cage_profil(permis))
-    return f"MPLBACKEND=Agg GIT_OPTIONAL_LOCKS=0 {CAGE_EXEC} -p {profil} /bin/zsh -c {shlex.quote(commande)}"
+    env = " ".join(f"{cle}={shlex.quote(valeur)}" for cle, valeur in cage_env().items())
+    return f"{env} {CAGE_EXEC} -p {profil} /bin/zsh -c {shlex.quote(commande)}"
 
 
 def a_encager(commande: str) -> bool:
@@ -1518,6 +1566,14 @@ def vise_autorisations(chemin: str) -> bool:
     return _plie(str(vrai)) in {_plie(str(regles)), _plie(str(regles.with_suffix(".tmp")))}
 
 
+def vise_mcp_perso(chemin: str) -> bool:
+    """Ce chemin est-il ~/Jervis/mcp.json (tes serveurs MCP à toi) ? Sans casse, comme APFS."""
+    try:
+        return _plie(str(Path(chemin).expanduser().resolve())) == _plie(str(config.MCP_PERSO.resolve()))
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def regle_qui_permet(outil: str, cible: str | None, en_appel: bool = False) -> dict[str, Any] | None:
     """Ta règle 📌 qui laisse passer cette action (pendant un appel : seulement une règle « même pendant un appel »)."""
     if cible is None:
@@ -1608,6 +1664,42 @@ async def retirer_autorisation(args: dict[str, Any]) -> dict[str, Any]:
 
 
 OUTILS_BLOCAGES = [lister_blocages, autoriser_desormais, retirer_autorisation]
+
+
+def code_touche(action_dev: str, entree: dict[str, Any]) -> tuple[Path, float] | None:
+    """Les tests ou le serveur (lancer) d'un projet où du code a été écrit juste après un texte venu d'ailleurs."""
+    if action_dev not in ("lancer_tests", "serveur_de_dev") or (
+            action_dev == "serveur_de_dev" and str(entree.get("action") or "lancer") != "lancer"):
+        return None
+    from . import dev
+    try:
+        depot = dev.trouver_projet(entree.get("projet"))
+    except (dev.Introuvable, OSError):
+        return None  # l'outil dira lui-même qu'il ne le trouve pas
+    quand = dev.touche_depuis(depot)
+    return (depot, quand) if quand is not None else None
+
+
+def noter_touches(outil: str, entree: dict[str, Any]) -> None:
+    """Write/Edit : le dépôt du fichier ; Bash (encagé) : les dépôts que la commande nomme (cd ~/oko && npm i…)."""
+    from . import dev
+    try:
+        if outil in ECRITURE_FICHIERS:
+            dev.noter_touche(str(entree.get("file_path") or ""))
+        else:
+            dev.noter_touches_commande(str(entree.get("command") or ""))
+    except OSError:
+        pass
+
+
+def _il_y_a(quand: float) -> str:
+    minutes = max(0, int((time.time() - quand) // 60))
+    if minutes < 1:
+        return "à l'instant"
+    if minutes < 60:
+        return f"il y a {minutes} min"
+    heures = minutes // 60
+    return f"il y a {heures} h" if heures < 48 else f"il y a {heures // 24} jours"
 
 
 class Gardien:
@@ -1769,6 +1861,10 @@ class Gardien:
         if outil in ECRITURE_FICHIERS and vise_autorisations(str(entree.get("file_path") or "")):
             return PermissionResultDeny(message="Tes règles 📌 ne s'écrivent que par autoriser_desormais (quand il te "
                                                 "le dit), jamais à la main.")
+        if outil in ECRITURE_FICHIERS and vise_mcp_perso(str(entree.get("file_path") or "")):
+            return PermissionResultDeny(message=f"Ses serveurs MCP à lui ({config.MCP_PERSO}) s'écrivent à la main, "
+                                                "jamais par un outil : chacun lance son programme à chaque démarrage. "
+                                                "Dis-lui quoi y coller, il le fera lui-même.")
         if decision is Decision.NON and (motif := motif_interdit(outil, entree)):
             return PermissionResultDeny(message=motif)  # refusé d'office : pas de question, et il sait quoi faire à la place
         if decision is Decision.OUI and deja_dehors and outil == "Bash" and commande_anodine(str(entree.get("command") or "")):
@@ -1776,9 +1872,15 @@ class Gardien:
             return PermissionResultAllow(updated_input={**entree, "command": avec_chemin_app(str(entree["command"]))})
         if decision is Decision.OUI and deja_dehors and outil == "Bash" and a_encager(str(entree.get("command") or "")):
             if Path(CAGE_EXEC).exists():  # seul, mais dans la cage (après ton oui à une question, sans)
+                noter_touches(outil, entree)  # les projets qu'elle nomme : leurs tests passeront par toi
                 return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]))})
             decision = Decision.DEMANDER  # pas de cage sur ce Mac : c'est toi qui dis oui
             autorisable, pourquoi = False, "une commande après un texte venu d'ailleurs, et pas de cage sur ce Mac"
+        touche = None
+        if decision is Decision.OUI and not deja_dehors and (touche := code_touche(action_dev, entree)):
+            # Du code de ce projet écrit juste après un texte venu d'ailleurs, puis lancé ici hors cage : toi d'abord
+            decision = Decision.DEMANDER
+            autorisable, pourquoi = False, "du code écrit juste après un texte venu d'ailleurs, lancé hors de la cage"
         if (decision is Decision.DEMANDER and autorisable
                 and not (lu_avant or self._mefiance_agent)
                 and regle_qui_permet(outil, cible, self.en_appel)):
@@ -1807,7 +1909,13 @@ class Gardien:
                 question = (f"Je vais lancer cette commande, qui n'écrira que dans {depot} : " if depot else
                             "Je vais lancer cette commande hors de la cage : ")
                 question += f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?"
-            if outil.startswith("mcp__mac__") and (app := atelier(action, entree, apps)):
+            if touche:
+                projet, quand = touche  # la question, écrite par le code (le nom du dossier, une durée)
+                quoi = "ses tests" if action_dev == "lancer_tests" else "son serveur"
+                question = (f"Du code de {projet.name} a été écrit juste après un texte venu d'ailleurs "
+                            f"({_il_y_a(quand)}). Je lance {quoi} hors de la cage ?")
+                cle = f"touche:{projet}"
+            elif outil.startswith("mcp__mac__") and (app := atelier(action, entree, apps)):
                 cle = f"atelier:{app}"  # un seul « oui » pour tout le travail dans Cursor pendant cette demande
                 question = _decrire_atelier(app, action, entree)
             elif outil in ECRITURE_FICHIERS:
@@ -1827,6 +1935,11 @@ class Gardien:
                                   en_appel=self.en_appel, question=question, accorde=self._reponses[cle])
             decision = Decision.OUI if self._reponses[cle] else Decision.NON
         if decision is Decision.OUI:
+            if touche:
+                from . import dev
+                dev.oublier_touche(touche[0])  # ton oui : relu, il redevient un projet comme les autres
+            if deja_dehors and (outil in ECRITURE_FICHIERS or outil == "Bash"):
+                noter_touches(outil, entree)  # écrit sous un texte venu d'ailleurs : ses tests passeront par toi
             if depot and Path(CAGE_EXEC).exists():
                 # ton oui à un git clone / init : dans la cage quand même, son seul dossier ouvert
                 return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]),

@@ -289,6 +289,18 @@ NAVIGATEUR_INVISIBLE = _env("NAVIGATEUR_INVISIBLE", "non").lower() in {"oui", "o
 PROFIL_NAVIGATEUR = DOSSIER / "navigateur"
 PLAYWRIGHT_MCP = _env("PLAYWRIGHT_MCP", "@playwright/mcp@0.0.86")
 
+# --- Serveurs MCP gratuits en plus (jervis/extras.py) ---------------------------------
+# La doc de tes outils de dev (DeepWiki, Context7, Microsoft, AWS, Cloudflare, Hugging Face, Apple, Next.js), les
+# sous-titres YouTube, Wikipédia et arXiv (ces deux-là avec uv : brew install uv). Sans compte ni clé.
+# « tous », « aucun », ou une liste : « deepwiki,context7,wikipedia ».
+MCP_GRATUITS = _env("MCP_GRATUITS", "tous")
+# Tes serveurs à toi, au format de Claude Code ({"mcpServers": {...}}), écrits à la main.
+MCP_PERSO = DOSSIER / "mcp.json"
+# Quand il a beaucoup d'outils, Claude Code ne lui montre d'abord que leurs noms et va chercher le reste au besoin
+# (ToolSearch) : ses outils à lui restent toujours chargés. Vide = le réglage de Claude Code ; sinon « true »,
+# « false » ou « auto:10 » (le seuil, en % du contexte), passé tel quel à ENABLE_TOOL_SEARCH.
+RECHERCHE_OUTILS = _env("RECHERCHE_OUTILS", "")
+
 # --- Ton Chrome à toi (extension « Claude in Chrome ») ------------------------------
 # Il pilote TON Chrome, avec tes comptes déjà connectés, comme Claude Code : ouvrir des onglets, lire,
 # cliquer, remplir. Il faut l'extension Claude (claude.ai/chrome) installée et connectée au même compte.

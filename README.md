@@ -824,6 +824,57 @@ oui, même en mode autonome. Sa ronde peut regarder tes PR (dans la cage) mais n
 « toutes », lancer des tests ou un serveur et libérer un port te sont toujours demandés. La sortie des tests et des
 serveurs reste dans `espace/dev/`.
 
+Dans cette cage, tes projets sont **fermés en écriture** (un test ne peut pas glisser un `conftest.py` ou un
+`evil.py` pour la fois suivante), sauf les dossiers jetables (`.pytest_cache`, `.coverage`, `coverage/`,
+`test-results/`, le cache de Vitest…). Les caches de tes outils (`~/.npm`, `~/.cache`, `~/.cargo`, Homebrew…) le sont
+aussi : npm, pnpm, uv, pip, cargo, go, bun et yarn y travaillent dans un dossier temporaire à part. Un serveur de
+dev qui a besoin d'écrire (`.next`, `node_modules`) s'arrête donc tout de suite dans la cage : redemande-le dans une
+nouvelle demande. Et si du code d'un projet a été écrit juste après un texte venu d'ailleurs (un fichier modifié,
+un `npm install` dans ce dossier), ses tests et son serveur **hors cage** te demandent d'abord : « Du code de oko a
+été écrit juste après un texte venu d'ailleurs (il y a 12 min). Je lance ses tests hors de la cage ? »
+(`espace/dev/touches.json` ; ton oui l'efface). Son git désactive ce qu'un dépôt piégé pourrait lancer
+(`core.fsmonitor`, les hooks, les filtres `clean`/`smudge`, `diff.external`, le pager), et le nom d'une CI qu'il te
+lit n'a plus que des lettres, des chiffres et des espaces (30 caractères au plus).
+
+### La doc de tes outils, Wikipédia, arXiv (serveurs MCP gratuits)
+
+Sans compte ni clé, il a en plus :
+
+| Serveur | Ce qu'il en fait | Comment |
+|---|---|---|
+| `deepwiki` | la doc et des réponses sur n'importe quel dépôt GitHub public (« comment marche le routeur de vercel/next.js ? ») | distant (DeepWiki) |
+| `context7` | la doc à jour d'une bibliothèque, à sa version (React, Next, FastAPI…) | distant (Upstash) |
+| `microsoft` | la doc de Microsoft (Azure, .NET, TypeScript, VS Code) et ses exemples | distant (Microsoft Learn) |
+| `aws` | la doc d'AWS, ses régions | distant (AWS) |
+| `cloudflare` | la doc de Cloudflare (Workers, Pages, R2, D1…) | distant (Cloudflare) |
+| `huggingface` | les modèles, jeux de données et Spaces publics | distant (Hugging Face) |
+| `apple` | la doc d'Apple (SwiftUI, AppKit…), la compatibilité par version, les vidéos de la WWDC | npx, version épinglée |
+| `youtube` | les sous-titres d'une vidéo (« résume-moi cette vidéo ») | npx, version épinglée |
+| `nextjs` | la doc de Next.js ; ses autres actions (mettre à jour, piloter le navigateur) te demandent d'abord | npx, version épinglée |
+| `wikipedia` | Wikipédia en français | uvx (`brew install uv`) |
+| `arxiv` | les articles d'arXiv : chercher, télécharger, lire | uvx (`brew install uv`) |
+
+Wikipédia et arXiv ne se branchent que si `uv` est installé (`brew install uv`, puis relance Steve). Pour une
+question de code ou de doc, il les préfère à une recherche web. Ils ne sont chargés qu'au besoin : quand il a
+beaucoup d'outils, Claude Code ne lui en montre d'abord que les noms (ToolSearch), alors que ses outils à lui
+restent toujours chargés.
+
+**Ajouter les tiens.** Crée `~/Jervis/mcp.json` au format de Claude Code, puis relance Steve :
+
+```json
+{"mcpServers": {"notes": {"type": "stdio", "command": "/opt/homebrew/bin/notes-mcp"},
+                "doc-maison": {"type": "http", "url": "https://exemple.fr/mcp"}}}
+```
+
+Un nom déjà pris par Steve (`jervis`, `navigateur`, `mac`, `ecran`, `claude-…`) est ignoré ; un nom du catalogue
+remplace celui-ci. Ce fichier s'écrit **à la main** : un serveur lance son programme à chaque démarrage, alors Steve
+ne peut jamais l'écrire avec ses outils, et la cage le ferme.
+
+**La sécurité.** Une action qui lit (chercher, lire, demander à la doc) passe seule, même juste après un texte venu
+d'ailleurs ; toute autre action d'un de ces serveurs te demande d'abord, **dans tous les modes**, autonome compris.
+Pour les tiens, le Gardien juge sur le nom de l'action (`search_…`, `get_…`, `read_…` lisent ; le reste se
+demande). Ce qu'ils renvoient compte comme un texte venu d'ailleurs, comme une page web.
+
 ### Ce qu'il te demande encore
 
 **Presque rien : par défaut (`JERVIS_CONFIRMATIONS=autonome`), il fait tout seul et en prend la responsabilité.**
@@ -1038,6 +1089,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_CONNECTEURS` | Gmail, Google Calendar, Google Drive, Zapier | connecteurs claude.ai à garder (chacun se connecte sur claude.ai → Paramètres → Connecteurs) |
 | `JERVIS_MAC` | oui | `non` = il ne pilote plus les apps du Mac (Peekaboo) |
 | `JERVIS_PEEKABOO_MCP` | @steipete/peekaboo@4.9.8 | version de Peekaboo |
+| `JERVIS_MCP_GRATUITS` | tous | les serveurs MCP gratuits en plus : `tous`, `aucun`, ou une liste (`deepwiki,context7,wikipedia`) |
+| `JERVIS_RECHERCHE_OUTILS` | (vide) | passé à Claude Code (`ENABLE_TOOL_SEARCH`) : `true` = les extras toujours derrière ToolSearch, `false` = tout chargé, `auto:10` = le seuil ; vide = son réglage |
 | `JERVIS_CONFIRMATIONS` | autonome | `autonome` = il fait tout seul, il ne demande que pour l'argent ; `confiance` = il confirme ce qui détruit, les secrets, le Terminal et ce qui ne vient pas de toi ; `essentielles` = en plus, chaque message envoyé ; `toutes` = avant chaque création ou modification |
 | `JERVIS_OUBLI_MIN` | 15 | après cette pause, conversation neuve (il garde sa mémoire et vos 3 derniers échanges) : moins cher et plus rapide |
 | `JERVIS_COUT` | oui | `non` = ne plus afficher « 💰 … » après chaque réponse |
@@ -1142,6 +1195,7 @@ Internet : `PYTHONPATH=. .venv/bin/python tests/test_ligne.py`. Sa voix locale, 
 `tests/test_voix.py` (l'apprentissage de ta voix, ses empreintes et le diagnostic). Les chiffres écrits en mots : `tests/test_oral.py`.
 Cursor, la corbeille, effacer sa mémoire et les autorisations, sans rien ouvrir ni jeter : `tests/test_mac.py`.
 Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests/test_fond.py`.
+Les serveurs MCP gratuits en plus, ton `mcp.json` et ce qu'en dit le Gardien (rien n'est lancé) : `tests/test_extras.py`.
 Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tests/test_bras_droit.py`.
 Son lexique, ses savoir-faire et leurs garde-fous (dossier temporaire, faux client Claude) : `tests/test_apprendre.py`.
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
@@ -1178,6 +1232,10 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   l'annuaire des entreprises, la Base Adresse Nationale, geo.api.gouv.fr, Open Food Facts, le site des prix des
   carburants, Open Library, Apple (iTunes), Hacker News (Algolia), l'USGS, MyMemory, TVmaze, GitHub, PyPI, npm et
   OpenAlex que le sujet, le lieu, la monnaie, le pays, le nom, le code-barres ou la phrase à traduire demandés (sans clé ni compte, sous un nom générique), jamais ta voix ni ta mémoire.
+- Les serveurs MCP gratuits distants (DeepWiki, Context7, Microsoft Learn, AWS, Cloudflare, Hugging Face) ne
+  reçoivent que la question écrite (une bibliothèque, un dépôt, des mots-clés), jamais ta voix, ta mémoire ni tes
+  fichiers. Apple, YouTube, Next.js, Wikipédia et arXiv tournent sur le Mac et n'interrogent que leur site.
+  `JERVIS_MCP_GRATUITS=aucun` les coupe tous.
 - La recherche dans le catalogue des API se fait sur le Mac. `appeler_api` n'envoie à l'API choisie que l'adresse et
   les paramètres de la question (une ville, un nom…), sous le même nom générique ; ses consignes lui interdisent
   d'y mettre ton mail, ton adresse ou ta mémoire. Son carnet des API reste sur le Mac. Les clés gratuites restent

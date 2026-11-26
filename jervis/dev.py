@@ -6,6 +6,11 @@ Ce qui exécute le code d'un projet (ses tests, son serveur) ou un programme pos
 cage de macOS (permissions.encager) dès qu'un texte venu d'ailleurs a été lu : le Gardien ajoute alors `cage` à
 l'appel, et ce module le respecte. Ce qui prend du temps (des tests longs, une CI) ne te bloque pas : il te rend la
 main et te dit la fin à voix haute (ANNONCER), avec une phrase écrite ici, jamais par le modèle.
+
+Ce qu'une commande encagée ne peut pas laisser derrière elle pour plus tard : la cage ferme l'écriture dans tes
+projets (sauf des caches qui ne se lancent jamais) et dans les programmes que Steve lance seul (gh, npx, uvx…).
+Un fichier d'un projet écrit par Write/Edit juste après un texte venu d'ailleurs est noté (noter_touche) : ses
+tests et son serveur repassent hors cage seulement après ton oui.
 """
 
 from __future__ import annotations
@@ -59,7 +64,7 @@ _CHEMINS_EN_PLUS = ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin",
                     "~/.bun/bin", "~/.local/bin", "~/.deno/bin")
 
 
-def _env() -> dict[str, str]:
+def _env(cage: bool = False) -> dict[str, str]:
     chemins = os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
     for c in _CHEMINS_EN_PLUS:
         c = os.path.expanduser(c)
@@ -67,8 +72,14 @@ def _env() -> dict[str, str]:
             chemins.append(c)
     # Pas de verrou git laissé derrière (la cage refuse d'écrire dans .git), pas de couleurs, jamais de question
     # posée au terminal (gh, git) : sans personne pour répondre, la commande attendrait pour rien.
-    return {**os.environ, "PATH": ":".join(chemins), "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0",
-            "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "NO_COLOR": "1", "CI": "1", "MPLBACKEND": "Agg"}
+    env = {**os.environ, "PATH": ":".join(chemins), "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0",
+           "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "NO_COLOR": "1", "CI": "1", "MPLBACKEND": "Agg"}
+    if cage:
+        # Ce qu'une commande encagée compile ou met en cache (cargo, go, jest, npm, uv, le .pyc de python) part dans
+        # un dossier à elle, que les commandes hors cage ne relisent jamais.
+        from . import permissions
+        env.update(permissions.cage_env())
+    return env
 
 
 def binaire(nom: str) -> str | None:
@@ -80,13 +91,13 @@ def _en_cage(cmd: list[str], cage: bool) -> list[str]:
     if not cage:
         return cmd
     from . import permissions
-    return [permissions.CAGE_EXEC, "-p", permissions._cage_profil(), *cmd]
+    return [permissions.CAGE_EXEC, "-p", permissions._cage_profil(projets=True), *cmd]
 
 
 async def _lancer(*cmd: str, cwd: Path | str | None = None, delai: float = 30, cage: bool = False) -> tuple[int, str]:
     try:
         proc = await asyncio.create_subprocess_exec(
-            *_en_cage(list(cmd), cage), cwd=str(cwd) if cwd else None, env=_env(),
+            *_en_cage(list(cmd), cage), cwd=str(cwd) if cwd else None, env=_env(cage),
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
     except (FileNotFoundError, PermissionError) as e:
         return 127, f"introuvable : {e.filename or cmd[0]}"
@@ -98,10 +109,35 @@ async def _lancer(*cmd: str, cwd: Path | str | None = None, delai: float = 30, c
     return proc.returncode or 0, sortie.decode(errors="replace").strip()
 
 
+# Ce que la config d'un dépôt (une archive téléchargée peut en contenir un tout fait) ferait lancer à un simple git
+# status ou git log : core.fsmonitor, un hook, log.showSignature (gpg.program), un résumé de sous-modules, un pager.
+_GIT_SUR = (("core.fsmonitor", "false"), ("core.hooksPath", "/dev/null"), ("log.showSignature", "false"),
+            ("status.submoduleSummary", "false"), ("diff.external", ""), ("core.pager", "cat"))
+
+
+def _filtres(depot: Path) -> list[str]:
+    """Les filtres que la config du dépôt déclare (filter.<nom>.clean, smudge, process : git status les lancerait
+    sur un fichier modifié). Lire la config ne lance rien."""
+    try:
+        r = subprocess.run(["/usr/bin/git", "-C", str(depot), "config", "--name-only", "--get-regexp", r"^filter\."],
+                           capture_output=True, text=True, timeout=5, env=_env(), stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return sorted({m[1] for ligne in r.stdout.splitlines() if (m := re.fullmatch(r"filter\.(.+)\.[^.]+", ligne.strip()))})
+
+
 def _git(depot: Path, *args: str) -> tuple[str, ...]:
-    # Celui du système (un git de Homebrew se remplace depuis ton compte) ; core.fsmonitor : un programme que la
-    # config d'un dépôt ferait lancer à chaque git status.
-    return ("/usr/bin/git", "-c", "core.fsmonitor=false", "-C", str(depot), *args)
+    """Le git du système (un git de Homebrew se remplace depuis ton compte), sans rien de ce que la config du dépôt
+    ferait lancer. Les réglages passent par GIT_CONFIG_KEY_n / VALUE_n, qui l'emportent sur la config du dépôt : un
+    nom de filtre bizarre (avec un « = ») ne peut pas s'y glisser comme avec -c."""
+    reglages = list(_GIT_SUR)
+    for nom in _filtres(depot):
+        reglages += [(f"filter.{nom}.process", ""), (f"filter.{nom}.clean", ""), (f"filter.{nom}.smudge", ""),
+                     (f"filter.{nom}.required", "false")]
+    env = [f"GIT_CONFIG_COUNT={len(reglages)}"]
+    for i, (cle, valeur) in enumerate(reglages):
+        env += [f"GIT_CONFIG_KEY_{i}={cle}", f"GIT_CONFIG_VALUE_{i}={valeur}"]
+    return ("/usr/bin/env", *env, "/usr/bin/git", "-C", str(depot), *args)
 
 
 def _ecrire_json(fichier: Path, valeur: Any) -> None:
@@ -234,6 +270,54 @@ def racine_depot(chemin: Path) -> Path | None:
     return None
 
 
+# --- Ce qui a été écrit dans un projet juste après un texte venu d'ailleurs ------------------------------------
+
+def _fichier_touches() -> Path:
+    return config.DOSSIER_DEV / "touches.json"  # (dans la cage, ce dossier ne s'écrit pas)
+
+
+def noter_touche(chemin: str | Path) -> Path | None:
+    """Un fichier écrit par Write/Edit juste après un texte venu d'ailleurs : s'il est dans un projet, on le note.
+    Ce texte a pu dicter le code ; lancé plus tard hors cage (ses tests, son serveur), il tournerait sans garde."""
+    try:
+        depot = racine_depot(Path(chemin).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if depot is None:
+        return None
+    touches = _lire_json(_fichier_touches(), {})
+    touches = touches if isinstance(touches, dict) else {}
+    touches[str(depot.resolve())] = time.time()
+    _ecrire_json(_fichier_touches(), touches)
+    return depot
+
+
+def touche_depuis(depot: Path) -> float | None:
+    """Quand du code de ce projet a été écrit juste après un texte venu d'ailleurs (None : jamais, ou tu as dit oui)."""
+    touches = _lire_json(_fichier_touches(), {})
+    quand = touches.get(str(depot.resolve())) if isinstance(touches, dict) else None
+    return float(quand) if isinstance(quand, (int, float)) else None
+
+
+def noter_touches_commande(commande: str) -> list[Path]:
+    """Une commande lancée dans la cage juste après un texte venu d'ailleurs (le terminal de Steve) : les projets
+    qu'elle nomme (cd ~/oko && npm install…) sont notés comme si Write les avait touchés."""
+    maison = str(Path.home())
+    texte = commande.replace("$HOME", maison).replace("${HOME}", maison)
+    texte = re.sub(r"(?<![\w/])~(?=/)", maison, texte)
+    notes = []
+    for depot in trouver_depots():
+        if re.search(re.escape(str(depot)) + r"(?![\w.-])", texte) and noter_touche(depot):
+            notes.append(depot)
+    return notes
+
+
+def oublier_touche(depot: Path) -> None:
+    touches = _lire_json(_fichier_touches(), {})
+    if isinstance(touches, dict) and touches.pop(str(depot.resolve()), None) is not None:
+        _ecrire_json(_fichier_touches(), touches)
+
+
 def montrer(chemin: Path) -> str:
     """Le chemin comme tu le dis : ~/code/oko."""
     try:
@@ -310,7 +394,8 @@ def lire_status(sortie: str) -> dict[str, Any]:
 
 
 async def etat_depot(depot: Path) -> dict[str, Any]:
-    code, sortie = await _lancer(*_git(depot, "status", "--porcelain=v2", "--branch"), delai=15)
+    code, sortie = await _lancer(*_git(depot, "status", "--porcelain=v2", "--branch", "--ignore-submodules=all"),
+                                 delai=15)
     e = lire_status(sortie) if code == 0 else {"erreur": sortie[:160]}
     code, sortie = await _lancer(*_git(depot, "log", "-1", "--format=%ct%x1f%s"), delai=10)
     if code == 0 and "\x1f" in sortie:
@@ -550,7 +635,7 @@ async def _executer_tests(depot: Path, cmd: list[str], cage: bool) -> dict[str, 
         f.flush()
         try:
             proc = await asyncio.create_subprocess_exec(
-                *_en_cage(cmd, cage), cwd=str(depot), env=_env(), stdin=asyncio.subprocess.DEVNULL,
+                *_en_cage(cmd, cage), cwd=str(depot), env=_env(cage), stdin=asyncio.subprocess.DEVNULL,
                 stdout=f, stderr=asyncio.subprocess.STDOUT, start_new_session=True)
         except (FileNotFoundError, PermissionError) as e:
             f.write(f"\nintrouvable : {e.filename or cmd[0]}\n")
@@ -837,11 +922,23 @@ _PAS_S = 20
 _APPARITION_S = 120
 
 
+def nom_de_ci(r: dict[str, Any]) -> str:
+    """Le nom d'une CI tel qu'il te le dit : il vient du dépôt (le YAML de quelqu'un d'autre, parfois), donc rien que
+    des lettres, chiffres, espaces et . _ - (pas de guillemets ni de consignes), et 30 signes au plus."""
+    nom = re.sub(r"[^\w .-]+", " ", str(r.get("workflowName") or r.get("name") or ""))
+    return " ".join(nom.split())[:30].strip() or "sans nom"
+
+
+def noms_de_ci(runs: list[dict[str, Any]]) -> str:
+    noms = sorted({nom_de_ci(r) for r in runs})
+    return ", ".join(noms) if len(noms) <= 3 else f"{', '.join(noms[:3])} et {len(noms) - 3} autres"
+
+
 def bilan_ci(runs: list[dict[str, Any]], nom: str) -> str | None:
     """La phrase à dire quand toutes les CI d'un commit sont finies ; None tant qu'il en tourne une."""
     if not runs or any(str(r.get("status") or "").lower() != "completed" for r in runs):
         return None
-    noms = lambda rs: ", ".join(sorted({str(r.get("workflowName") or r.get("name") or "?") for r in rs}))  # noqa: E731
+    noms = noms_de_ci
     rates = [r for r in runs if str(r.get("conclusion") or "").upper() in _ROUGE]
     if rates:
         return (f"La CI de {nom} a échoué : {noms(rates)}. Dis-moi « pourquoi la CI a planté » et je regarde.")
@@ -898,7 +995,7 @@ async def surveiller_ci(args: dict[str, Any]) -> dict[str, Any]:
     if phrase := bilan_ci(runs, depot.name):
         return _texte(f"C'est déjà fini : {phrase}")
     _SURVEILLANCES[cle] = asyncio.create_task(_surveiller(depot, sha, cage))
-    en_cours = ", ".join(sorted({str(r.get("workflowName") or "?") for r in runs})) if runs else "pas encore lancée"
+    en_cours = noms_de_ci(runs) if runs else "pas encore lancée"
     return _texte(f"Je surveille la CI de {depot.name} (commit {sha[:7]}, {en_cours}) : je te dis dès que c'est fini.")
 
 
@@ -1126,7 +1223,7 @@ def _lancer_serveur(depot: Path, cmd: list[str], journal: Path, cage: bool) -> i
     with open(journal, "w", encoding="utf-8") as f:
         f.write(f"$ {' '.join(cmd)}   (dans {montrer(depot)}{', dans la cage' if cage else ''})\n")
         f.flush()
-        proc = subprocess.Popen(_en_cage(cmd, cage), cwd=str(depot), env=_env(), stdin=subprocess.DEVNULL,
+        proc = subprocess.Popen(_en_cage(cmd, cage), cwd=str(depot), env=_env(cage), stdin=subprocess.DEVNULL,
                                 stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
     return proc.pid
 
@@ -1208,7 +1305,11 @@ async def serveur_de_dev(args: dict[str, Any]) -> dict[str, Any]:
     url, vivant = await _attendre_url(pid, journal)
     sortie = sans_couleurs(journal.read_text(encoding="utf-8", errors="replace")) if journal.exists() else ""
     if not vivant:
-        return _erreur(f"Le serveur de {depot.name} s'est arrêté tout de suite. Fin de sa sortie :\n{_fin(sortie, 2500)}")
+        pourquoi = (" Juste après un texte venu d'ailleurs, il tourne dans la cage, qui ne le laisse rien écrire dans "
+                    "le projet (son dossier .next, ses dépendances) : redemande-le-moi dans une nouvelle demande."
+                    if cage else "")
+        return _erreur(f"Le serveur de {depot.name} s'est arrêté tout de suite.{pourquoi} Fin de sa sortie :\n"
+                       f"{_fin(sortie, 2500)}")
     actifs[cle] = {"pid": pid, "commande": cmd, "url": url, "journal": str(journal), "depuis": time.time()}
     _ecrire_json(_fichier_serveurs(), actifs)
     texte = f"Le serveur de {depot.name} tourne ({' '.join(cmd)})" + (f" : {url}" if url else

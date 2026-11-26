@@ -26,8 +26,8 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ToolUseBlock, tool)
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import apis, compteur, config, infos, infos2, outils, permissions
-from .brain import EXPERT, _maintenant, carnet, documents, preparer_connecteurs
+from . import apis, compteur, config, extras, infos, infos2, outils, permissions
+from .brain import EXPERT, _maintenant, avec_extras, carnet, documents, env_outils, preparer_connecteurs
 from .permissions import Gardien, est_lecture, noter_outil
 
 
@@ -223,6 +223,7 @@ class Taches:
             serveurs[outils.NOM_MAC] = mac
         if ecran := outils.serveur_screenpipe():
             serveurs[outils.NOM_ECRAN] = ecran
+        serveurs = avec_extras(serveurs)  # la doc de tes outils de dev, Wikipédia… (extras.py)
 
         async def confirmer(question: str) -> bool:
             tache.attend = question  # le tableau de bord montre qu'il attend ta réponse
@@ -242,7 +243,8 @@ class Taches:
                 can_use_tool=lecture_seule, max_turns=30,
             )
         consignes = (f"{EXPERT.replace('{prenom}', config.PRENOM)}\nNous sommes le {_maintenant()}.\n"
-                     f"Tu travailles en arrière-plan : l'utilisateur fait autre chose pendant ce temps.\n{memoire}")
+                     f"Tu travailles en arrière-plan : l'utilisateur fait autre chose pendant ce temps.\n"
+                     f"{extras.consigne()}{memoire}")
         return ClaudeAgentOptions(
             system_prompt=consignes,
             model=config.MODELE_EXPERT,
@@ -252,6 +254,7 @@ class Taches:
             setting_sources=[],
             cwd=str(config.ESPACE),
             mcp_servers=serveurs,
+            env=env_outils(),
             max_buffer_size=config.TAMPON_MAX,
             # Pas de carnet, de lexique ni de recettes pour eux : ils lisent seuls des pages et des mails, qu'un piège
             # ne s'y inscrive pas pour toujours. Ce qu'ils ont appris revient par leur compte rendu : Steve en fait
