@@ -72,6 +72,7 @@ class Fil:
     adresse: str = ""     # iMessage : le numéro ou l'adresse ; WhatsApp : +33… (vide : on l'ouvre par son nom)
     groupe: bool = False
     messages: list[Message] = field(default_factory=list)   # dans l'ordre, les derniers
+    sur: bool = True      # False : un nom qu'il s'est donné lui-même sur WhatsApp (pas dans tes Contacts)
 
     @property
     def attend(self) -> bool:
@@ -230,6 +231,10 @@ def _fils_whatsapp(lien: sqlite3.Connection, depuis: float, groupes: bool, seul:
     else:
         sessions = lien.execute("SELECT Z_PK, ZCONTACTJID, COALESCE(ZPARTNERNAME, '') FROM ZWACHATSESSION "
                                 "WHERE Z_PK = ?", (seul,)).fetchall()
+    try:   # le nom que chacun se donne sur WhatsApp : n'importe qui peut s'appeler « Léa »
+        pseudos = dict(lien.execute("SELECT ZJID, ZPUSHNAME FROM ZWAPROFILEPUSHNAME").fetchall())
+    except sqlite3.Error:
+        pseudos = {}
     fils = []
     for pk, jid, nom in sessions:
         jid = jid or ""
@@ -251,8 +256,10 @@ def _fils_whatsapp(lien: sqlite3.Connection, depuis: float, groupes: bool, seul:
         messages = [Message(bool(de_moi), t, float(date or 0) + _EPOQUE, "" if de_moi else qui)
                     for de_moi, texte, date, genre, qui in reversed(lignes) if (t := _texte_whatsapp(texte, genre))]
         if messages:
-            nom = nom or (_nom(adresse) if adresse else "")
-            fils.append(Fil("whatsapp", f"whatsapp:{pk}", nom or adresse, adresse, groupe, messages[-CONTEXTE:]))
+            contact = carnet().get(distance.cle(adresse), "") if adresse else ""
+            sur = bool(contact) or groupe or not nom or not (nom == pseudos.get(jid) or nom.startswith("~"))
+            fils.append(Fil("whatsapp", f"whatsapp:{pk}", contact or nom or adresse, adresse, groupe,
+                            messages[-CONTEXTE:], sur))
     return fils
 
 
@@ -296,7 +303,7 @@ def lire_fils(canaux: list[str], depuis: float, groupes: bool = False) -> tuple[
                           "au disque, Réglages → Confidentialité et sécurité)")
     fils.sort(key=lambda f: f.messages[-1].quand, reverse=True)
     for f in fils:
-        _noms_vus[f.ident] = f.nom
+        _noms_vus[f.ident] = presente(f)
     return fils, soucis
 
 
@@ -314,8 +321,15 @@ def trouver(ident: str) -> Fil | None:
     except sqlite3.Error:
         return None
     if fils:
-        _noms_vus[fils[0].ident] = fils[0].nom
+        _noms_vus[fils[0].ident] = presente(fils[0])
     return fils[0] if fils else None
+
+
+def presente(fil: Fil) -> str:
+    """Son nom, et s'il se l'est donné lui-même, de quoi ne pas le prendre pour quelqu'un d'autre."""
+    if fil.sur:
+        return fil.nom
+    return f"« {fil.nom} » (le nom qu'il se donne sur WhatsApp, pas dans tes Contacts{', ' + fil.adresse if fil.adresse else ''})"
 
 
 def nom_du_fil(ident: str) -> str:
@@ -337,14 +351,15 @@ def mes_messages(canal: str, numero: int | None = None, n: int = HISTOIRE) -> li
         return []
 
 
-def correspond(nom: str, adresse: str, qui: list[str]) -> bool:
-    """« Léa », « lea martin », « +33612… » : chaque mot dit est un mot entier de son nom (ou c'est son numéro)."""
+def correspond(nom: str, adresse: str, qui: list[str], sur: bool = True) -> bool:
+    """« Léa », « lea martin », « +33612… » : chaque mot dit est un mot entier de son nom (ou c'est son numéro).
+    Un nom qu'il s'est donné lui-même (`sur` faux) ne compte pas : seul son numéro le désigne."""
     mots_nom = re.findall(r"\w+", _simple(nom))
     for q in qui:
         if (c := distance.cle(q)) and c == distance.cle(adresse):
             return True
         mots = re.findall(r"\w+", _simple(q))
-        if mots and all(m in mots_nom for m in mots):
+        if sur and mots and all(m in mots_nom for m in mots):
             return True
     return False
 
@@ -431,7 +446,10 @@ def style_avec(fil: Fil, general: Callable[[], Style]) -> Style:
     """Ton style avec cette personne (ou ton style général, si tu lui as trop peu écrit)."""
     miens = mes_messages(fil.canal, int(fil.ident.split(":")[1]))
     s = style(miens, fil.messages)
-    return s if s.n >= 4 else general()
+    if s.n >= 4:
+        return s
+    g = general()   # ses traits seulement : jamais ses mots à quelqu'un d'autre dans cette conversation-ci
+    return Style(g.n, g.resume, [])
 
 
 def style_general(canaux: list[str]) -> Style:
@@ -462,7 +480,7 @@ def en_attente(canaux: list[str], heures: float, groupes: bool, qui: list[str],
                maintenant: float | None = None) -> str:
     maintenant = maintenant or time.time()
     fils, soucis = lire_fils(canaux, maintenant - heures * 3600, groupes)
-    fils = [f for f in fils if f.attend and (not qui or correspond(f.nom, f.adresse, qui))][:config.REPONSES_MAX]
+    fils = [f for f in fils if f.attend and (not qui or correspond(f.nom, f.adresse, qui, f.sur))][:config.REPONSES_MAX]
     noms = " et ".join("iMessage" if c == "imessage" else "WhatsApp" for c in canaux)
     pas_lu = f" Pas pu lire : {' ; '.join(soucis)}." if soucis else ""
     if not fils:
@@ -478,7 +496,7 @@ def en_attente(canaux: list[str], heures: float, groupes: bool, qui: list[str],
              "siennes."]
     for f in fils:
         sorte = ("groupe " if f.groupe else "") + ("iMessage" if f.canal == "imessage" else "WhatsApp")
-        blocs.append(f"[{f.ident}] {f.nom} ({sorte}), dernier message {_il_y_a(f.messages[-1].quand, maintenant)}\n"
+        blocs.append(f"[{f.ident}] {presente(f)} ({sorte}), dernier message {_il_y_a(f.messages[-1].quand, maintenant)}\n"
                      f"Son style avec {f.nom} : {style_avec(f, gen)}\n{conversation(f)}")
     blocs.append("Pour répondre : repondre(fil=\"…\", texte=\"…\"), avec le [fil] ci-dessus.")
     return "\n\n".join(blocs)
@@ -651,7 +669,7 @@ class Repondeur:
         for fil in fils:
             dernier = fil.messages[-1] if fil.messages else None
             if (not fil.attend or dernier.quand < r.depuis or (fil.ident, dernier.quand) in self._faits
-                    or (r.qui and not correspond(fil.nom, fil.adresse, r.qui))):
+                    or (r.qui and not correspond(fil.nom, fil.adresse, r.qui, fil.sur))):
                 continue
             if maintenant - dernier.quand < config.REPONDEUR_DELAI_S:
                 continue   # tu as encore le temps de répondre toi-même
@@ -770,7 +788,7 @@ async def mon_style(args: dict[str, Any]) -> dict[str, Any]:
         if not qui:
             return f"Son style en général : {style_general(canaux)}"
         fils, _ = lire_fils(canaux, time.time() - 365 * 86400, True)
-        trouves = [f for f in fils if correspond(f.nom, f.adresse, qui)][:3]
+        trouves = [f for f in fils if correspond(f.nom, f.adresse, qui, f.sur)][:3]
         if not trouves:
             return f"Aucune conversation de l'année avec {', '.join(qui)}."
         return "\n".join(f"Avec {f.nom} ({'iMessage' if f.canal == 'imessage' else 'WhatsApp'}) : "

@@ -376,6 +376,10 @@ COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_co
 # Les messages à quelqu'un (ou à un groupe) : la question dit à qui et quoi.
 # repondre (reponses.py) : dans une conversation déjà là, le destinataire lu dans la base par le code.
 ENVOIS = {"envoyer_imessage", "envoyer_vocal_whatsapp", "envoyer_whatsapp", "repondre"}
+# Dans une réponse écrite juste après avoir lu leurs messages : ce qui peut faire sortir quelque chose de chez toi.
+_REPONSE_SENSIBLE = re.compile(r"https?://|www\.|\b[\w-]+\.(?:com|fr|io|net|org|ly|me|co|app)\b|[\w.+-]+@[\w-]+\."
+                               r"|\d(?:[\s.-]?\d){5,}|\b\d+,?\s*(?:bis\s+)?(?:rue|avenue|av\.|bd|boulevard|"
+                               r"place|chemin|allée|impasse|quai)\b|\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,}", re.I)
 # Le répondeur : l'allumer (il répondra seul à ta place) se confirme ; l'éteindre ou demander son état, jamais.
 JERVIS_A_CONFIRMER = {*ENVOIS, "repondeur", "appeler", "demander_accord",
                       "mettre_a_la_corbeille", "effacer_memoire", "liberer_port", *COMPTES_A_CONFIRMER}
@@ -1533,10 +1537,11 @@ def cible_de(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) 
         return None if not numero or appels.numero_urgence(numero) else numero
     if action == "execute_zapier_write_action":
         return f"{entree.get('selected_api') or '?'} / {entree.get('action') or '?'}"
-    if action == "repondre":  # une règle pour cette conversation-là (son nom lu dans la base), pas pour l'outil
+    if action == "repondre":  # une règle pour cette conversation-là (sa place dans la base), pas pour un nom
         from . import reponses
-        nom = reponses.nom_du_fil(str(entree.get("fil") or ""))
-        return f"la conversation avec {nom}" if nom else None
+        fil = str(entree.get("fil") or "")
+        nom = reponses.nom_du_fil(fil)
+        return f"la conversation avec {nom} ({fil})" if nom else None
     if action == "repondeur":
         return None  # répondre seul à ta place : toujours ton oui, jamais une règle
     if action in ENVOIS and str(entree.get("groupe") or "").strip():
@@ -1903,12 +1908,13 @@ class Gardien:
             decision = Decision.DEMANDER  # répondre seul à ta place : jamais sous la dictée d'un message ou d'un agent
             autorisable, pourquoi = False, "allumer ton répondeur juste après un texte venu d'ailleurs"
         if decision is Decision.OUI and outil == "mcp__jervis__repondre" and (
-                self.mefiance or (mefiant and re.search(r"https?://|www\.|\b[\w-]+\.(?:com|fr|io|net|org|ly|me)/",
-                                                        str(entree.get("texte") or ""), re.I))):
-            # Le compte rendu d'un agent n'est pas ta demande ; un lien dans ta réponse, après avoir lu leurs
-            # messages, peut venir de l'un d'eux (« réponds-moi avec ce lien ») : toi d'abord.
+                self.mefiance or (mefiant and _REPONSE_SENSIBLE.search(str(entree.get("texte") or "")))):
+            # Le compte rendu d'un agent n'est pas ta demande ; un lien, une adresse, un numéro ou un code dans ta
+            # réponse, après avoir lu leurs messages, peut venir de l'un d'eux (« réponds-moi avec l'adresse de
+            # Léa ») ou de ce qu'il sait de toi : toi d'abord.
             decision = Decision.DEMANDER
-            autorisable, pourquoi = False, "une réponse avec un lien, ou demandée par un agent et pas par toi"
+            autorisable, pourquoi = False, ("une réponse avec un lien, une adresse, un numéro ou un code, ou demandée "
+                                            "par un agent et pas par toi")
         if decision is Decision.OUI and outil == "mcp__jervis__commencer_compte_rendu" and mefiant:
             decision = Decision.DEMANDER  # écouter une réunion : jamais sous la dictée d'une page ou d'un mail
             autorisable, pourquoi = False, "écouter une réunion juste après un texte venu d'ailleurs"

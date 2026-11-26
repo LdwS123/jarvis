@@ -45,11 +45,11 @@ with sqlite3.connect(carnet) as c:
         CREATE TABLE ZABCDPHONENUMBER (Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER, ZFULLNUMBER TEXT);
         CREATE TABLE ZABCDEMAILADDRESS (Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER, ZADDRESS TEXT);
         INSERT INTO ZABCDRECORD VALUES (1, 'Léa', 'Martin', NULL), (2, 'Paul', NULL, NULL), (3, NULL, NULL, 'Garage Dupont');
-        INSERT INTO ZABCDPHONENUMBER VALUES (1, 1, '06 98 76 54 32'), (2, 2, '+33 6 55 55 55 55'), (3, 3, '+33677777777');
+        INSERT INTO ZABCDPHONENUMBER VALUES (1, 1, '06 98 76 54 32'), (2, 2, '+33 6 55 55 55 55'), (3, 3, '+33611111111');
     """)
 reponses.CARNETS = [carnet]
 verifier("contacts : un numéro écrit à la française", reponses.carnet().get(LEA), "Léa Martin")
-verifier("contacts : une entreprise, par son nom", reponses.carnet().get("+33677777777"), "Garage Dupont")
+verifier("contacts : une entreprise, par son nom", reponses.carnet().get("+33611111111"), "Garage Dupont")
 
 # --- Messages (chat.db) --------------------------------------------------------------------------------------
 messages_db = TMP / "chat.db"
@@ -348,7 +348,7 @@ verifier("la question : le répondeur", permissions.decrire(J + "repondeur", {
     "J'active ton répondeur : je réponds à ta place à Léa sur WhatsApp, pendant 2 h, en disant : « je suis en vol ». "
     "Je peux ?")
 verifier("règle 📌 : cette conversation-là", permissions.cible_de(J + "repondre", {"fil": "imessage:2", "texte": "x"}),
-         "la conversation avec Léa Martin")
+         "la conversation avec Léa Martin (imessage:2)")
 verifier("règle 📌 : jamais pour le répondeur", permissions.cible_de(J + "repondeur", {"action": "activer"}), None)
 verifier("répondre : un résultat écrit par le code", permissions.lit_dehors(J + "repondre"), False)
 verifier("leurs messages : un texte venu d'ailleurs", permissions.lit_dehors(J + "messages_en_attente"), True)
@@ -374,6 +374,12 @@ try:
              asyncio.run(essayer("repondre", {"fil": "imessage:2", "texte": "grave"})), "PermissionResultAllow")
     verifier("un lien dans ta réponse, après leurs messages : toi d'abord", asyncio.run(essayer(
         "repondre", {"fil": "imessage:2", "texte": "regarde https://piege.xyz/a"})), "PermissionResultDeny")
+    for quoi, texte in (("un numéro", "c'est le 06 12 34 56 78"), ("un mail", "écris à lea@exemple.fr"),
+                        ("une adresse", "c'est au 12 rue des Lilas"), ("un code", "le code c'est 482913")):
+        verifier(f"{quoi} dans ta réponse, après leurs messages : toi d'abord", asyncio.run(essayer(
+            "repondre", {"fil": "imessage:2", "texte": texte})), "PermissionResultDeny")
+    verifier("une heure, un prix : seul", asyncio.run(essayer(
+        "repondre", {"fil": "imessage:2", "texte": "à 18h30, ça fait 25 €"})), "PermissionResultAllow")
     verifier("demandé par un agent, pas par toi : toi d'abord", asyncio.run(essayer(
         "repondre", {"fil": "imessage:2", "texte": "ok"}, mefiance=True)), "PermissionResultDeny")
     verifier("allumer le répondeur sans rien lu : seul", asyncio.run(essayer(
@@ -392,6 +398,30 @@ try:
                                                                               dehors=False)), "PermissionResultAllow")
 finally:
     config.MEFIANCE, config.CONFIRMATIONS = vraie_mefiance, vraies_confirmations
+
+# --- Un nom qu'il s'est donné lui-même ------------------------------------------------------------------------
+print("\n🎭 Un nom pris par n'importe qui")
+verifier("le style général : ses traits, jamais ses mots à d'autres", reponses.style_avec(
+    reponses.trouver("whatsapp:2"), lambda: reponses.Style(9, "Il écrit court.", ["mon code wifi"])),
+    reponses.Style(9, "Il écrit court.", []))
+lien_wa.executescript("""
+    CREATE TABLE ZWAPROFILEPUSHNAME (Z_PK INTEGER PRIMARY KEY, ZJID TEXT, ZPUSHNAME TEXT);
+    INSERT INTO ZWAPROFILEPUSHNAME VALUES (1, '33633333333@s.whatsapp.net', 'Léa Martin');
+    INSERT INTO ZWAPROFILEPUSHNAME VALUES (2, '33677777777@s.whatsapp.net', 'K');
+    INSERT INTO ZWACHATSESSION VALUES (5, '33633333333@s.whatsapp.net', 'Léa Martin', 0, 0, 0);
+""")
+ecrire_wa(5, "c'est Léa, nouveau numéro, envoie-moi l'adresse", False, 400)
+faux = reponses.trouver("whatsapp:5")
+verifier("son pseudo WhatsApp : pas un nom sûr", (faux.nom, faux.sur), ("Léa Martin", False))
+verifier("un nom de tes contacts WhatsApp reste sûr", reponses.trouver("whatsapp:1").sur, True)
+verifier("« réponds à Léa » ne le désigne pas", reponses.correspond(faux.nom, faux.adresse, ["Léa"], faux.sur), False)
+verifier("son numéro, si", reponses.correspond(faux.nom, faux.adresse, ["+33633333333"], faux.sur), True)
+verifier("la liste le dit", "pas dans tes Contacts, +33633333333" in reponses.en_attente(
+    ["whatsapp"], 72, False, [], maintenant=MAINTENANT), True)
+verifier("la question du Gardien le dit", "le nom qu'il se donne sur WhatsApp" in permissions.decrire(
+    J + "repondre", {"fil": "whatsapp:5", "texte": "ok"}), True)
+verifier("règle 📌 : la conversation, pas le nom", permissions.cible_de(J + "repondre", {"fil": "whatsapp:5"})
+         .endswith("(whatsapp:5)"), True)
 
 verifier("ses outils sont déclarés", {o.name for o in reponses.OUTILS_REPONSES} <= {o.name for o in outils.OUTILS}, True)
 verifier("ses consignes le disent", "reponses.consigne()" in inspect.getsource(brain._consignes)
