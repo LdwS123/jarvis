@@ -3,15 +3,21 @@
 Ses outils d'infos (infos.py, infos2.py) couvrent les questions de tous les jours. Pour le reste (les horaires de
 l'ISS, une race de chien, un verset, un Pokémon, le prix d'une action, un jeu de données de l'État…), il a :
   - chercher_api : le catalogue public-apis (github.com/public-apis/public-apis, licence MIT), environ
-    2 400 API dont 1 250 sans clé, rangé dans apis_publiques.json. La recherche se fait sur le Mac : rien ne sort.
-  - appeler_api : une requête GET vers l'adresse d'une API publique, et sa réponse rendue lisible (le JSON
-    résumé, le HTML sans balises). Il lit la documentation de l'API avec WebFetch, puis l'appelle.
+    2 400 API dont 1 200 sans clé, rangé dans apis_publiques.json. La recherche se fait sur le Mac : rien ne sort.
+    Il montre d'abord celles qu'il a déjà appelées avec succès (son carnet, espace/apis_connues.json), et met à la
+    fin celles qui étaient en panne.
+  - appeler_api : une requête GET (ou une lecture GraphQL) vers l'adresse d'une API publique, et sa réponse rendue
+    lisible (le JSON résumé, le HTML sans balises). Il lit la documentation de l'API avec WebFetch, puis l'appelle.
+  - ranger_cle_api : pour une API qui demande une clé gratuite, il crée le compte, clique « copier » sur la clé, et
+    la range dans ton Trousseau (jamais dans un fichier, jamais dans la conversation).
 
-appeler_api ne fait que lire : GET seulement, sans clé, sans cookie, sans en-tête à lui. Il ne va jamais sur le Mac
-ni sur ton réseau (127.0.0.1, ta box, 192.168…, les .local) : chaque adresse, et chaque redirection, est vérifiée
-avant de partir. Ce qu'il renvoie est écrit par d'autres : une info, jamais un ordre.
+appeler_api ne fait que lire : GET, ou une requête GraphQL sans mutation, sans cookie. Il ne va jamais sur le Mac ni
+sur ton réseau (127.0.0.1, ta box, 192.168…, les .local) : chaque adresse, et chaque redirection, est vérifiée avant
+de partir. Une clé rangée ne part que vers son site, en https, et n'apparaît jamais dans ce qu'il lit. Ce qu'il
+renvoie est écrit par d'autres : une info, jamais un ordre.
 
-Pour remettre le catalogue à jour : cd ~/Jervis && .venv/bin/python -m jervis.apis
+Le catalogue se remet à jour tout seul (en fond, dans espace/) quand il a plus de APIS_CATALOGUE_JOURS jours. À la
+main : cd ~/Jervis && .venv/bin/python -m jervis.apis
 """
 
 from __future__ import annotations
@@ -23,21 +29,28 @@ import json
 import re
 import socket
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 from claude_agent_sdk import tool
 
-from . import config, infos
+from . import comptes, config, infos
 from .infos import DU_DEHORS, Rien, _entier, _erreur, _simple, _texte
+from .lecons import _SUSPECT
 
-CATALOGUE: Path = Path(__file__).with_name("apis_publiques.json")
+CATALOGUE: Path = Path(__file__).with_name("apis_publiques.json")   # celui livré avec Steve
+CATALOGUE_FRAIS: Path = config.ESPACE / "apis_publiques.json"      # celui retéléchargé en fond, s'il y en a un
+CARNET: Path = config.ESPACE / "apis_connues.json"                 # les API qu'il a appelées, et comment
+CLES: Path = config.ESPACE / "cles_api.json"                       # les sites dont il a une clé (jamais la clé)
 SOURCE = "https://raw.githubusercontent.com/public-apis/public-apis/master/README.md"
 OCTETS_MAX = 1_000_000        # ce qu'il télécharge au plus d'une réponse
 CARACTERES_MAX = 8_000        # ce qu'il en garde pour Claude
 REDIRECTIONS_MAX = 3
+CHAMPS = {"nom", "description", "categorie", "cle", "https", "lien"}
 
 _LIGNE = re.compile(r"^\|\s*\[(?P<nom>[^\]]+)\]\((?P<lien>https?://[^)\s]+)\)\s*\|(?P<description>[^|]*)\|"
                     r"(?P<cle>[^|]*)\|(?P<https>[^|]*)\|")
@@ -67,28 +80,70 @@ def construire(markdown: str) -> list[dict[str, Any]]:
 _cache: list[dict[str, Any]] | None = None
 
 
+def _lire(chemin: Path) -> list[dict[str, Any]]:
+    try:
+        apis = json.loads(chemin.read_text(encoding="utf-8"))["apis"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    return [a for a in apis if isinstance(a, dict) and CHAMPS <= a.keys()] if isinstance(apis, list) else []
+
+
 def catalogue() -> list[dict[str, Any]]:
+    """Le plus frais des deux : celui retéléchargé en fond (espace/) s'il est complet, sinon celui livré."""
     global _cache
     if _cache is None:  # lu une fois, à la première recherche
-        try:
-            _cache = json.loads(CATALOGUE.read_text(encoding="utf-8"))["apis"]
-        except (OSError, ValueError, KeyError):
-            _cache = []
+        frais = _lire(CATALOGUE_FRAIS)
+        _cache = frais if len(frais) >= 500 else _lire(CATALOGUE)
     return _cache
 
 
-def mettre_a_jour() -> int:
-    """Retélécharge le catalogue (à la main : python -m jervis.apis). Renvoie le nombre d'API."""
+def mettre_a_jour(destination: Path | None = None) -> int:
+    """Retélécharge le catalogue (à la main : python -m jervis.apis ; en fond : dans espace/). Renvoie le nombre
+    d'API. Écrit d'un coup (un fichier à côté, puis renommé) : jamais un catalogue à moitié écrit."""
     global _cache, _index
+    destination = destination or CATALOGUE
     r = httpx.get(SOURCE, headers={"User-Agent": infos.AGENT}, timeout=30, follow_redirects=True)
     r.raise_for_status()
     apis = construire(r.text)
     if len(apis) < 500:
         raise ValueError(f"Le README de public-apis a changé de forme ({len(apis)} API lues) : catalogue gardé.")
-    CATALOGUE.write_text(json.dumps({"source": SOURCE, "apis": apis}, ensure_ascii=False, indent=0) + "\n",
-                         encoding="utf-8")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    provisoire = destination.with_suffix(".tmp")
+    provisoire.write_text(json.dumps({"source": SOURCE, "apis": apis}, ensure_ascii=False, indent=0) + "\n",
+                          encoding="utf-8")
+    provisoire.replace(destination)
     _cache, _index = apis, None
     return len(apis)
+
+
+_maj_tentee: float | None = None   # la dernière tentative en fond (une par jour au plus, même ratée)
+_maj_en_cours: asyncio.Task | None = None
+
+
+def age_du_catalogue() -> float:
+    """En jours : le plus récent des deux fichiers."""
+    dates = [c.stat().st_mtime for c in (CATALOGUE_FRAIS, CATALOGUE) if c.exists()]
+    return (time.time() - max(dates)) / 86400 if dates else float("inf")
+
+
+async def _rafraichir() -> None:
+    try:
+        await asyncio.to_thread(mettre_a_jour, CATALOGUE_FRAIS)
+    except (httpx.HTTPError, ValueError, OSError):
+        pass   # pas grave : il garde l'ancien, et réessaie demain
+
+
+def rafraichir_si_vieux() -> bool:
+    """Lance le téléchargement en fond si le catalogue a plus de APIS_CATALOGUE_JOURS jours. La recherche en cours
+    n'attend pas : elle se fait sur l'ancien. Vrai s'il l'a lancé."""
+    global _maj_tentee, _maj_en_cours
+    if config.APIS_CATALOGUE_JOURS <= 0 or age_du_catalogue() < config.APIS_CATALOGUE_JOURS:
+        return False
+    if _maj_tentee is not None and time.monotonic() - _maj_tentee < 86400:
+        return False
+    _maj_tentee = time.monotonic()
+    _maj_en_cours = asyncio.get_running_loop().create_task(_rafraichir())
+    return True
 
 
 def _mots(t: str) -> set[str]:
@@ -118,41 +173,286 @@ def chercher(recherche: str, n: int = 8, avec_cle: bool = False) -> list[dict[st
     return [tout[i] for *_, i in notes[:n]]
 
 
-def _ligne_api(a: dict[str, Any]) -> str:
+# --- Son carnet : les API qu'il a déjà appelées -------------------------------------------------------------
+# Pour chaque site : les chemins qui ont marché (avec le nom de leurs paramètres, jamais leurs valeurs), combien de
+# fois, quand, et à quoi ils servent ; et la dernière panne. Il y retrouve en une recherche ce qu'il a mis trois
+# essais à trouver la première fois.
+
+SITES_MAX, CHEMINS_MAX = 300, 8
+PANNE_JOURS = 7               # une panne plus vieille est oubliée
+_SEGMENT = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,29}")
+_POUR_INTERDIT = re.compile(r"[^\w .,'’()/-]")
+_BRUIT = {"api", "apis", "www", "org", "com", "net", "json", "http", "https", "rest", "public", "data"}
+# Ces domaines hébergent les sites de n'importe qui : une clé n'y est jamais liée à tout le domaine, et une API
+# appelée sur l'un d'eux ne fait pas croire que les autres sont « déjà utilisées ».
+HEBERGEURS = {"github.com", "github.io", "githubusercontent.com", "gitlab.com", "gitlab.io", "bitbucket.org",
+              "herokuapp.com", "netlify.app", "vercel.app", "pages.dev", "workers.dev", "web.app", "firebaseapp.com",
+              "appspot.com", "azurewebsites.net", "cloudfront.net", "amazonaws.com", "readthedocs.io", "gitbook.io",
+              "readme.io", "apiary.io", "rapidapi.com", "glitch.me", "repl.co", "onrender.com", "fly.dev",
+              "blogspot.com", "wordpress.com", "medium.com", "notion.site", "postman.com", "swaggerhub.com"}
+
+
+def _chemin_propre(chemin: str) -> str:
+    """« /api/v2/pokemon/pikachu » → « /api/v2/pokemon/… » : la forme de l'adresse, pas ce qu'il y cherchait (au
+    plus trois morceaux, chacun un vrai mot d'adresse, ni un nombre, ni un nom de ville, ni un texte)."""
+    garde = []
+    for morceau in [m for m in chemin.split("/") if m]:
+        if len(garde) == 3 or not _SEGMENT.fullmatch(morceau) or sum(c.isdigit() for c in morceau) > 3:
+            return "/" + "/".join(garde + ["…"])
+        garde.append(morceau)
+    return "/" + "/".join(garde)
+
+
+def pour_propre(pour: Any) -> str:
+    """À quoi sert l'API, en quelques mots (« position de l'ISS ») : sans lien, ni mail, ni numéro, ni guillemets."""
+    brut = " ".join(str(pour or "").split())
+    return "" if _SUSPECT.search(brut) else " ".join(_POUR_INTERDIT.sub(" ", brut).split())[:60].strip()
+
+
+def _lire_json(chemin: Path) -> dict[str, Any]:
+    try:
+        lu = json.loads(chemin.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return lu if isinstance(lu, dict) else {}
+
+
+def _ecrire_json(chemin: Path, contenu: dict[str, Any]) -> None:
+    try:
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        provisoire = chemin.with_suffix(".tmp")
+        provisoire.write_text(json.dumps(contenu, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        provisoire.replace(chemin)
+    except OSError:
+        pass   # un carnet qui ne s'écrit pas ne doit pas faire échouer l'appel
+
+
+def carnet() -> dict[str, dict[str, Any]]:
+    return {k: v for k, v in _lire_json(CARNET).items() if isinstance(v, dict)}
+
+
+def _base(url: str) -> str:
+    m = urlsplit(url)
+    return f"{m.scheme}://{(m.hostname or '').casefold()}{f':{m.port}' if m.port else ''}"
+
+
+def noter_succes(url: str, params: dict[str, Any] | None, pour: str, cle: dict[str, str] | None,
+                 graphql: bool = False) -> None:
+    c, base, maintenant = carnet(), _base(url), datetime.now().isoformat(timespec="minutes")
+    site = c.pop(base, {})   # remis à la fin : le plus récent en dernier
+    chemins = site.get("chemins") if isinstance(site.get("chemins"), dict) else {}
+    chemin = _chemin_propre(urlsplit(url).path)
+    fiche = chemins.pop(chemin, {}) if isinstance(chemins.get(chemin), dict) else {}
+    noms = sorted({str(k)[:30] for k in (params or {})} | {n for n in fiche.get("params", []) if isinstance(n, str)})
+    fiche.update({"params": [n for n in noms if _SEGMENT.fullmatch(n) or n.isidentifier()][:12],
+                  "fois": int(fiche.get("fois", 0) or 0) + 1, "date": maintenant})
+    if pour := pour_propre(pour):
+        fiche["pour"] = pour
+    if cle:
+        fiche["cle"] = cle
+    if graphql:
+        fiche["graphql"] = True
+    chemins[chemin] = fiche
+    while len(chemins) > CHEMINS_MAX:   # les moins servis partent
+        del chemins[min(chemins, key=lambda k: (chemins[k].get("fois", 0), chemins[k].get("date", "")))]
+    site.update({"chemins": chemins, "ok": maintenant})
+    site.pop("panne", None)
+    c[base] = site
+    while len(c) > SITES_MAX:
+        del c[next(iter(c))]
+    _ecrire_json(CARNET, c)
+
+
+def noter_panne(url: str) -> None:
+    c, base = carnet(), _base(url)
+    if base in c:   # seulement une API qu'il connaît : une adresse inventée ne remplit pas le carnet
+        c[base]["panne"] = datetime.now().isoformat(timespec="minutes")
+        _ecrire_json(CARNET, c)
+
+
+def en_panne(site: dict[str, Any]) -> str | None:
+    """La date de la panne si elle est récente et qu'aucun succès n'a suivi."""
+    panne = str(site.get("panne") or "")
+    try:
+        recente = (datetime.now() - datetime.fromisoformat(panne)).days < PANNE_JOURS
+    except ValueError:
+        return None
+    return panne if recente and panne >= str(site.get("ok") or "") else None   # un succès efface la panne
+
+
+def _couvre(domaine: str, hote: str) -> bool:
+    return hote == domaine or hote.endswith("." + domaine)
+
+
+def _jour(date: str) -> str:
+    try:
+        return f"{datetime.fromisoformat(date):%d/%m}"
+    except ValueError:
+        return "?"
+
+
+def deja_connues(recherche: str, n: int = 5) -> list[str]:
+    """Les lignes du carnet qui parlent de `recherche` (ou toutes, les plus servies d'abord, si elle est vide)."""
+    mots = _mots(recherche) - _BRUIT
+    lignes = []
+    for base, site in carnet().items():
+        if en_panne(site):
+            continue
+        for chemin, fiche in (site.get("chemins") or {}).items():
+            if not isinstance(fiche, dict):
+                continue
+            if mots and not mots & (_mots(f"{base} {chemin} {fiche.get('pour', '')}") - _BRUIT):
+                continue
+            details = [f"pour « {fiche['pour']} »"] if fiche.get("pour") else []
+            if fiche.get("params"):
+                details.append("paramètres : " + ", ".join(fiche["params"]))
+            if fiche.get("cle"):
+                details.append(f"avec ta clé, cle={json.dumps(fiche['cle'], ensure_ascii=False)}")
+            if fiche.get("graphql"):
+                details.append("GraphQL")
+            details.append(f"{fiche.get('fois', 1)} fois, la dernière le {_jour(str(fiche.get('date', '')))}")
+            lignes.append((-int(fiche.get("fois", 1) or 1), f"- {base}{chemin} ({', '.join(details)})"))
+    lignes.sort()
+    return [ligne for _, ligne in lignes[:n]]
+
+
+def _ligne_api(a: dict[str, Any], connu: dict[str, Any] | None = None, cle: bool = False) -> str:
     acces = f"clé gratuite à demander ({a['cle']})" if a["cle"] else "sans clé"
-    return (f"- {a['nom']} ({a['categorie']}, {acces}{'' if a['https'] else ', http seulement'}) : "
-            f"{a['description']} Doc : {a['lien']}")
+    notes = "".join([", http seulement" if not a["https"] else "",
+                     ", tu as déjà sa clé" if cle else "",
+                     f", en panne le {_jour(p)}" if connu and (p := en_panne(connu)) else
+                     ", déjà utilisée" if connu else ""])
+    return f"- {a['nom']} ({a['categorie']}, {acces}{notes}) : {a['description']} Doc : {a['lien']}"
 
 
-@tool("chercher_api", "Le catalogue des API publiques gratuites (public-apis : environ 2 400, dont 1 250 sans clé, "
+def _ce_quil_en_sait(a: dict[str, Any], connus: dict[str, dict[str, Any]],
+                     cles: set[str]) -> tuple[dict[str, Any] | None, bool]:
+    """Ce que le carnet sait de cette API (un site du même domaine que sa doc), et s'il a déjà sa clé."""
+    d = comptes.domaine(a["lien"])
+    if not d or d in HEBERGEURS:
+        return None, False
+    site = next((s for b, s in connus.items() if _couvre(d, urlsplit(b).hostname or "")), None)
+    return site, any(_couvre(c, d) or _couvre(d, c) for c in cles)
+
+
+@tool("chercher_api", "Le catalogue des API publiques gratuites (public-apis : environ 2 400, dont 1 200 sans clé, "
       "dans toutes les catégories : animaux, science, transports, sport, jeux, finance, gouvernement, données "
       "ouvertes, santé, musique, vidéo…), cherché sur le Mac. Pour une question qu'aucun de tes outils chercher_ ne "
       "couvre. `recherche` = plusieurs mots-clés EN ANGLAIS (« iss space astronaut », « dog breed », « bible verse », "
-      "« train france ») ; vide = la liste des catégories. `avec_cle` = true pour voir aussi celles qui demandent une clé "
-      "gratuite. Ensuite : lis la doc avec WebFetch pour trouver l'adresse exacte, puis appelle-la avec appeler_api.",
+      "« train france ») ; vide = la liste des catégories et celles que tu as déjà utilisées. `avec_cle` = true pour "
+      "voir aussi celles qui demandent une clé gratuite. Montre d'abord celles que tu as déjà appelées avec succès "
+      "(l'adresse exacte et ses paramètres : appelle-la directement). Sinon : lis la doc avec WebFetch pour trouver "
+      "l'adresse exacte, puis appelle-la avec appeler_api.",
       {"type": "object",
        "properties": {"recherche": {"type": "string"}, "n": {"type": "integer"}, "avec_cle": {"type": "boolean"}}})
 async def chercher_api(args: dict[str, Any]) -> dict[str, Any]:
+    rafraichir_si_vieux()
     tout = catalogue()
     if not tout:
         return _erreur("Le catalogue des API est absent : lance « .venv/bin/python -m jervis.apis » pour le télécharger.")
     recherche = " ".join(str(args.get("recherche") or "").split())
     avec_cle = args.get("avec_cle") in (True, "true", "oui", 1)
+    connues = deja_connues(recherche)
+    deja = ("Déjà utilisées et qui marchent (appelle-les directement) :\n" + "\n".join(connues) + "\n") if connues else ""
     if not recherche:
         categories: dict[str, int] = {}
         for a in tout:
             if not a["cle"]:
                 categories[a["categorie"]] = categories.get(a["categorie"], 0) + 1
-        return _texte(f"{sum(categories.values())} API sans clé, par catégorie : "
+        return _texte(deja + f"{sum(categories.values())} API sans clé, par catégorie : "
                       + ", ".join(f"{c} ({k})" for c, k in categories.items())
                       + ". Cherche avec des mots-clés en anglais.")
     trouvees = chercher(recherche, _entier(args.get("n"), 8, 1, 20), avec_cle)
     if not trouvees:
-        return _texte(f"Rien dans le catalogue pour « {recherche} »"
+        return _texte(deja + f"Rien dans le catalogue pour « {recherche} »"
                       + ("" if avec_cle else " sans clé (essaie avec_cle=true)")
                       + ". Essaie d'autres mots en anglais, ou WebSearch « free API " + recherche + " ».")
-    return _texte(f"API {'gratuites' if avec_cle else 'gratuites sans clé'} pour « {recherche} » :\n"
-                  + "\n".join(_ligne_api(a) for a in trouvees) + f"\n{DU_DEHORS}")
+    connus, cles = carnet(), set(cles_rangees())
+    lignes = [(a, *_ce_quil_en_sait(a, connus, cles)) for a in trouvees]
+    lignes.sort(key=lambda t: bool(t[1] and en_panne(t[1])))   # celles en panne à la fin (tri stable)
+    return _texte(deja + f"API {'gratuites' if avec_cle else 'gratuites sans clé'} pour « {recherche} » :\n"
+                  + "\n".join(_ligne_api(*t) for t in lignes) + f"\n{DU_DEHORS}")
+
+
+# --- Les clés gratuites, dans le Trousseau ------------------------------------------------------------------
+# Rangées comme des mots de passe génériques (service « jervis-api:<domaine> », compte « Steve ») : ni dans un
+# fichier, ni dans sa mémoire, ni dans la conversation. espace/cles_api.json ne garde que le nom des sites.
+
+_CLE = re.compile(r"[A-Za-z0-9_\-.:+/=~]{8,200}")
+_NOM_PARAM = re.compile(r"[A-Za-z0-9_.\-\[\]]{1,40}")
+_NOM_ENTETE = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,39}")
+_PREFIXE = re.compile(r"[A-Za-z]{0,12}")
+ENTETES_INTERDITS = {"host", "cookie", "content-length", "content-type", "transfer-encoding", "connection",
+                     "user-agent", "accept", "proxy-authorization"}
+MASQUE = "•••"
+
+
+async def _trousseau_ranger(site: str, secret: str) -> str | None:
+    """Range la clé (la remplace si elle y est). None si c'est fait. Le secret passe par l'entrée standard."""
+    commande = (f'add-generic-password -U -s "jervis-api:{site}" -a "Steve" -l "Clé API {site} (Steve)" '
+                f'-j "Rangée par Steve le {datetime.now():%d/%m/%Y}" -w "{secret}"\n')
+    code, sortie = await comptes._lancer("security", "-i", entree=commande)
+    return None if not code and "returned" not in sortie else (sortie[:200] or f"security a répondu {code}")
+
+
+async def _trousseau_retrouver(site: str) -> str | None:
+    code, sortie = await comptes._lancer("security", "find-generic-password", "-s", f"jervis-api:{site}",
+                                         "-a", "Steve", "-w")
+    return sortie if not code and sortie else None
+
+
+async def _presse_papiers() -> str | None:
+    code, sortie = await comptes._lancer("pbpaste")
+    return None if code else sortie
+
+
+async def _vider_presse_papiers(secret: str) -> None:
+    if await _presse_papiers() == secret:   # seulement si c'est toujours la clé : rien d'autre n'est effacé
+        await comptes._lancer("pbcopy", entree="")
+
+
+def cles_rangees() -> dict[str, Any]:
+    return _lire_json(CLES)
+
+
+def site_de_la_cle(d: str) -> str | None:
+    """Le domaine auquel lier une clé : celui de la doc d'une API du catalogue, ou son site parent (« api.x.org »
+    ou « x.org » pour une doc sur « home.x.org »), jamais un hébergeur où n'importe qui a son site."""
+    if d in HEBERGEURS:
+        return None
+    for a in catalogue():
+        doc = comptes.domaine(a["lien"])
+        if doc and (_couvre(doc, d) or _couvre(d, doc) and (len(d.split(".")) > 2 or len(d.split(".")[0]) > 3)):
+            return d
+    return None
+
+
+@tool("ranger_cle_api", "Range dans le Trousseau la clé gratuite d'une API (celle qu'un site donne après "
+      "l'inscription), pour t'en servir ensuite avec appeler_api. D'abord clique sur le bouton « copier » de la clé "
+      "sur le site (ou sélectionne-la et cmd+c) : l'outil la prend dans le presse-papiers, la range, puis l'en "
+      "retire. Ne tape jamais la clé ailleurs, ne l'écris nulle part. `site` = le domaine de l'API (« "
+      "openweathermap.org ») : la clé ne partira que vers lui et ses sous-domaines.",
+      {"type": "object", "properties": {"site": {"type": "string"}}, "required": ["site"]})
+async def ranger_cle_api(args: dict[str, Any]) -> dict[str, Any]:
+    d = comptes.domaine(args.get("site"))
+    if not d:
+        return _erreur("Donne le domaine de l'API (« openweathermap.org »).")
+    if not (site := site_de_la_cle(d)):
+        return _erreur(f"{d} n'est pas le site d'une API du catalogue (chercher_api avec_cle=true) : je n'y lie "
+                       "pas de clé.")
+    secret = await _presse_papiers()
+    if not secret or not _CLE.fullmatch(secret):
+        return _erreur("Le presse-papiers ne contient pas une clé d'API (8 à 200 caractères, sans espace) : clique "
+                       "d'abord sur le bouton « copier » de la clé sur le site, puis recommence.")
+    if probleme := await _trousseau_ranger(site, secret):
+        return _erreur(f"Le Trousseau a refusé ({probleme}).")
+    await _vider_presse_papiers(secret)
+    cles = cles_rangees()
+    cles[site] = {"date": datetime.now().isoformat(timespec="minutes")}
+    _ecrire_json(CLES, cles)
+    return _texte(f"Clé de {site} rangée dans le Trousseau, et retirée du presse-papiers. Pour t'en servir : "
+                  "appeler_api avec cle={\"param\": \"<son nom dans la doc>\"} ou cle={\"entete\": \"<nom>\"} "
+                  "(et \"prefixe\": \"Bearer \" si la doc le dit).")
 
 
 # --- Appeler une API ----------------------------------------------------------------------------------------
@@ -227,22 +527,52 @@ def _lisible(corps: bytes, type_: str) -> str:
     return texte
 
 
-async def appeler(url: str, params: dict[str, Any] | None = None) -> tuple[int, str]:
-    """GET `url` (ses paramètres ajoutés), en suivant au plus 3 redirections, chacune vérifiée. Chaque requête part
-    vers l'adresse IP vérifiée (le nom reste dans l'en-tête Host et dans le certificat TLS demandé), et jamais par un
-    proxy réglé dans l'environnement."""
+class Cle:
+    """Une clé rangée, et comment la donner : un paramètre de l'adresse ou un en-tête. Elle ne part que vers son
+    site (ou un de ses sous-domaines), en https."""
+
+    def __init__(self, site: str, secret: str, param: str = "", entete: str = "", prefixe: str = ""):
+        self.site, self.secret, self.param, self.entete, self.prefixe = site, secret, param, entete, prefixe
+
+    def couvre(self, url: httpx.URL) -> bool:
+        return _couvre(self.site, (url.host or "").casefold())
+
+    def masquer(self, texte: str) -> str:
+        """La clé n'apparaît jamais dans ce qu'il lit, même recopiée par l'API (« your key XYZ is invalid »)."""
+        for forme in {self.secret, quote(self.secret, safe=""), quote(self.secret)}:
+            texte = texte.replace(forme, MASQUE)
+        return texte
+
+
+async def appeler(url: str, params: dict[str, Any] | None = None, cle: Cle | None = None,
+                  graphql: dict[str, Any] | None = None) -> tuple[int, str, str]:
+    """GET `url` (ses paramètres ajoutés), ou POST de la requête `graphql`, en suivant au plus 3 redirections,
+    chacune vérifiée. Chaque requête part vers l'adresse IP vérifiée (le nom reste dans l'en-tête Host et dans le
+    certificat TLS demandé), et jamais par un proxy réglé dans l'environnement. Renvoie (code, texte, type)."""
     async with httpx.AsyncClient(timeout=config.INFOS_DELAI_S, follow_redirects=False, transport=infos.TRANSPORT,
                                  trust_env=False,
                                  headers={"User-Agent": infos.AGENT, "Accept": "application/json, */*;q=0.5"}) as client:
         for _ in range(REDIRECTIONS_MAX + 1):
             ip = await verifier_adresse(url)
             demande = httpx.URL(url).copy_merge_params(params) if params else httpx.URL(url)
+            entetes = {"Host": demande.netloc.decode("ascii")}
+            if cle and cle.couvre(demande):
+                if demande.scheme != "https":
+                    raise Interdit("Ta clé ne part qu'en https.")
+                if cle.param:
+                    demande = demande.copy_merge_params({cle.param: cle.secret})
+                else:
+                    entetes[cle.entete] = cle.prefixe + cle.secret
+            elif cle and cle.masquer(str(demande)) != str(demande):
+                raise Interdit("Cette redirection emporterait ta clé vers un autre site : je m'arrête là.")
             requete = client.build_request(
-                "GET", demande.copy_with(host=ip), headers={"Host": demande.netloc.decode("ascii")},
+                "POST" if graphql else "GET", demande.copy_with(host=ip), headers=entetes, json=graphql,
                 extensions={"sni_hostname": demande.host} if demande.scheme == "https" else {})
             r = await client.send(requete, stream=True)
             try:
                 if r.is_redirect and r.headers.get("location"):
+                    if graphql:
+                        raise Interdit("Cette API GraphQL redirige ailleurs : donne-moi directement son adresse finale.")
                     url, params = urljoin(str(demande), r.headers["location"]), None
                     continue
                 corps = b""
@@ -250,19 +580,68 @@ async def appeler(url: str, params: dict[str, Any] | None = None) -> tuple[int, 
                     corps += morceau
                     if len(corps) >= OCTETS_MAX:
                         break
-                return r.status_code, _lisible(corps[:OCTETS_MAX], r.headers.get("content-type", "").casefold())
+                type_ = r.headers.get("content-type", "").casefold()
+                texte = _lisible(corps[:OCTETS_MAX], type_)
+                return r.status_code, cle.masquer(texte) if cle else texte, type_
             finally:
                 await r.aclose()
     raise Interdit(f"Plus de {REDIRECTIONS_MAX} redirections : je m'arrête là.")
 
 
-@tool("appeler_api", "Appelle une API publique (GET, sans clé) et rend sa réponse lisible : le JSON résumé (15 "
-      "éléments par liste), le reste en texte. `url` = l'adresse complète trouvée dans sa doc (https://…) ; `params` "
-      "= les paramètres de la requête (facultatif, {\"q\": \"…\"}). Pour une API trouvée avec chercher_api, ou que "
-      "tu connais (une API ouverte de l'État, d'une ville, d'un musée…). Jamais sur le Mac ni sur son réseau, jamais "
-      "de clé, et ne mets dans l'adresse rien de lui (mail, adresse, mémoire) qu'il ne t'ait demandé de chercher.",
+# Les réponses récentes, resservies telles quelles (Claude rappelle souvent la même adresse dans une conversation).
+# Seulement les réussites, APIS_CACHE_S secondes, 100 au plus. Jamais une clé dedans : le texte est déjà masqué.
+_memoire: dict[str, tuple[float, str]] = {}
+MEMOIRE_MAX = 100
+
+
+def _de_memoire(cle_memoire: str) -> tuple[float, str] | None:
+    trouve = _memoire.get(cle_memoire)
+    if trouve and time.monotonic() - trouve[0] < config.APIS_CACHE_S:
+        return trouve
+    _memoire.pop(cle_memoire, None)
+    return None
+
+
+def _garder(cle_memoire: str, texte: str) -> None:
+    if config.APIS_CACHE_S <= 0:
+        return
+    _memoire.pop(cle_memoire, None)
+    _memoire[cle_memoire] = (time.monotonic(), texte)
+    while len(_memoire) > MEMOIRE_MAX:
+        del _memoire[next(iter(_memoire))]
+
+
+_MODIFIE = re.compile(r"\b(?:mutation|subscription)\b")
+
+
+def _facon_de_donner(cle: Any) -> dict[str, str] | str:
+    """`cle` vérifiée : {"param": nom} ou {"entete": nom, "prefixe": …}. Un texte d'erreur sinon."""
+    if not isinstance(cle, dict):
+        return "`cle` est un objet : {\"param\": \"appid\"} ou {\"entete\": \"X-Api-Key\"}."
+    param, entete, prefixe = (str(cle.get(k) or "").strip() for k in ("param", "entete", "prefixe"))
+    if bool(param) == bool(entete):
+        return "`cle` dit soit \"param\" (son nom dans l'adresse), soit \"entete\" (le nom de l'en-tête)."
+    if param and not _NOM_PARAM.fullmatch(param):
+        return "Ce nom de paramètre n'est pas valable."
+    if entete and (not _NOM_ENTETE.fullmatch(entete) or entete.casefold() in ENTETES_INTERDITS):
+        return "Cet en-tête n'est pas valable pour une clé."
+    if not _PREFIXE.fullmatch(prefixe):
+        return "Le préfixe est un mot court (« Bearer », « Token »)."
+    return {"param": param} if param else {"entete": entete} | ({"prefixe": prefixe + " "} if prefixe else {})
+
+
+@tool("appeler_api", "Appelle une API publique et rend sa réponse lisible : le JSON résumé (15 éléments par liste), "
+      "le reste en texte. `url` = l'adresse complète trouvée dans sa doc (https://…) ; `params` = les paramètres de "
+      "la requête (facultatif, {\"q\": \"…\"}) ; `pour` = à quoi elle sert, en quelques mots (« position de l'ISS ») : "
+      "il le note dans son carnet pour la retrouver. Une API GraphQL : `graphql` = la requête (lecture seulement, "
+      "pas de mutation), `variables` = ses variables. Une API à clé gratuite déjà rangée (ranger_cle_api) : `cle` = "
+      "{\"param\": \"appid\"} ou {\"entete\": \"X-Api-Key\", \"prefixe\": \"Bearer \"} selon sa doc ; la clé est "
+      "ajoutée seule, ne l'écris jamais toi-même. Pour une API trouvée avec chercher_api, ou que tu connais (une API "
+      "ouverte de l'État, d'une ville, d'un musée…). Jamais sur le Mac ni sur son réseau, et ne mets dans l'adresse "
+      "rien de lui (mail, adresse, mémoire) qu'il ne t'ait demandé de chercher.",
       {"type": "object",
-       "properties": {"url": {"type": "string"}, "params": {"type": "object"}},
+       "properties": {"url": {"type": "string"}, "params": {"type": "object"}, "pour": {"type": "string"},
+                      "graphql": {"type": "string"}, "variables": {"type": "object"}, "cle": {"type": "object"}},
        "required": ["url"]})
 async def appeler_api(args: dict[str, Any]) -> dict[str, Any]:
     url = str(args.get("url") or "").strip()
@@ -272,23 +651,57 @@ async def appeler_api(args: dict[str, Any]) -> dict[str, Any]:
     if params:
         params = {str(k): v if isinstance(v, (str, int, float)) else json.dumps(v, ensure_ascii=False)
                   for k, v in params.items()}
+    graphql = None
+    if requete_gql := str(args.get("graphql") or "").strip():
+        variables = args.get("variables") or {}
+        if not isinstance(variables, dict):
+            return _erreur("`variables` est un objet ({\"nom\": \"valeur\"}).")
+        if _MODIFIE.search(requete_gql):
+            return _erreur("Refusé : seulement des lectures en GraphQL (query), pas de mutation ni d'abonnement.")
+        if len(requete_gql) > 10_000:
+            return _erreur("Cette requête GraphQL est trop longue.")
+        graphql = {"query": requete_gql} | ({"variables": variables} if variables else {})
+    facon, cle = None, None
+    if args.get("cle"):
+        if isinstance(facon := _facon_de_donner(args["cle"]), str):
+            return _erreur(facon)
+        hote = (urlsplit(url).hostname or "").casefold() if url.startswith(("http://", "https://")) else ""
+        site = max((s for s in cles_rangees() if _couvre(s, hote)), key=len, default=None)
+        if not site:
+            return _erreur(f"Pas de clé rangée pour {hote or 'cette adresse'} : crée le compte gratuit, copie la "
+                           "clé, puis ranger_cle_api.")
+        if not (secret := await _trousseau_retrouver(site)):
+            return _erreur(f"La clé de {site} n'est plus dans le Trousseau : range-la à nouveau (ranger_cle_api).")
+        cle = Cle(site, secret, facon.get("param", ""), facon.get("entete", ""), facon.get("prefixe", ""))
+
+    cle_memoire = json.dumps([url, params, graphql, facon], sort_keys=True, ensure_ascii=False)
+    if gardee := _de_memoire(cle_memoire):
+        return _texte(f"{gardee[1]}\n(Réponse d'il y a {time.monotonic() - gardee[0]:.0f} s.)\n{DU_DEHORS}")
     try:
-        code, texte = await appeler(url, params)
+        code, texte, type_ = await appeler(url, params, cle, graphql)
     except Interdit as e:
         return _erreur(f"Refusé : {e}")
     except httpx.TimeoutException:
+        noter_panne(url)
         return _erreur(f"L'API n'a pas répondu en {config.INFOS_DELAI_S:g} secondes.")
     except httpx.HTTPError as e:
+        noter_panne(url)
         return _erreur(f"L'API est injoignable ({type(e).__name__}).")
     texte = texte if len(texte) <= CARACTERES_MAX else texte[:CARACTERES_MAX] + f"\n… (coupé à {CARACTERES_MAX} caractères)"
     if code >= 400:
+        if code >= 500:
+            noter_panne(url)
         return _erreur(f"L'API a répondu {code}. " + (f"Ce qu'elle dit : {texte[:600]}" if texte.strip() else "")
-                       + ("\nUne clé est sans doute nécessaire : prends-en une autre (chercher_api)." if code in (401, 403)
-                          else ""))
+                       + ("\nUne clé est sans doute nécessaire : prends-en une autre (chercher_api), ou crée le "
+                          "compte gratuit et range sa clé (ranger_cle_api)." if code in (401, 403) else ""))
+    if 200 <= code < 300:
+        _garder(cle_memoire, texte)
+        if "html" not in type_:
+            noter_succes(url, params, str(args.get("pour") or ""), facon, graphql is not None)
     return _texte(f"{texte}\n{DU_DEHORS}")
 
 
-OUTILS_APIS = [chercher_api, appeler_api]
+OUTILS_APIS = [chercher_api, appeler_api, ranger_cle_api]
 
 
 if __name__ == "__main__":

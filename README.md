@@ -278,7 +278,7 @@ Ce qu'il faut savoir :
 | « C'est quoi la dernière version de httpx ? » | **PyPI** et **npm** : version, date, licence, lien : `chercher_paquet` |
 | « Qu'est-ce que dit la recherche sur la caféine et le sommeil ? » | **OpenAlex** (plus de 200 millions de publications) : titre, auteurs, revue, citations, lien vers le texte gratuit : `chercher_articles` |
 | « Il est quelle heure à San Francisco ? » | le fuseau vient d'Open-Meteo, l'heure est calculée sur le Mac (heure d'été comprise), avec le décalage avec Paris : `chercher_heure` |
-| « Où est l'ISS en ce moment ? », « donne-moi un verset au hasard », « les stats de Pikachu » | **toutes les API publiques gratuites** : il cherche dans son catalogue (public-apis, environ 2 500 API dont 1 200 sans clé, rangé sur le Mac) celle qui répond, lit sa doc, puis l'appelle (GET seulement, sans clé, jamais sur le Mac ni sur ton réseau) : `chercher_api`, puis `appeler_api` |
+| « Où est l'ISS en ce moment ? », « donne-moi un verset au hasard », « les stats de Pikachu » | **toutes les API publiques gratuites** : il cherche dans son catalogue (public-apis, environ 2 500 API dont 1 200 sans clé, rangé sur le Mac) celle qui répond, lit sa doc, puis l'appelle (GET ou GraphQL en lecture, jamais sur le Mac ni sur ton réseau). La fois suivante, il la reprend directement depuis son carnet : `chercher_api`, puis `appeler_api` |
 | « Envoie un message à Léa : j'arrive dans 10 minutes » | il cherche Léa dans Contacts, puis te lit le message avant de l'envoyer |
 | « Rappelle-moi d'appeler maman demain à 18 h » | il crée un rappel dans Rappels, qui sonne aussi sur l'iPhone |
 | « Note mes idées : … » | il crée une note dans Notes |
@@ -306,11 +306,26 @@ passent par des services gratuits, sans clé ni compte (`jervis/infos.py`, `jerv
 a le catalogue des API publiques gratuites (`jervis/apis_publiques.json`, tiré de
 [public-apis](https://github.com/public-apis/public-apis), licence MIT) et un outil pour appeler n'importe laquelle
 (`jervis/apis.py`) ; s'ils ne suffisent pas ou ne répondent pas, il cherche sur le web.
-Pour remettre le catalogue à jour (de nouvelles API y entrent chaque semaine) :
-`cd ~/Jervis && .venv/bin/python -m jervis.apis`. Celles qui demandent une clé y sont aussi (`avec_cle`), mais
-il ne s'en sert pas : il prend une API sans clé.
+Le catalogue se remet à jour tout seul : quand il a plus de 30 jours, il est retéléchargé en fond dans
+`espace/apis_publiques.json` (le dépôt n'est pas touché), sans faire attendre la recherche. À la main :
+`cd ~/Jervis && .venv/bin/python -m jervis.apis`.
 
-`appeler_api` ne fait que lire : une requête GET, sans clé, sans cookie, sous un nom générique. Il refuse le Mac et
+Il apprend aussi : chaque API qui lui a répondu entre dans son carnet (`espace/apis_connues.json`) avec son adresse
+exacte, le nom de ses paramètres (jamais leurs valeurs), à quoi elle sert et combien de fois elle a marché.
+`chercher_api` les montre en premier : il la rappelle sans relire sa doc. Une API en panne (erreur 5xx, délai
+dépassé) passe à la fin de la liste pendant une semaine, ou jusqu'à ce qu'elle remarche. Une même demande faite deux
+fois en deux minutes est resservie sans repartir.
+
+Il prend toujours une API sans clé quand il y en a une. Si seule une API à **clé gratuite** convient, il te demande
+d'abord en une phrase s'il peut créer le compte (gratuit, jamais de paiement). Ensuite il clique « copier » sur la
+clé et `ranger_cle_api` la range dans ton Trousseau (service `jervis-api:<site>`, étiquette « (Steve) »), puis la
+retire du presse-papiers. Il ne la tape jamais et ne l'écrit nulle part ; `espace/cles_api.json` ne garde que le nom
+du site. La clé ne se lie qu'au site d'une API du catalogue, jamais à un hébergeur partagé (github.io, herokuapp…).
+
+`appeler_api` ne fait que lire : une requête GET (ou une requête GraphQL, les `mutation` et `subscription`
+refusées), sans cookie, sous un nom générique. Une clé rangée n'est ajoutée que vers son site et ses sous-domaines, en
+https. Elle ne suit pas une redirection vers un autre site et n'apparaît jamais dans ce qu'il lit : elle est remplacée
+par « ••• », même quand l'API la recopie. Il refuse le Mac et
 ton réseau (127.0.0.1 et le tableau de bord, ta box, 192.168…, 10…, les `.local`, l'adresse des métadonnées des
 nuages…) : chaque nom est résolu une seule fois, l'adresse vérifiée, et la requête part vers cette adresse-là (un nom qui changerait d'adresse entre-temps ne le ramène pas chez toi), redirections comprises (3 au plus), jamais par un proxy. Il
 garde au plus 1 Mo de la réponse et en rend 8 000 caractères (le JSON résumé : 15 éléments par liste).
@@ -744,6 +759,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_LEXIQUE_MAX` | 80 | paires gardées dans son lexique (les plus anciennes s'en vont) |
 | `JERVIS_SAVOIR_FAIRE_MAX` | 40 | recettes au plus dans `espace/savoir-faire/` |
 | `JERVIS_INFOS_DELAI_S` | 8 | secondes qu'il laisse à un service d'infos (actualité, météo, change…) avant de dire qu'il ne répond pas et de passer à WebSearch |
+| `JERVIS_APIS_CACHE_S` | 120 | secondes pendant lesquelles la même demande à une API est resservie sans repartir (0 = jamais) |
+| `JERVIS_APIS_CATALOGUE_JOURS` | 30 | âge au-delà duquel le catalogue des API est retéléchargé en fond (0 = jamais) |
 | `JERVIS_QUESTION_ECRITE_S` | 300 | une question Oui / Non du chat restée sans clic ce temps-là : c'est non |
 | `JERVIS_ECRIT_RELECTURE_S` | 120 | après ce temps sans message tapé, il relit l'échange écrit pour sa mémoire et son carnet |
 | `JERVIS_PRESENT_S` | 120 | tu es « devant le Mac » si tu as touché clavier ou souris depuis ce nombre de secondes |
@@ -779,7 +796,7 @@ Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages
 Payer coupé, les numéros de carte, les CAPTCHA et ses publications (fausse notification, dossier temporaire) : `tests/test_paiements.py`.
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
 Ses autres outils d'infos (entreprises, adresses, produits… jusqu'à l'heure dans le monde), sans réseau : `tests/test_infos2.py`.
-Le catalogue des API et l'appel (aucune adresse du Mac ni du réseau, même par une redirection), sans réseau ni DNS : `tests/test_apis.py`.
+Le catalogue des API et l'appel (aucune adresse du Mac ni du réseau, même par une redirection), son carnet, la mémoire courte, GraphQL en lecture seule, les clés (Trousseau et presse-papiers simulés : une clé ne part que vers son site), la mise à jour en fond, sans réseau ni DNS : `tests/test_apis.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -798,7 +815,8 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   OpenAlex que le sujet, le lieu, la monnaie, le pays, le nom, le code-barres ou la phrase à traduire demandés (sans clé ni compte, sous un nom générique), jamais ta voix ni ta mémoire.
 - La recherche dans le catalogue des API se fait sur le Mac. `appeler_api` n'envoie à l'API choisie que l'adresse et
   les paramètres de la question (une ville, un nom…), sous le même nom générique ; ses consignes lui interdisent
-  d'y mettre ton mail, ton adresse ou ta mémoire.
+  d'y mettre ton mail, ton adresse ou ta mémoire. Son carnet des API reste sur le Mac. Les clés gratuites restent
+  dans ton Trousseau et ne partent que vers leur site.
 - Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son lexique (`lexique.md`), ses recettes (`espace/savoir-faire/`), son graphe (`espace/graphe.db`,
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents

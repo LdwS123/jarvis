@@ -844,7 +844,9 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        # Les comptes : « c'est rangé », et la liste qu'il a écrite lui-même (jamais un mot de passe).
                        r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes|signaler_captcha|noter_publication|"
                        # Son lexique et ses recettes : ce qu'il a écrit lui-même (lexique.py, savoir_faire.py).
-                       r"noter_mot|noter_savoir_faire|chercher_savoir_faire)"
+                       r"noter_mot|noter_savoir_faire|chercher_savoir_faire|"
+                       # Une clé d'API rangée dans le Trousseau : il ne lit que « c'est rangé » (apis.py).
+                       r"ranger_cle_api)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
 # Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre

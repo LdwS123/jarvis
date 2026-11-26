@@ -963,7 +963,7 @@ OUTILS.extend([savoir_faire.outil_noter_savoir_faire, savoir_faire.outil_cherche
 OUTILS.extend(comptes.OUTILS_COMPTES)  # créer des comptes à ta place (comptes.py)
 OUTILS.extend(infos.OUTILS_INFOS)  # actualité, météo, change, Wikipédia, jours fériés, cryptos (infos.py)
 OUTILS.extend(infos2.OUTILS_INFOS2)  # entreprises, adresses, produits, air, carburants, livres… (infos2.py)
-OUTILS.extend(apis.OUTILS_APIS)  # toutes les API publiques gratuites : le catalogue, et l'appel (apis.py)
+OUTILS.extend(apis.OUTILS_APIS)  # toutes les API publiques gratuites : le catalogue, l'appel, les clés (apis.py)
 if graphe.ACTIF:
     OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)
 

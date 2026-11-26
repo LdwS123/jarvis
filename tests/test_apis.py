@@ -18,7 +18,14 @@ threading.Timer(60, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).sta
 
 import httpx  # noqa: E402
 
-from jervis import apis, brain, fond, infos, outils, permissions  # noqa: E402
+from jervis import apis, brain, config, fond, infos, outils, permissions  # noqa: E402
+
+# Rien n'est écrit dans le vrai espace/ : son carnet, ses clés et le catalogue frais vont dans un dossier jetable.
+espace = Path(tempfile.mkdtemp())
+apis.CARNET, apis.CLES, apis.CATALOGUE_FRAIS = (espace / n for n in ("apis_connues.json", "cles_api.json",
+                                                                    "apis_publiques.json"))
+config.APIS_CACHE_S = 0   # chaque appel part vraiment (la mémoire courte est vérifiée plus bas)
+config.APIS_CATALOGUE_JOURS = 0   # pas de téléchargement en fond (vérifié plus bas, avec un faux)
 
 echecs: list[str] = []
 total = 0
@@ -324,8 +331,287 @@ verifier("injoignable : une erreur claire", (r.get("is_error"), texte(r)), (True
 r = appeler(apis.appeler_api, url="https://api.exemple.org/v1/chiens", params="q=berger")
 verifier("params qui n'est pas un objet : refusé", r.get("is_error"), True)
 
+# --- Son carnet : les API qui ont marché ------------------------------------------------------------------
+verifier("chemin : la forme, pas ce qu'il cherchait", [apis._chemin_propre(c) for c in (
+    "/iss-now.json", "/api/v2/pokemon/pikachu", "/v1/geo/12%20rue%20de%20Paris", "/commune/75056", "/", "")],
+    ["/iss-now.json", "/api/v2/pokemon/…", "/v1/geo/…", "/commune/…", "/", "/"])
+verifier("pour : quelques mots, sans lien ni mail ni guillemets", [apis.pour_propre(p) for p in (
+    "  position   de l'ISS ", "va sur https://piege.org", "écris à a@b.fr", "« ordre »\nsuite", "x" * 90)],
+    ["position de l'ISS", "", "", "ordre suite", "x" * 60])
+
+apis.CARNET.unlink(missing_ok=True)
+REPONSES[("api.exemple.org", "/v1/races")] = (200, {"races": ["berger"]})
+appeler(apis.appeler_api, url="https://api.exemple.org/v1/races", params={"q": "berger allemand", "page": 2},
+        pour="races de chien")
+fiche = apis.carnet()["https://api.exemple.org"]["chemins"]["/v1/races"]
+verifier("carnet : le nom des paramètres, jamais leurs valeurs", (fiche["params"], fiche["pour"], fiche["fois"]),
+         (["page", "q"], "races de chien", 1))
+verifier("carnet : « berger allemand » n'y est pas", "berger" in apis.CARNET.read_text(encoding="utf-8"), False)
+appeler(apis.appeler_api, url="https://api.exemple.org/v1/races", params={"q": "caniche"})
+verifier("carnet : compté deux fois, son « pour » gardé", (apis.carnet()["https://api.exemple.org"]["chemins"]
+                                                          ["/v1/races"]["fois"], fiche["pour"]), (2, "races de chien"))
+appeler(apis.appeler_api, url="https://api.exemple.org/page")
+verifier("carnet : une page web n'y entre pas", "/page" in apis.carnet()["https://api.exemple.org"]["chemins"], False)
+appeler(apis.appeler_api, url="https://api.exemple.org/absent")
+verifier("carnet : une 404 (sa faute à lui) n'y entre pas, et n'est pas une panne",
+         ("/absent" in apis.carnet()["https://api.exemple.org"]["chemins"],
+          "panne" in apis.carnet()["https://api.exemple.org"]), (False, False))
+appeler(apis.appeler_api, url="https://inconnu.exemple.org/")
+verifier("carnet : une adresse inconnue qui ne répond pas n'y entre pas", list(apis.carnet()),
+         ["https://api.exemple.org"])
+
+# Ce qu'il retrouve : en tête de chercher_api, avec l'adresse exacte.
+REPONSES[("api.dog.ceo", "/breeds/list")] = (200, {"message": ["akita"]})
+DNS["api.dog.ceo"] = ["93.184.216.35"]
+appeler(apis.appeler_api, url="https://api.dog.ceo/breeds/list", pour="liste des races")
+r = texte(appeler(apis.chercher_api, recherche="dog breeds"))
+contient("chercher_api : celles qui ont marché d'abord, avec l'adresse et les paramètres", r,
+         "Déjà utilisées et qui marchent (appelle-les directement) :\n- https://api.dog.ceo/breeds/list (pour « liste "
+         "des races », 1 fois")
+contient("chercher_api : retrouvée par son « pour »", texte(appeler(apis.chercher_api, recherche="chien race")),
+         "- https://api.exemple.org/v1/races (pour « races de chien », paramètres : page, q, 2 fois, la dernière le ")
+verifier("… puis le catalogue, l'API déjà utilisée signalée", r.index("Déjà utilisées") < r.index("API gratuites"), True)
+contient("… Dog CEO : déjà utilisée", r, "- Dog CEO (Animals, sans clé, déjà utilisée)")
+verifier("chercher_api : rien de connu sur l'ISS", "Déjà utilisées" in texte(appeler(apis.chercher_api, recherche="iss")),
+         False)
+contient("chercher_api vide : aussi ce qu'il a déjà utilisé", texte(appeler(apis.chercher_api)),
+         "Déjà utilisées et qui marchent", "- https://api.dog.ceo/breeds/list", "API sans clé, par catégorie")
+
+# Une panne : l'API passe à la fin et sort des « déjà utilisées » ; un succès l'efface.
+REPONSES[("api.dog.ceo", "/breeds/list")] = (503, "maintenance")
+appeler(apis.appeler_api, url="https://api.dog.ceo/breeds/list")
+verifier("panne notée", bool(apis.en_panne(apis.carnet()["https://api.dog.ceo"])), True)
+r = texte(appeler(apis.chercher_api, recherche="dog", avec_cle=True))
+verifier("en panne : plus dans « déjà utilisées », et à la fin du catalogue",
+         ("api.dog.ceo" in r.split("API gratuites")[0], r.rsplit("\n", 1)[0].splitlines()[-1].startswith(
+             "- Dog CEO (Animals, sans clé, en panne le ")), (False, True))
+REPONSES[("api.dog.ceo", "/breeds/list")] = (200, {"message": ["akita"]})
+appeler(apis.appeler_api, url="https://api.dog.ceo/breeds/list")
+verifier("un succès efface la panne", "panne" in apis.carnet()["https://api.dog.ceo"], False)
+vieux = apis.carnet()
+vieux["https://api.dog.ceo"]["panne"] = "2020-01-01T10:00"
+apis._ecrire_json(apis.CARNET, vieux)
+verifier("une vieille panne est oubliée", apis.en_panne(apis.carnet()["https://api.dog.ceo"]), None)
+apis.CARNET.write_text("pas du json", encoding="utf-8")
+verifier("un carnet abîmé : vide, sans planter", (apis.carnet(), appeler(apis.chercher_api, recherche="dog")
+                                                  .get("is_error", False)), ({}, False))
+apis.CARNET.unlink()
+
+# --- La mémoire courte : la même question resservie --------------------------------------------------------
+config.APIS_CACHE_S = 120
+REPONSES[("api.exemple.org", "/heure")] = (200, {"t": 1})
+VUES.clear()
+premier = texte(appeler(apis.appeler_api, url="https://api.exemple.org/heure", params={"tz": "Paris"}))
+REPONSES[("api.exemple.org", "/heure")] = (200, {"t": 2})
+second = texte(appeler(apis.appeler_api, url="https://api.exemple.org/heure", params={"tz": "Paris"}))
+verifier("mémoire courte : la même demande ne repart pas", (len(VUES), second.startswith('{"t":1}\n(Réponse d\'il y a ')),
+         (1, True))
+autre = texte(appeler(apis.appeler_api, url="https://api.exemple.org/heure", params={"tz": "Tokyo"}))
+verifier("… d'autres paramètres, si", (len(VUES), autre.startswith('{"t":2}')), (2, True))
+REPONSES[("api.exemple.org", "/rate")] = (500, "oups")
+VUES.clear()
+appeler(apis.appeler_api, url="https://api.exemple.org/rate")
+appeler(apis.appeler_api, url="https://api.exemple.org/rate")
+verifier("… une erreur n'est jamais gardée", len(VUES), 2)
+apis._memoire[next(iter(apis._memoire))] = (0.0, "périmé")
+verifier("… une réponse trop vieille repart", "périmé" in texte(appeler(apis.appeler_api, url="https://api.exemple.org/heure",
+                                                                       params={"tz": "Paris"})), False)
+for i in range(apis.MEMOIRE_MAX + 20):
+    apis._garder(str(i), "x")
+verifier("… 100 réponses au plus", len(apis._memoire), apis.MEMOIRE_MAX)
+config.APIS_CACHE_S = 0
+apis._memoire.clear()
+
+# --- GraphQL : des lectures seulement ---------------------------------------------------------------------
+def graphql(requete: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, json={"data": {"recu": json.loads(requete.content)}})
+
+
+REPONSES[("api.exemple.org", "/graphql")] = graphql
+VUES.clear()
+r = appeler(apis.appeler_api, url="https://api.exemple.org/graphql", graphql="{ pays(code: $c) { nom } }",
+            variables={"c": "FR"})
+verifier("GraphQL : un POST, la requête et ses variables en JSON",
+         (VUES[-1].method, VUES[-1].headers["content-type"], json.loads(VUES[-1].content)),
+         ("POST", "application/json", {"query": "{ pays(code: $c) { nom } }", "variables": {"c": "FR"}}))
+contient("GraphQL : la réponse lue", texte(r), '{"data":{"recu":{"query":')
+VUES.clear()
+for q in ("mutation { supprimer(id: 1) }", "subscription { nouveaux { id } }", "query { a }\nmutation M { b }"):
+    r = appeler(apis.appeler_api, url="https://api.exemple.org/graphql", graphql=q)
+    verifier(f"GraphQL : refusé « {q[:20]} »", (r.get("is_error"), "pas de mutation" in texte(r)), (True, True))
+verifier("GraphQL : rien n'est parti", VUES, [])
+r = appeler(apis.appeler_api, url="https://api.exemple.org/graphql", graphql="{ a }", variables="c=FR")
+verifier("GraphQL : des variables qui ne sont pas un objet, refusées", r.get("is_error"), True)
+REPONSES[("api.exemple.org", "/gql-vieux")] = httpx.Response(307, headers={"location": "https://api.exemple.org/graphql"})
+r = appeler(apis.appeler_api, url="https://api.exemple.org/gql-vieux", graphql="{ a }")
+verifier("GraphQL : une redirection n'est pas suivie", (r.get("is_error"), "adresse finale" in texte(r)), (True, True))
+
+# --- Les clés gratuites, dans le Trousseau ----------------------------------------------------------------
+TROUSSEAU: dict[str, str] = {}
+PRESSE = {"texte": ""}
+SECRET = "ab12CD34ef56-GH78"
+
+
+async def faux_ranger(site, secret):
+    TROUSSEAU[site] = secret
+
+
+async def faux_retrouver(site):
+    return TROUSSEAU.get(site)
+
+
+async def faux_presse_papiers():
+    return PRESSE["texte"]
+
+
+async def faux_vider(secret):
+    if PRESSE["texte"] == secret:
+        PRESSE["texte"] = ""
+
+
+apis._trousseau_ranger, apis._trousseau_retrouver = faux_ranger, faux_retrouver
+apis._presse_papiers, apis._vider_presse_papiers = faux_presse_papiers, faux_vider
+
+verifier("clé : liée au site de la doc, ou à son parent, jamais à un hébergeur",
+         [apis.site_de_la_cle(d) for d in ("thedogapi.com", "api.thedogapi.com", "nasa.gov", "api.nasa.gov",
+                                           "github.io", "piege.org", "com")],
+         ["thedogapi.com", "api.thedogapi.com", "nasa.gov", "api.nasa.gov", None, None, None])
+PRESSE["texte"] = SECRET
+r = appeler(apis.ranger_cle_api, site="https://piege.org/")
+verifier("clé : un site hors du catalogue, refusé, presse-papiers pas lu", (r.get("is_error"), TROUSSEAU), (True, {}))
+for mauvais in ("", "court", "une phrase avec des espaces dedans", "x" * 300, 'guillemet"dedans'):
+    PRESSE["texte"] = mauvais
+    r = appeler(apis.ranger_cle_api, site="thedogapi.com")
+    verifier(f"clé : « {mauvais[:15]} » n'est pas une clé", (r.get("is_error"), TROUSSEAU, mauvais in texte(r) and
+                                                             bool(mauvais)), (True, {}, False))
+PRESSE["texte"] = SECRET
+r = appeler(apis.ranger_cle_api, site="https://www.TheDogAPI.com/signup")
+verifier("clé : rangée dans le Trousseau, retirée du presse-papiers",
+         (r.get("is_error", False), TROUSSEAU, PRESSE["texte"], SECRET in texte(r)),
+         (False, {"thedogapi.com": SECRET}, "", False))
+verifier("clé : le registre ne garde que le site", (list(apis.cles_rangees()), SECRET in apis.CLES.read_text()),
+         (["thedogapi.com"], False))
+contient("chercher_api : « tu as déjà sa clé »", texte(appeler(apis.chercher_api, recherche="dog", avec_cle=True)),
+         "- The Dog (Animals, clé gratuite à demander (apiKey), tu as déjà sa clé)")
+
+DNS["api.thedogapi.com"] = ["93.184.216.36"]
+DNS["ailleurs.exemple.org"] = ["93.184.216.37"]
+
+
+def echo(requete: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, json={"vu": str(requete.url), "entete": requete.headers.get("x-api-key", "")})
+
+
+REPONSES[("api.thedogapi.com", "/v1/breeds")] = echo
+VUES.clear()
+r = texte(appeler(apis.appeler_api, url="https://api.thedogapi.com/v1/breeds", params={"limit": 2},
+                  cle={"param": "api_key"}, pour="races"))
+verifier("clé en paramètre : ajoutée à la requête", dict(VUES[-1].url.params), {"limit": "2", "api_key": SECRET})
+verifier("… et jamais dans ce qu'il lit (masquée)", (SECRET in r, f"api_key={apis.MASQUE}" in r), (False, True))
+verifier("… ni dans son carnet (seulement comment la donner)",
+         (SECRET in apis.CARNET.read_text(), apis.carnet()["https://api.thedogapi.com"]["chemins"]["/v1/breeds"]["cle"]),
+         (False, {"param": "api_key"}))
+r = texte(appeler(apis.appeler_api, url="https://api.thedogapi.com/v1/breeds", cle={"entete": "X-Api-Key",
+                                                                                     "prefixe": "Bearer"}))
+verifier("clé en en-tête, avec son préfixe", (VUES[-1].headers["x-api-key"], SECRET in r),
+         (f"Bearer {SECRET}", False))
+contient("chercher_api : l'API à clé retrouvée avec la façon de la donner",
+         texte(appeler(apis.chercher_api, recherche="breeds")),
+         'avec ta clé, cle={"entete": "X-Api-Key", "prefixe": "Bearer "}')
+
+REPONSES[("api.thedogapi.com", "/fuite")] = httpx.Response(302, headers={"location": "https://ailleurs.exemple.org/x"})
+REPONSES[("ailleurs.exemple.org", "/x")] = echo
+VUES.clear()
+appeler(apis.appeler_api, url="https://api.thedogapi.com/fuite", cle={"entete": "X-Api-Key"})
+verifier("clé en en-tête : jamais envoyée au site vers lequel on est redirigé",
+         [(v.headers["host"], "x-api-key" in v.headers) for v in VUES],
+         [("api.thedogapi.com", True), ("ailleurs.exemple.org", False)])
+REPONSES[("api.thedogapi.com", "/fuite2")] = httpx.Response(
+    302, headers={"location": f"https://ailleurs.exemple.org/x?k={SECRET}"})
+VUES.clear()
+r = appeler(apis.appeler_api, url="https://api.thedogapi.com/fuite2", cle={"param": "api_key"})
+verifier("clé dans une redirection vers un autre site : refusée, jamais suivie",
+         (r.get("is_error"), "emporterait ta clé" in texte(r), [v.headers["host"] for v in VUES]),
+         (True, True, ["api.thedogapi.com"]))
+VUES.clear()
+r = appeler(apis.appeler_api, url="http://api.thedogapi.com/v1/breeds", cle={"param": "api_key"})
+verifier("clé : jamais en http", (r.get("is_error"), "https" in texte(r), VUES), (True, True, []))
+for mauvaise, motif in [({"param": "a", "entete": "b"}, "soit"), ({}, "soit"), ("api_key", "objet"),
+                        ({"entete": "Cookie"}, "en-tête"), ({"entete": "Host"}, "en-tête"),
+                        ({"param": "a b"}, "paramètre"), ({"entete": "X-Key", "prefixe": "Bearer\nX"}, "préfixe")]:
+    r = appeler(apis.appeler_api, url="https://api.thedogapi.com/v1/breeds", cle=mauvaise)
+    verifier(f"cle mal dite {mauvaise!r} : refusée", (r.get("is_error"), motif in texte(r)) if mauvaise else
+             r.get("is_error", False), (True, True) if mauvaise else False)
+r = appeler(apis.appeler_api, url="https://api.exemple.org/v1/races", cle={"param": "k"})
+verifier("pas de clé pour ce site : il dit comment en avoir une", (r.get("is_error"), "ranger_cle_api" in texte(r)),
+         (True, True))
+TROUSSEAU.clear()
+r = appeler(apis.appeler_api, url="https://api.thedogapi.com/v1/breeds", cle={"param": "api_key"})
+verifier("clé partie du Trousseau : il le dit", (r.get("is_error"), "plus dans le Trousseau" in texte(r)), (True, True))
+apis.CARNET.unlink(missing_ok=True)
+
+# --- Le catalogue se remet à jour tout seul, en fond ------------------------------------------------------
+gros = [dict(lues[0], nom=f"API {i}") for i in range(600)]
+apis.CATALOGUE_FRAIS.write_text(json.dumps({"apis": gros}), encoding="utf-8")
+apis._cache = apis._index = None
+verifier("le catalogue frais (espace/) passe avant celui livré", len(apis.catalogue()), 600)
+apis.CATALOGUE_FRAIS.write_text(json.dumps({"apis": gros[:10]}), encoding="utf-8")
+apis._cache = apis._index = None
+verifier("… sauf s'il est incomplet", len(apis.catalogue()), len(lues))
+apis.CATALOGUE_FRAIS.write_text(json.dumps({"apis": [{"nom": "sans le reste"}, *gros]}), encoding="utf-8")
+apis._cache = apis._index = None
+verifier("… une fiche abîmée est sautée", len(apis.catalogue()), 600)
+apis.CATALOGUE_FRAIS.unlink()
+apis._cache = apis._index = None
+
+LANCES: list[Path] = []
+vrai_maj = apis.mettre_a_jour
+apis.mettre_a_jour = lambda destination=None: LANCES.append(destination) or 1
+
+
+async def deux_recherches() -> tuple[bool, bool]:
+    premier = apis.rafraichir_si_vieux()
+    await apis._maj_en_cours
+    return premier, apis.rafraichir_si_vieux()
+
+
+config.APIS_CATALOGUE_JOURS = 30
+verifier("un catalogue récent : rien ne part", (apis.rafraichir_si_vieux(), LANCES), (False, []))
+os.utime(apis.CATALOGUE, (0, 0))
+verifier("vieux de plus de 30 jours : téléchargé en fond, dans espace/, une fois par jour au plus",
+         (asyncio.run(deux_recherches()), LANCES), ((True, False), [apis.CATALOGUE_FRAIS]))
+config.APIS_CATALOGUE_JOURS = 0
+apis._maj_tentee = None
+verifier("APIS_CATALOGUE_JOURS=0 : jamais", apis.rafraichir_si_vieux(), False)
+apis.mettre_a_jour = vrai_maj
+
+
+class FauxReadme:
+    text = README.replace("| [Dog CEO]", "\n".join(f"| [Chien {i}](https://c{i}.org/) | x | No | Yes | No |"
+                                                    for i in range(600)) + "\n| [Dog CEO]")
+
+    def raise_for_status(self):
+        pass
+
+
+vrai_get = httpx.get
+httpx.get = lambda *a, **k: FauxReadme()
+verifier("mettre_a_jour : écrit d'un coup là où on lui dit", (apis.mettre_a_jour(espace / "frais.json"),
+                                                               (espace / "frais.json").exists(),
+                                                               (espace / "frais.tmp").exists()), (606, True, False))
+FauxReadme.text = README
+try:
+    apis.mettre_a_jour(espace / "petit.json")
+    refuse = False
+except ValueError:
+    refuse = True
+verifier("mettre_a_jour : un README qui a changé de forme est refusé", (refuse, (espace / "petit.json").exists()),
+         (True, False))
+httpx.get = vrai_get
+apis._cache = apis._index = None
+
 # --- Permissions et enregistrement ------------------------------------------------------------------------
-verifier("les deux outils donnés à Steve", all(o in outils.OUTILS for o in apis.OUTILS_APIS), True)
+verifier("ses trois outils donnés à Steve", all(o in outils.OUTILS for o in apis.OUTILS_APIS), True)
 verifier("pas de doublon de nom dans outils.OUTILS", len({o.name for o in outils.OUTILS}), len(outils.OUTILS))
 cherche, appelle = (f"mcp__{outils.NOM_SERVEUR}__{n}" for n in ("chercher_api", "appeler_api"))
 verifier("chercher_api : une lecture", permissions.est_lecture(cherche), True)
@@ -335,8 +621,16 @@ for nom in (cherche, appelle):
     verifier(f"{nom} : un texte du dehors", permissions.lit_dehors(nom), True)
     verifier(f"{nom} : il le fait sans demander", permissions.politique(nom, {"url": "https://x.org"}),
              permissions.Decision.OUI)
+range = f"mcp__{outils.NOM_SERVEUR}__ranger_cle_api"
+verifier("ranger_cle_api : il ne lit que « c'est rangé » (pas un texte du dehors)", permissions.lit_dehors(range), False)
+verifier("ranger_cle_api : il le fait sans demander", permissions.politique(range, {"site": "thedogapi.com"}),
+         permissions.Decision.OUI)
+verifier("ranger_cle_api : fermé tant qu'un mot de passe est dans le presse-papiers",
+         permissions.lit_le_presse_papiers(range, {"site": "thedogapi.com"}), True)
+verifier("ranger_cle_api : hors de sa ronde", fond.outil_de_lecture(range), False)
 contient("ses consignes lui disent quand s'en servir", Path(brain.__file__).read_text(encoding="utf-8"),
-         "cherche-la dans ton catalogue (chercher_api", "puis appelle-la (appeler_api)")
+         "cherche-la dans ton catalogue (chercher_api", "puis appelle-la (appeler_api", "ranger_cle_api",
+         "Préfère toujours\nune API sans clé")
 
 
 # --- Un mini essai en vrai (facultatif) -------------------------------------------------------------------
