@@ -160,6 +160,17 @@ MODELE_INITIATIVE = _env("MODELE_INITIATIVE", "sonnet")   # un modèle léger : 
 FICHIER_LECONS = DOSSIER / "lecons.md"
 LECONS_MAX = int(_env("LECONS_MAX", "60"))
 
+# --- Ce qu'il apprend de toi en plus du carnet ---------------------------------------
+# Son lexique (lexique.md) : les mots que la reconnaissance vocale écorche chez toi (« au crow » → « Oqro »). Il les
+# corrige avant de lire ta phrase. LEXIQUE=non pour ne plus corriger (le fichier reste).
+LEXIQUE = _env("LEXIQUE", "oui").lower() not in {"non", "off", "0"}
+FICHIER_LEXIQUE = DOSSIER / "lexique.md"
+LEXIQUE_MAX = int(_env("LEXIQUE_MAX", "80"))
+# Ses savoir-faire (espace/savoir-faire/) : la marche à suivre d'une tâche en plusieurs étapes qui a fini par marcher,
+# relue la fois suivante au lieu de tout redécouvrir.
+DOSSIER_SAVOIR_FAIRE = DOSSIER / "espace" / "savoir-faire"
+SAVOIR_FAIRE_MAX = int(_env("SAVOIR_FAIRE_MAX", "40"))
+
 # --- Le chat écrit (tableau de bord) -----------------------------------------------
 # Tu peux lui écrire au lieu de parler : il répond par écrit, sans voix. Une question oui/non dans le chat
 # (« je peux envoyer ? ») sans clic pendant QUESTION_ECRITE_S vaut non.

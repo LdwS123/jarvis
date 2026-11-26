@@ -604,6 +604,12 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     action = nom_action(outil)
     if action == "noter_lecon":
         return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
+    if action == "noter_mot":
+        return (f"Je note dans mon lexique : quand j'entends « {str(entree.get('entendu', '')).strip()} », tu veux dire "
+                f"« {str(entree.get('voulu', '')).strip()} ». Je peux ?")
+    if action == "noter_savoir_faire":
+        return (f"J'écris ma recette « {str(entree.get('titre', '')).strip()} » : "
+                f"{' '.join(str(entree.get('etapes', '')).split())}. Je peux ?")
     if action == "noter_publication":
         return (f"Je note que {str(entree.get('projet', '')).strip()} est sur {str(entree.get('site', '')).strip()} : "
                 f"« {str(entree.get('resume', '')).strip()} » (lien : {str(entree.get('lien', '')).strip() or 'aucun'}). Je peux ?")
@@ -835,14 +841,16 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
                        r"chercher_liens|"
                        # Les comptes : « c'est rangé », et la liste qu'il a écrite lui-même (jamais un mot de passe).
-                       r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes|signaler_captcha|noter_publication)"
+                       r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes|signaler_captcha|noter_publication|"
+                       # Son lexique et ses recettes : ce qu'il a écrit lui-même (lexique.py, savoir_faire.py).
+                       r"noter_mot|noter_savoir_faire|chercher_savoir_faire)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
                        r"|mcp__claude_ai_\w+?__(?:send|create|delete|trash|untrash|label|unlabel|mark|unmark|apply)_\w+)$")
 # Ce qui s'écrit pour les fois suivantes (sa mémoire, son carnet, une consigne programmée) ou part chez un autre
 # agent (le brief d'une tâche de fond, qui pourrait faire passer l'ordre d'un mail piégé) : après un texte venu
 # d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui, en voyant le texte exact.
 ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce", "lancer_tache_de_fond",
-                         "noter_publication"}
+                         "noter_publication", "noter_mot", "noter_savoir_faire"}
 # Ce qu'il te lit de ces outils avant de dire oui, et jusqu'où. Ce qui s'exécute est ce texte-là, mot pour mot :
 # au-delà de la limite, il ne coupe pas en douce, il refuse et redit plus court.
 A_MONTRER: dict[str, dict[str, int]] = {
@@ -852,6 +860,8 @@ A_MONTRER: dict[str, dict[str, int]] = {
     "programmer_annonce": {"faire": 200, "dire": 200, "quand": 20},
     "lancer_tache_de_fond": {"titre": 60, "brief": 500},
     "noter_publication": {"projet": 60, "site": 100, "lien": 300, "resume": 200},
+    "noter_mot": {"entendu": 40, "voulu": 40},
+    "noter_savoir_faire": {"titre": 80, "quand": 200, "etapes": 1500},
 }
 
 

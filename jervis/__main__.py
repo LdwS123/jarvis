@@ -1092,7 +1092,7 @@ def mode_barre() -> None:
     import rumps
     from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 
-    from . import comptes, fond, lecons, outils, tableau
+    from . import comptes, fond, lecons, lexique, outils, tableau
 
     etat = Etat()
 
@@ -1156,6 +1156,10 @@ def mode_barre() -> None:
         rumps.MenuItem("Ce qu'il surveille pour moi (sa ronde)", callback=lambda _: (fond.lire_initiative(),
                                                                                     ouvrir(config.FICHIER_INITIATIVE))),
         rumps.MenuItem("Ce qu'il a appris (son carnet)", callback=lambda _: ouvrir(lecons.preparer())),
+        rumps.MenuItem("Les mots qu'il entend mal (son lexique)", callback=lambda _: ouvrir(lexique.preparer())),
+        rumps.MenuItem("Ses savoir-faire (ses recettes)", callback=lambda _: (
+            config.DOSSIER_SAVOIR_FAIRE.mkdir(parents=True, exist_ok=True),
+            subprocess.Popen(["open", str(config.DOSSIER_SAVOIR_FAIRE)]))),
         rumps.MenuItem("Mes documents (CV, papiers…)", callback=lambda _: (
             config.DOCUMENTS.mkdir(parents=True, exist_ok=True), subprocess.Popen(["open", str(config.DOCUMENTS)]))),
         rumps.MenuItem("Ma fiche (pour les inscriptions)", callback=lambda _: ouvrir(comptes.preparer_fiche())),

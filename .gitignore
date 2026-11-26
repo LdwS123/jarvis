@@ -23,3 +23,7 @@ voix_choisie.txt
 .claude/
 .playwright-mcp/
 .DS_Store
+
+# Ce qu’il a appris de ta voix, et les sauvegardes de tes réglages
+lexique.md
+sauvegardes/

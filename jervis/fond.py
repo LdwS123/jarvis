@@ -252,9 +252,11 @@ class Taches:
             cwd=str(config.ESPACE),
             mcp_servers=serveurs,
             max_buffer_size=config.TAMPON_MAX,
-            # Pas de carnet pour eux : ils lisent seuls des pages et des mails, qu'un piège ne s'y inscrive pas
-            # pour toujours. Ce qu'ils ont appris revient par leur compte rendu, et la relecture en fait une leçon.
-            disallowed_tools=[*outils.OUTILS_MAC_COUPES, *outils.OUTILS_ECRAN_COUPES, f"mcp__{outils.NOM_SERVEUR}__noter_lecon"],
+            # Pas de carnet, de lexique ni de recettes pour eux : ils lisent seuls des pages et des mails, qu'un piège
+            # ne s'y inscrive pas pour toujours. Ce qu'ils ont appris revient par leur compte rendu : Steve en fait
+            # une leçon ou une recette (ils peuvent relire les recettes, chercher_savoir_faire).
+            disallowed_tools=[*outils.OUTILS_MAC_COUPES, *outils.OUTILS_ECRAN_COUPES,
+                              *(f"mcp__{outils.NOM_SERVEUR}__{n}" for n in ECRIT_PAR_STEVE)],
             can_use_tool=Gardien(confirmer),
         )
 
@@ -335,6 +337,8 @@ ETAT_RONDE = config.ESPACE / "ronde.json"
 # Ses outils d'infos lisent, mais sur Internet : un mail piégé lu pendant la ronde pourrait glisser tes données dans
 # la recherche envoyée. Comme le web, ils restent hors de sa ronde (Steve s'en sert quand tu lui parles).
 _INFOS = {f"mcp__{outils.NOM_SERVEUR}__{t.name}" for t in infos.OUTILS_INFOS}
+# Ce que seul Steve écrit pour les fois suivantes (voir _options) : ses agents de fond n'y touchent pas.
+ECRIT_PAR_STEVE = ("noter_lecon", "noter_mot", "noter_savoir_faire")
 
 
 def outil_de_lecture(outil: str) -> bool:

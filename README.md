@@ -430,6 +430,34 @@ d'un agent de fond (« Je confie à un agent « … » : … »). La relecture d
 conversation, le fil qu'il reprend après une pause et ses recherches dans vos conversations passées ne lui remontent
 pas ce texte-là, seulement ce que tu as dit et quels outils ont marché (le journal, lui, garde tout pour toi). Chaque nouvelle leçon apparaît dans le journal (« 📒 Leçon : … »).
 
+### Il apprend ta façon de parler (son lexique)
+
+La reconnaissance vocale ne connaît pas tes noms propres : elle écrit « au crow » pour Oqro, « stance heure » pour
+Stancer. Quand tu le corriges (« non, j'ai dit Oqro ») ou qu'il comprend lequel c'était, il note la paire dans son
+lexique (`lexique.md`, outil `noter_mot`), et la relecture de fin de conversation relève aussi les mots que tu as
+corrigés ou épelés. Dès la phrase suivante, ce que tu dis arrive à Claude déjà corrigé : c'est l'équivalent, en clair,
+d'un modèle qui s'adapte à ta voix. La correction se fait sur le Mac, en mots entiers (« au crow » ne touche pas
+« au crowd »), sans tenir compte des majuscules ni des tirets, et les plus longues d'abord. Elle ne touche ni le mot
+d'éveil ni le « stop », entendus avant, sur ta phrase brute, ni ce que tu tapes dans le chat (tu l'as écrit toi-même).
+Garde-fous : une paire ne contient jamais un mot qui porte le sens d'une phrase (non, pas, stop, ok, envoie, payer,
+supprime…), ni son nom, ni lien, adresse mail ou numéro ; une nouvelle correction du même mot remplace l'ancienne ;
+au-delà de `JERVIS_LEXIQUE_MAX` paires, les plus anciennes s'en vont. Menu → « Les mots qu'il entend mal (son
+lexique) » pour le lire ou rayer une ligne ; `JERVIS_LEXIQUE=non` coupe la correction. Chaque nouveau mot apparaît
+dans le journal (« 🔤 Lexique : … »).
+
+### Il garde ses recettes (ses savoir-faire)
+
+Une leçon tient en une phrase ; un savoir-faire, c'est la marche à suivre entière d'une tâche qui reviendra
+(s'inscrire sur un annuaire, publier un article, préparer une candidature). Après l'avoir réussie, il l'écrit
+(outil `noter_savoir_faire` : un titre, quand s'en servir, les étapes et le piège évité), un fichier par recette dans
+`espace/savoir-faire/`. La liste des titres est dans ses consignes ; avant une tâche qui ressemble à l'une d'elles, il
+la relit (`chercher_savoir_faire`) et la suit au lieu de tout redécouvrir : il va plus vite à chaque fois. Le même
+titre réécrit la recette quand il trouve mieux ou que tu le corriges. Mêmes protections que le carnet : jamais à
+partir d'une page ou d'un mail, ni lien, ni adresse, ni numéro, ses agents de fond peuvent relire les recettes mais pas
+en écrire (ils mettent ce qu'ils ont appris dans leur compte rendu), au plus `JERVIS_SAVOIR_FAIRE_MAX` recettes.
+Menu → « Ses savoir-faire (ses recettes) » ouvre le dossier : chaque recette est un texte que tu peux corriger ou
+jeter. « Efface ta mémoire, tout » vide aussi le lexique et les recettes.
+
 ### Sa ronde (il prend l'initiative)
 
 Une fois par heure environ, entre 9 h et 20 h, quand tu es devant le Mac et après le briefing du matin, il lance un
@@ -681,6 +709,9 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_INITIATIVE_FIN` | 20:00 | ni après celle-ci |
 | `JERVIS_MODELE_INITIATIVE` | sonnet | modèle de la ronde (elle ne fait que lire : un modèle léger suffit) |
 | `JERVIS_LECONS_MAX` | 60 | lignes gardées dans son carnet de leçons (les plus anciennes s'en vont) |
+| `JERVIS_LEXIQUE` | oui | `non` : ses phrases ne sont plus corrigées par son lexique |
+| `JERVIS_LEXIQUE_MAX` | 80 | paires gardées dans son lexique (les plus anciennes s'en vont) |
+| `JERVIS_SAVOIR_FAIRE_MAX` | 40 | recettes au plus dans `espace/savoir-faire/` |
 | `JERVIS_INFOS_DELAI_S` | 8 | secondes qu'il laisse à un service d'infos (actualité, météo, change…) avant de dire qu'il ne répond pas et de passer à WebSearch |
 | `JERVIS_QUESTION_ECRITE_S` | 300 | une question Oui / Non du chat restée sans clic ce temps-là : c'est non |
 | `JERVIS_ECRIT_RELECTURE_S` | 120 | après ce temps sans message tapé, il relit l'échange écrit pour sa mémoire et son carnet |
@@ -710,6 +741,7 @@ Internet : `PYTHONPATH=. .venv/bin/python tests/test_ligne.py`. Sa voix locale, 
 Cursor, la corbeille, effacer sa mémoire et les autorisations, sans rien ouvrir ni jeter : `tests/test_mac.py`.
 Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests/test_fond.py`.
 Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tests/test_bras_droit.py`.
+Son lexique, ses savoir-faire et leurs garde-fous (dossier temporaire, faux client Claude) : `tests/test_apprendre.py`.
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
 Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.
@@ -729,7 +761,7 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
 - Ses outils d'infos n'envoient à Google Actualités, Open-Meteo, Frankfurter, Wikipédia, Nager.Date et CoinGecko
   que le sujet, le lieu, la monnaie ou le pays demandés (sans clé ni compte, sous un nom générique), jamais ta voix ni ta mémoire.
-- Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son graphe (`espace/graphe.db`,
+- Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son lexique (`lexique.md`), ses recettes (`espace/savoir-faire/`), son graphe (`espace/graphe.db`,
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents
   (`documents/`) : seule leur liste est dans ses consignes, et il n'en lit un que quand ta demande le demande.
