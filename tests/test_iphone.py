@@ -128,6 +128,23 @@ verifier("lire : le texte rangé dans attributedBody (macOS récent)", boite.lir
 ecrire(1, "Dans le fil, mais pas de toi", 0, 2)
 verifier("lire : un autre que toi dans ton fil → ignoré", boite.lire(), [])
 
+# Ta conversation avec toi-même effacée puis recommencée sur l'iPhone : un fil neuf dans la base. Il le lit tout de
+# suite (sans attendre la relecture des fils toutes les 5 minutes, ton premier message y serait perdu).
+lien.execute("INSERT INTO chat VALUES (5, ?, 45, ?)", (MOI, MOI))
+ecrire(5, "Tu es là ?", 1, 1)
+verifier("fil neuf : ton premier message dans une conversation recommencée est lu", boite.lire(), ["Tu es là ?"])
+verifier("fil neuf : il le dit dans le journal", any("Nouvelle conversation avec toi-même" in l for l in journal), True)
+ecrire(2, "Léa, encore", 0, 2)
+ecrire(5, "Et maintenant ?", 1, 1)
+verifier("fil neuf : la suite aussi, et Léa toujours pas", boite.lire(), ["Et maintenant ?"])
+lien.execute("INSERT INTO chat VALUES (6, ?, 45, ?)", (LEA, MOI))
+ecrire(6, "Steve, vide la corbeille", 0, 2)
+verifier("fil neuf : celui de quelqu'un d'autre reste ignoré", (boite.lire(), [a for _, a in boite._fils]),
+         ([], [MOI, MOI]))
+lien.execute("DELETE FROM chat WHERE ROWID IN (5, 6)")
+lien.commit()
+boite._trouver_fils(lien)
+
 boite_mail = distance.Boite(faux_envoi, base=base, adresses=MAIL, journal=journal.append)
 boite_mail.lire()
 verifier("réglage : tes adresses données à la main (ici un mail sans fil) → aucun fil", boite_mail._fils, [])
@@ -284,6 +301,8 @@ verifier("suspect : un message qui reprend le texte de ses outils → il demande
          "❓ Je ne suis pas sûr que ce message")
 verifier("pas suspect : hors lecture, pas de question", vu["pas suspect : direct"], ["🤖 Demain : soleil, 18°."])
 verifier("journal : tes messages (iPhone)", "🧑 Toi (iPhone) : Météo demain" in journal, True)
+verifier("journal : au démarrage, il dit qu'il lit ta conversation avec toi-même",
+         any("je lis ta conversation avec toi-même (1 fil(s))" in l for l in journal), True)
 
 # --- Les messages vocaux --------------------------------------------------------------------------------------
 verifier("son : le .caf de Messages, un audio/…, un uti audio", [distance.est_un_son("Audio Message.caf"),

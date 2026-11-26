@@ -160,6 +160,7 @@ class Boite:
         self._a_moi: set[str] = set(self._donnees)
         self._fils: list[tuple[int, str]] = []   # (ROWID du fil, son adresse) : tes conversations avec toi-même
         self._fils_lus = 0.0
+        self._connus: set[int] = set()        # tous les fils de la base à la dernière lecture (les tiens et les autres)
         self.adresse = ""                     # où répondre : le fil de ton dernier message
         self._vus: deque[tuple[str, float]] = deque(maxlen=20)
         self._question: asyncio.Future | None = None
@@ -188,7 +189,19 @@ class Boite:
             fils = [(r, a, 45) for r, a in lien.execute("SELECT ROWID, chat_identifier FROM chat")]
         self._a_moi = a_moi
         self._fils = [(r, a) for r, a, style in fils if style != 43 and cle(a) in a_moi]  # 43 = un groupe
+        self._connus = {r for r, _, _ in fils}
         self._fils_lus = time.monotonic()
+
+    def _fil_nouveau(self, lien: sqlite3.Connection, apres: int, jusqua: int) -> bool:
+        """Un message est arrivé dans un fil qu'il n'a jamais vu (ta conversation avec toi-même effacée puis
+        recommencée, ou écrite à une autre de tes adresses) : sans relire les fils tout de suite, ce message-là
+        serait perdu."""
+        try:
+            fils = {r for (r,) in lien.execute("SELECT DISTINCT chat_id FROM chat_message_join "
+                                               "WHERE message_id > ? AND message_id <= ?", (apres, jusqua))}
+        except sqlite3.Error:
+            return False
+        return bool(fils - self._connus)
 
     def lire(self) -> list[str]:
         """Tes nouveaux messages à Steve (vide s'il n'y a rien, ou si la base est fermée : voir self.erreur)."""
@@ -201,8 +214,12 @@ class Boite:
             dernier = lien.execute("SELECT COALESCE(MAX(ROWID), 0) FROM message").fetchone()[0]
             if self._dernier is None:  # au démarrage : ce qui est déjà là n'est pas une demande
                 self._dernier = dernier
-            if not self._fils or time.monotonic() - self._fils_lus > ADRESSES_S:
+            if (not self._fils or time.monotonic() - self._fils_lus > ADRESSES_S
+                    or dernier > self._dernier and self._fil_nouveau(lien, self._dernier, dernier)):
+                deja = {r for r, _ in self._fils}
                 self._trouver_fils(lien)
+                if deja and (neufs := [a for r, a in self._fils if r not in deja]):
+                    self._journal(f"   📱 Nouvelle conversation avec toi-même vue ({len(neufs)}) : je la lis aussi.")
             if dernier <= self._dernier or not self._fils:
                 self._dernier, self.erreur = max(self._dernier, dernier), ""
                 return []
@@ -284,7 +301,7 @@ class Boite:
     async def relever(self) -> None:
         """Toutes les IMESSAGE_RELEVE_S secondes : tes nouveaux messages vont dans la file (ou répondent à sa
         question, s'il en attend une). Sans accès à la base, il le dit une fois et réessaie chaque minute."""
-        dit = False
+        dit = annonce = False
         while True:
             for texte in await asyncio.to_thread(self.lire):
                 # Ce texte vient de passer par l'un de ses outils (un script, une frappe) : il vient de lui.
@@ -297,6 +314,11 @@ class Boite:
             if self.erreur and not dit:
                 self._journal(f"   📱 Je ne lis pas tes iMessages : il me faut l'Accès complet au disque (Réglages → "
                               f"Confidentialité et sécurité). ({self.erreur})")
+            elif not self.erreur and not annonce:  # une fois : ce qu'il lit, pour savoir où lui écrire
+                annonce = True
+                self._journal(f"   📱 iMessage : je lis ta conversation avec toi-même ({len(self._fils)} fil(s))."
+                              if self._fils else "   📱 iMessage : je ne trouve pas encore ta conversation avec "
+                              "toi-même. Envoie-toi un message (à ton numéro ou à ton adresse iCloud) : je le lirai.")
             dit = bool(self.erreur)
             await asyncio.sleep(60 if self.erreur else config.IMESSAGE_RELEVE_S)
 

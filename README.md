@@ -408,6 +408,15 @@ Léa ? (réponds oui ou non) ») : réponds « oui » ou « non » dans le fil. 
 une autre phrase à la place d'un oui ou d'un non, c'est non aussi, et ta phrase devient la demande suivante. Une
 demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la réponse.
 
+**À quoi ça ressemble (c'est normal que ce soit bizarre)** : ce n'est pas une discussion avec quelqu'un d'autre.
+Steve répond depuis ton Mac, donc avec **ton** compte : sur l'iPhone, ses réponses s'affichent de ton côté, en bleu
+à droite, comme si tu les avais écrites (et selon la version d'iOS, un message apparaît parfois en double, une fois
+envoyé et une fois reçu). Ce qui distingue Steve, c'est le 🤖 au début de ses bulles et le ❓ de ses questions. Un
+message de toi à toi ne fait souvent **ni son ni bannière** : reste dans la conversation quelques secondes, sa
+réponse y arrive. Tu as effacé la conversation et recommencé, ou tu t'écris à une autre de tes adresses ? Il lit la
+nouvelle tout de suite (le journal dit `📱 Nouvelle conversation avec toi-même vue…`). Au démarrage, le journal dit
+`📱 iMessage : je lis ta conversation avec toi-même…` ; s'il ne la trouve pas encore, envoie-toi un premier message.
+
 - **Le Mac** : Steve doit tourner, Messages connecté à ton compte iCloud, et Jervis doit avoir l'**Accès complet au
   disque** (c'est ce qui lui permet de lire `~/Library/Messages/chat.db`, en lecture seule). Sans lui, une ligne
   `📱 Je ne lis pas tes iMessages…` le dit au démarrage.
