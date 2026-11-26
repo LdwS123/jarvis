@@ -1134,6 +1134,18 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         iphone = [asyncio.create_task(boite.relever()), asyncio.create_task(distance.servir(
             boite, cerveau.demander, journal=noter,
             relire=lambda: None if discussion["active"] else cerveau.fin_de_conversation()))]
+    # Le répondeur (« réponds à ma place pendant 2 h ») : chaque réponse partie, ou gardée pour toi, t'est dite
+    # dans le journal, en notification et, si tu veux, dans ta conversation avec toi-même sur l'iPhone.
+    from . import reponses
+    a_raconter = boite if iphone and config.REPONDEUR_IPHONE else None
+
+    def prevenir_repondeur(texte: str) -> None:
+        print(f"   {texte}", flush=True)
+        asyncio.create_task(notifier(config.PRENOM, texte))
+        if a_raconter:
+            asyncio.create_task(a_raconter.raconter(texte))
+    reponses.REPONDEUR.prevenir = prevenir_repondeur
+    iphone.append(asyncio.create_task(reponses.REPONDEUR.tourner()))
     n = config.PRENOM
     if manquantes := outils.autorisations_manquantes():  # sans elles, « efface ci, fais ça » échoue en silence
         noms = ", ".join(outils.VOLETS[m][1] for m in manquantes)

@@ -203,6 +203,18 @@ IMESSAGE_PATIENCE_S = float(_env("IMESSAGE_PATIENCE_S", "20"))  # pas fini en 20
 IMESSAGE_MEFIANCE_S = float(_env("IMESSAGE_MEFIANCE_S", "20"))
 QUESTION_IMESSAGE_S = float(_env("QUESTION_IMESSAGE_S", "600"))  # une question sans réponse en 10 min vaut non
 
+# --- Répondre à ta place (reponses.py) ------------------------------------------------------------------
+# « Steve, réponds à tous mes messages » : iMessage et WhatsApp, dans ton style avec chaque personne.
+REPONSES_HEURES = float(_env("REPONSES_HEURES", "72"))   # jusqu'où il remonte pour trouver ceux qui attendent
+REPONSES_MAX = int(_env("REPONSES_MAX", "15"))           # au plus 15 conversations à la fois
+MODELE_REPONSES = _env("MODELE_REPONSES", "sonnet")      # le modèle qui rédige les réponses du répondeur
+# Le répondeur (« réponds à ma place pendant 2 h ») : il attend 90 s que tu répondes toi-même, puis répond.
+REPONDEUR_DELAI_S = float(_env("REPONDEUR_DELAI_S", "90"))
+REPONDEUR_DUREE_H = float(_env("REPONDEUR_DUREE_H", "3"))      # sans durée dite : 3 h (0 = jusqu'à ce que tu l'arrêtes)
+REPONDEUR_MAX_PAR_H = int(_env("REPONDEUR_MAX_PAR_H", "4"))    # au plus 4 réponses par personne et par heure
+REPONDEUR_RELEVE_S = float(_env("REPONDEUR_RELEVE_S", "10"))   # il regarde les nouveaux messages toutes les 10 s
+REPONDEUR_IPHONE = _env("REPONDEUR_IPHONE", "oui").lower() not in {"non", "off", "0"}  # chaque réponse racontée sur l'iPhone
+
 # --- Appels par l'iPhone (appels.py) ------------------------------------------------------------------------
 # « Steve, appelle maman » : il compose sur le Mac, l'appel passe par ton iPhone, et toi tu parles.
 # APPEL_AUTO=non : il ouvre la bulle « Appeler » et c'est toi qui cliques.

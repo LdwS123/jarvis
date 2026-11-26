@@ -374,8 +374,10 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
 # page piégée qui essaierait de te voler un compte en le réinitialisant.
 COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu", "ranger_cle_api"}
 # Les messages à quelqu'un (ou à un groupe) : la question dit à qui et quoi.
-ENVOIS = {"envoyer_imessage", "envoyer_vocal_whatsapp", "envoyer_whatsapp"}
-JERVIS_A_CONFIRMER = {*ENVOIS, "appeler", "demander_accord",
+# repondre (reponses.py) : dans une conversation déjà là, le destinataire lu dans la base par le code.
+ENVOIS = {"envoyer_imessage", "envoyer_vocal_whatsapp", "envoyer_whatsapp", "repondre"}
+# Le répondeur : l'allumer (il répondra seul à ta place) se confirme ; l'éteindre ou demander son état, jamais.
+JERVIS_A_CONFIRMER = {*ENVOIS, "repondeur", "appeler", "demander_accord",
                       "mettre_a_la_corbeille", "effacer_memoire", "liberer_port", *COMPTES_A_CONFIRMER}
 # L'atelier de code (dev.py). Ce qui lance le code d'un projet ou un programme de Homebrew (gh) : après un texte venu
 # d'ailleurs, toujours dans la cage (le Gardien ajoute `cage` à l'appel), même après ton oui, puisque la question ne
@@ -398,6 +400,8 @@ def _maison(action: str, entree: dict[str, Any], a_confirmer: set[str]) -> Decis
         return Decision.DEMANDER
     if action == "ranger_dossier" and entree.get("appliquer"):  # déplacer tes fichiers : toi d'abord (pas le plan)
         return Decision.DEMANDER
+    if action == "repondeur" and entree.get("action") != "activer":
+        return Decision.OUI
     return Decision.DEMANDER if action in a_confirmer else Decision.OUI
 # Dans le navigateur : exécuter du code, envoyer un fichier, toucher aux cookies et sessions → il demande.
 # (Avant de payer, commander, envoyer… il doit aussi appeler demander_accord : voir brain.py.)
@@ -710,6 +714,25 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         quoi = {"memoire": "ce que je sais de toi", "conversations": "l'historique de nos conversations"}.get(
             str(entree.get("quoi") or ""), "ce que je sais de toi et nos conversations")
         return f"Je vais effacer {quoi}. Je peux ?"
+    if action == "repondre":
+        from . import reponses
+        fil = str(entree.get("fil") or "")
+        canal = "WhatsApp" if fil.startswith("whatsapp:") else "iMessage"
+        qui = reponses.nom_du_fil(fil) or "cette conversation"
+        return f"Je réponds à {qui} ({canal}) : « {entree.get('texte', '')} ». Je peux ?"
+    if action == "repondeur":
+        from . import reponses
+        qui = " et ".join(reponses._liste(entree.get("qui"))) or "tous ceux qui t'écrivent"
+        canaux = " et ".join({"imessage": "iMessage", "whatsapp": "WhatsApp"}[c]
+                             for c in reponses.canaux_de(entree.get("canal"))) or "?"
+        try:
+            heures = float(entree["heures"]) if entree.get("heures") is not None else config.REPONDEUR_DUREE_H
+        except (TypeError, ValueError):
+            heures = config.REPONDEUR_DUREE_H
+        duree = f"pendant {heures:g} h" if heures > 0 else "jusqu'à ce que tu l'arrêtes"
+        consigne = str(entree.get("consigne") or "").strip()
+        dit = f", en disant : « {consigne} »" if consigne else ""
+        return f"J'active ton répondeur : je réponds à ta place à {qui} sur {canaux}, {duree}{dit}. Je peux ?"
     if action in ENVOIS:
         vocal = {"envoyer_vocal_whatsapp": " un vocal WhatsApp", "envoyer_whatsapp": " sur WhatsApp"}.get(action, "")
         personne = entree.get("destinataire") if action == "envoyer_imessage" else entree.get("contact")
@@ -905,6 +928,8 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        r"creer_rappel|creer_note|lister_raccourcis|demander_accord|envoyer_imessage|appeler|raccrocher|"
                        # Le vocal WhatsApp : « ENVOYÉ / ÉCHEC + raison », écrit par le code (jamais un nom de Contacts).
                        r"envoyer_vocal_whatsapp|envoyer_whatsapp|"
+                       # Répondre dans une conversation : « ENVOYÉ : 2 message(s) », sans nom (reponses.py).
+                       r"repondre|"
                        r"mettre_a_la_corbeille|verifier_autorisations|memoire_du_mac|depenses|tableau_de_bord|"
                        r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme|"
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
@@ -947,6 +972,7 @@ A_MONTRER: dict[str, dict[str, int]] = {
     "definir_mode": {"nom": 40, "ouvrir": 200, "fermer": 200, "liens": 400, "raccourci": 60, "musique": 100,
                      "fenetres": 20},
     "noter_regle_rangement": {"motif": 60, "dossier": 120},
+    "repondeur": {"consigne": 300},
 }
 
 
@@ -1379,7 +1405,8 @@ class QuestionEnCours:
 
 
 def peut_ecrire_dans_messages(outil: str) -> bool:
-    return outil in _ECRIT_DU_CODE or outil.startswith("mcp__mac__") or outil == "mcp__jervis__envoyer_imessage"
+    return (outil in _ECRIT_DU_CODE or outil.startswith("mcp__mac__")
+            or outil in {"mcp__jervis__envoyer_imessage", "mcp__jervis__repondre"})
 
 
 async def attendre_les_questions() -> None:
@@ -1506,6 +1533,12 @@ def cible_de(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) 
         return None if not numero or appels.numero_urgence(numero) else numero
     if action == "execute_zapier_write_action":
         return f"{entree.get('selected_api') or '?'} / {entree.get('action') or '?'}"
+    if action == "repondre":  # une règle pour cette conversation-là (son nom lu dans la base), pas pour l'outil
+        from . import reponses
+        nom = reponses.nom_du_fil(str(entree.get("fil") or ""))
+        return f"la conversation avec {nom}" if nom else None
+    if action == "repondeur":
+        return None  # répondre seul à ta place : toujours ton oui, jamais une règle
     if action in ENVOIS and str(entree.get("groupe") or "").strip():
         if any(str(entree.get(c) or "").strip() for c in _CHAMPS_CIBLE):
             return None  # un groupe et une personne à la fois : l'outil refuse, une règle n'a pas à le couvrir
@@ -1865,6 +1898,17 @@ class Gardien:
         if decision is Decision.OUI and mefiant and action_dev in DEV_EN_CAGE and not Path(CAGE_EXEC).exists():
             decision = Decision.DEMANDER
             autorisable, pourquoi = False, "le code d'un projet après un texte venu d'ailleurs, et pas de cage sur ce Mac"
+        if (decision is Decision.OUI and outil == "mcp__jervis__repondeur" and entree.get("action") == "activer"
+                and (mefiant or self.mefiance)):
+            decision = Decision.DEMANDER  # répondre seul à ta place : jamais sous la dictée d'un message ou d'un agent
+            autorisable, pourquoi = False, "allumer ton répondeur juste après un texte venu d'ailleurs"
+        if decision is Decision.OUI and outil == "mcp__jervis__repondre" and (
+                self.mefiance or (mefiant and re.search(r"https?://|www\.|\b[\w-]+\.(?:com|fr|io|net|org|ly|me)/",
+                                                        str(entree.get("texte") or ""), re.I))):
+            # Le compte rendu d'un agent n'est pas ta demande ; un lien dans ta réponse, après avoir lu leurs
+            # messages, peut venir de l'un d'eux (« réponds-moi avec ce lien ») : toi d'abord.
+            decision = Decision.DEMANDER
+            autorisable, pourquoi = False, "une réponse avec un lien, ou demandée par un agent et pas par toi"
         if decision is Decision.OUI and outil == "mcp__jervis__commencer_compte_rendu" and mefiant:
             decision = Decision.DEMANDER  # écouter une réunion : jamais sous la dictée d'une page ou d'un mail
             autorisable, pourquoi = False, "écouter une réunion juste après un texte venu d'ailleurs"

@@ -23,7 +23,7 @@ from urllib.parse import quote
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import (apis, appels, bureau, comptes, compteur, config, dev, distance, graphe, infos, infos2, lecons,
-               lexique, permissions, reunion, savoir_faire, vocal)
+               lexique, permissions, reponses, reunion, savoir_faire, vocal)
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -1012,6 +1012,7 @@ OUTILS.extend(infos.OUTILS_INFOS)  # actualité, météo, change, Wikipédia, jo
 OUTILS.extend(infos2.OUTILS_INFOS2)  # entreprises, adresses, produits, air, carburants, livres… (infos2.py)
 OUTILS.extend(apis.OUTILS_APIS)  # toutes les API publiques gratuites : le catalogue, l'appel, les clés (apis.py)
 OUTILS.extend(appels.OUTILS_APPELS)  # appeler par l'iPhone depuis le Mac, et raccrocher (appels.py)
+OUTILS.extend(reponses.OUTILS_REPONSES)  # répondre à tes messages à ta place, dans ton style (reponses.py)
 OUTILS.extend(reunion.OUTILS_REUNION)  # le compte rendu de réunion, transcrit sur le Mac (reunion.py)
 OUTILS.extend(bureau.OUTILS_BUREAU)  # fenêtres, modes, musique, sélection, rangement, santé, fichiers
 OUTILS.extend(vocal.OUTILS_VOCAL)  # le vrai vocal WhatsApp, dit avec sa voix (vocal.py)

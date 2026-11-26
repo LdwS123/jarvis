@@ -138,6 +138,27 @@ def accord_simple(texte: str) -> bool | None:
     return True if _OUI.search(texte) else None
 
 
+def _donnees(reglage: str) -> set[str]:
+    """« auto » : rien de donné (ses adresses sont lues dans la base) ; sinon la liste « +336…, moi@icloud.com »."""
+    reglage = reglage.strip()
+    return set() if reglage.lower() in {"auto", "oui", "on", "1", ""} else {
+        c for a in reglage.split(",") if (c := cle(a))}
+
+
+def adresses_a_moi(lien: sqlite3.Connection, donnees: set[str] | None = None) -> set[str]:
+    """Tes adresses (celles où tu reçois tes messages) : données dans config.IMESSAGE, ou lues dans la base."""
+    donnees = _donnees(config.IMESSAGE) if donnees is None else donnees
+    a_moi = set(donnees)
+    if not donnees:
+        for requete in ("SELECT DISTINCT destination_caller_id FROM message WHERE is_from_me = 1",
+                        "SELECT DISTINCT last_addressed_handle FROM chat"):
+            try:
+                a_moi |= {c for (a,) in lien.execute(requete) if (c := cle(a))}
+            except sqlite3.Error:
+                pass  # une colonne absente de cette version de macOS : l'autre suffit
+    return a_moi
+
+
 class Boite:
     """Ta conversation avec toi-même dans Messages, vue depuis le Mac. `envoyer(adresse, texte)` fait partir
     un iMessage (AppleScript dans Steve, un faux dans les tests)."""
@@ -150,10 +171,8 @@ class Boite:
         self._transcrire = transcrire
         self._suspect = suspect or (lambda: False)
         self._base = base or comptes.CHAT_DB
-        reglage = (config.IMESSAGE if adresses is None else adresses).strip()
         # « auto » : ses adresses sont lues dans la base ; sinon, la liste que tu as donnée (« +336…, moi@icloud.com »).
-        self._donnees = set() if reglage.lower() in {"auto", "oui", "on", "1", ""} else {
-            c for a in reglage.split(",") if (c := cle(a))}
+        self._donnees = _donnees(config.IMESSAGE if adresses is None else adresses)
         self._accord = accord
         self._journal = journal
         self._dernier: int | None = None     # le dernier message déjà vu (ROWID) : rien d'avant le démarrage
@@ -175,14 +194,7 @@ class Boite:
 
     def _trouver_fils(self, lien: sqlite3.Connection) -> None:
         """Tes adresses (celles où tu reçois tes messages) et tes conversations avec toi-même."""
-        a_moi = set(self._donnees)
-        if not self._donnees:
-            for requete in ("SELECT DISTINCT destination_caller_id FROM message WHERE is_from_me = 1",
-                            "SELECT DISTINCT last_addressed_handle FROM chat"):
-                try:
-                    a_moi |= {c for (a,) in lien.execute(requete) if (c := cle(a))}
-                except sqlite3.Error:
-                    pass  # une colonne absente de cette version de macOS : l'autre suffit
+        a_moi = adresses_a_moi(lien, self._donnees)
         try:
             fils = lien.execute("SELECT ROWID, chat_identifier, COALESCE(style, 45) FROM chat").fetchall()
         except sqlite3.Error:
@@ -333,6 +345,13 @@ class Boite:
         if code:
             self._journal(f"   📱 Réponse iMessage pas partie : {sortie[:150]}")
         return not code
+
+    async def raconter(self, texte: str) -> bool:
+        """Te raconter quelque chose sur l'iPhone (ce que le répondeur a fait), même si tu ne lui as pas encore
+        écrit depuis son démarrage : dans ta conversation avec toi-même."""
+        if not self.adresse and self._fils:
+            self.adresse = self._fils[0][1]
+        return await self.envoyer(texte)
 
     async def demander(self, question: str, delai: float | None = None) -> bool:
         """Une question oui/non par iMessage : ton prochain message y répond. Pas de réponse à temps = non.

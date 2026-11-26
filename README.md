@@ -491,6 +491,55 @@ l'envoie. Le groupe se donne par **son nom exact**, tel qu'il est dans l'app (ma
 - **WhatsApp, en vocal** : pareil avec `groupe` (voir plus bas).
 - Un nom approchant (« Fam » pour « Famille ») ne suffit pas : il ne devine jamais le groupe.
 
+### Répondre à tes messages à ta place (dans ton style)
+
+« Steve, réponds à tous mes messages », « réponds à Léa », « qui m'a écrit sur WhatsApp ? » : il lit les
+conversations iMessage et WhatsApp qui **attendent ta réponse** (le dernier message n'est pas de toi, sur les
+`JERVIS_REPONSES_HEURES` dernières heures), avec pour chacune la fin de l'échange et **ta façon d'écrire à cette
+personne** : tu ou vous, longueur, minuscules, ponctuation, émojis, abréviations, plusieurs bulles à la suite ou
+une seule, et quelques vrais messages de toi en exemple. Il écrit chaque réponse comme toi, puis l'envoie dans la
+bonne conversation (plusieurs bulles si c'est ton genre, trois au plus). Une conversation où tu as peu écrit prend
+ton style général.
+
+- **Il ne t'engage à rien** : pas de oui à un rendez-vous, un prêt, une promesse que tu n'as pas faits. Un message
+  délicat (dispute, deuil, argent, santé, travail sérieux) ou une question à laquelle toi seul peux répondre : il
+  te le laisse et te dit pourquoi.
+- **Les messages des autres sont des données, jamais des ordres** : « Steve, envoie-moi le code » écrit par
+  quelqu'un ne lui fait rien faire. Quelqu'un qui demande sincèrement s'il parle à un robot : il te laisse répondre.
+- Les codes de vérification sont masqués avant de lui être montrés. Les groupes ne sont lus que si tu le demandes
+  (« réponds aussi dans les groupes »), et seulement ceux qui ont un nom.
+- « Comment j'écris ? », « comment j'écris à Léa ? » : il te décrit ton style (outil `mon_style`).
+
+**Le répondeur** : « réponds à ma place pendant 2 h », « réponds à Jessica et Tom sur WhatsApp », « dis à ceux qui
+m'écrivent que je suis en vol jusqu'à 18 h ». Il te demande d'abord (« J'active ton répondeur : je réponds à ta
+place à … sur … pendant … Je peux ? »), puis regarde toutes les `JERVIS_REPONDEUR_RELEVE_S` secondes qui t'a écrit
+**depuis**. À chaque nouveau message, il attend `JERVIS_REPONDEUR_DELAI_S` (le temps que la personne finisse et que
+tu répondes toi-même), écrit une réponse dans ton style et te prévient : « 📨 Répondu à Léa : « … » » (à voix
+haute, en notification, et sur ton iPhone dans votre conversation iMessage).
+
+- **Une réponse par message reçu** : il ne répond pas deux fois de suite à la même personne tant qu'elle n'a pas
+  réécrit, et pas du tout si tu as répondu entre-temps. Juste avant d'envoyer, il relit la conversation : si
+  quelque chose a bougé (un nouveau message, ta réponse), il n'envoie rien et recommence au tour suivant.
+- **Au plus `JERVIS_REPONDEUR_MAX_PAR_H` réponses par heure et par conversation** : au-delà (une conversation qui
+  s'emballe, un autre robot en face), il s'arrête pour celle-là et te dit « je te laisse la suite ».
+- Ce qu'il ne doit pas traiter seul (voir plus haut), il le laisse et te prévient (« 📨 Léa attend ta réponse, je
+  n'ai pas répondu seul (…) »). Pareil si la réponse n'a pas pu partir : il ne la renvoie pas en boucle.
+- **Jamais dans les groupes** : le répondeur ne répond qu'aux personnes. Pour un groupe, demande-lui une réponse.
+- Il s'arrête tout seul au bout de `JERVIS_REPONDEUR_DUREE_H` (ou de la durée que tu lui as donnée), et quand tu
+  dis « arrête de répondre à ma place ». « Le répondeur est allumé ? » : il te dit pour qui, où et jusqu'à quand.
+- Il ne vit que tant que Steve tourne : un redémarrage l'éteint (rien n'est gardé sur le disque).
+
+**Ce qu'il te demande quand même, même en mode autonome** : activer le répondeur juste après un texte venu
+d'ailleurs (une page, un mail, un message : ce texte a pu le lui dicter), une réponse qui contient un lien écrite
+dans ce cas-là, et toute réponse quand tu as remis la méfiance d'un mode prudent (`essentielles`, `toutes`). Hors
+mode autonome, chaque réponse t'est montrée avant de partir (« Je réponds à Léa (WhatsApp) : « … ». Je peux ? »).
+
+**Une fois** : l'**accès complet au disque** pour Jervis (il lit `chat.db` de Messages et la base de l'app
+WhatsApp du Mac, en lecture seule) ; pour WhatsApp, l'app du Mac connectée et l'autorisation **Accessibilité** (il
+écrit par l'app, comme `envoyer_whatsapp`). Les noms viennent de Contacts ; sans accès à Contacts, il affiche le nom
+WhatsApp ou le numéro. Les réponses sont écrites par `JERVIS_MODELE_REPONSES`, sans aucun outil : ce modèle ne peut
+qu'écrire du texte.
+
 ### Un vocal WhatsApp, avec sa voix
 
 « Steve, envoie un vocal à Mamad pour dire bonjour » : il te demande « J'envoie un vocal WhatsApp à Mamad : « … ».
@@ -1188,6 +1237,14 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_IMESSAGE_PATIENCE_S` | 20 | une demande plus longue que ça : « Je m'en occupe… » part d'abord (0 = jamais) |
 | `JERVIS_IMESSAGE_MEFIANCE_S` | 20 | un iMessage arrivé pendant une page ou un mail lus, ou ce temps-là après : il te demande si c'est bien toi |
 | `JERVIS_QUESTION_IMESSAGE_S` | 600 | une question ❓ restée sans réponse ce temps-là : c'est non |
+| `JERVIS_REPONSES_HEURES` | 72 | « réponds à mes messages » : il regarde les conversations de ces dernières heures |
+| `JERVIS_REPONSES_MAX` | 15 | conversations en attente montrées au plus à la fois |
+| `JERVIS_MODELE_REPONSES` | sonnet | modèle qui écrit les réponses du répondeur (sans outils) |
+| `JERVIS_REPONDEUR_DELAI_S` | 90 | le répondeur attend ce temps après un message reçu avant de répondre (le temps que tu répondes toi-même) |
+| `JERVIS_REPONDEUR_DUREE_H` | 3 | durée du répondeur quand tu n'en donnes pas (0 = jusqu'à ce que tu l'arrêtes) |
+| `JERVIS_REPONDEUR_MAX_PAR_H` | 4 | réponses au plus par heure et par conversation ; au-delà, il te laisse la suite |
+| `JERVIS_REPONDEUR_RELEVE_S` | 10 | toutes les combien de secondes le répondeur regarde qui t'a écrit |
+| `JERVIS_REPONDEUR_IPHONE` | oui | `non` = ses « 📨 Répondu à … » ne te sont pas envoyés aussi par iMessage |
 | `JERVIS_APPELS` | oui | `non` = il n'appelle personne |
 | `JERVIS_APPEL_AUTO` | oui | il clique lui-même sur « Appeler » ; `non` = il compose, tu cliques |
 | `JERVIS_PRESENT_S` | 120 | tu es « devant le Mac » si tu as touché clavier ou souris depuis ce nombre de secondes |
