@@ -212,7 +212,8 @@ class Boite:
                 # Ce texte vient de passer par l'un de ses outils (un script, une frappe) : il vient de lui.
                 de_lui = permissions.vu_dans_ses_outils(texte)
                 if self._question is not None and not self._question.done():
-                    self._question.set_result((texte, de_lui))  # sa réponse (pendant ce temps, rien n'écrit dans Messages)
+                    # Sa réponse (pendant ce temps, rien n'écrit dans Messages), et si elle arrive pendant une lecture.
+                    self._question.set_result((texte, de_lui, self._suspect()))
                 else:  # il lisait une page ou un mail, ou c'est l'un de ses textes : il te demande si c'est bien toi
                     self.arrivees.put_nowait((texte, de_lui or self._suspect()))
             if self.erreur and not dit:
@@ -243,7 +244,8 @@ class Boite:
             try:
                 if not await self.envoyer(f"{question} (réponds oui ou non)", QUESTION):
                     return False
-                texte, de_lui = await asyncio.wait_for(asyncio.shield(futur), delai or config.QUESTION_IMESSAGE_S)
+                texte, de_lui, suspect = await asyncio.wait_for(asyncio.shield(futur),
+                                                                delai or config.QUESTION_IMESSAGE_S)
             except asyncio.TimeoutError:
                 await self.envoyer("Pas de réponse : je n'ai rien fait.")
                 return False
@@ -253,8 +255,8 @@ class Boite:
             self._journal(f"   📱 Réponse écartée (elle reprend un texte de ses outils) : {texte[:120]}")
             return False
         accord = self._accord(texte)
-        if accord is None:
-            self.arrivees.put_nowait((texte, False))
+        if accord is None:  # lu ensuite comme une demande : avec le même doute que s'il était arrivé seul
+            self.arrivees.put_nowait((texte, suspect))
         return bool(accord)
 
 

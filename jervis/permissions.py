@@ -6,6 +6,7 @@ une commande shell, un outil Gmail ou Agenda, une page web, un clic dans une app
 
 import asyncio
 import re
+import shlex
 import subprocess
 import time
 from collections import deque
@@ -951,13 +952,93 @@ def envoie_par_messages(outil: str, entree: dict[str, Any]) -> bool:
     return outil in _ECRIT_DU_CODE and bool(_MESSAGES_PAR_SCRIPT.search(_texte_de(entree)))
 
 
+# Les seules commandes qui touchent à d'autres apps sans question après une page lue : le volume, Spotify ou Music,
+# ouvrir une adresse web ou lancer une app. La commande entière, d'un seul morceau : « osascript -e 'set volume 5'
+# -e '…keystroke…' » n'en est pas une.
+_ANODIN = re.compile(
+    r"""osascript\s+-e\s+(['"])(?:set\s+volume\s+(?:output\s+volume\s+)?\d{1,3}|set\s+volume\s+output\s+muted\s+"""
+    r"""(?:true|false)|output\s+volume\s+of\s+\(get\s+volume\s+settings\)|tell\s+application\s+"(?:Spotify|Music)"\s+"""
+    r"""to\s+(?:play|pause|playpause|next\s+track|previous\s+track))\1"""
+    # Une adresse entre guillemets peut porter « & » ou « ; » (ils restent dans l'adresse) ; sans guillemets, non.
+    r"""|open\s+(?:-a\s+(?:"[\w .\-]+"|'[\w .\-]+'|[\w.\-]+)\s*)?"""
+    r"""(?:"https?://[^\s"`$\\]+"|'https?://[^\s']+'|https?://[^\s"'`$;&|<>\\()]+)?""",
+    re.IGNORECASE)
+# « open » sur autre chose (un fichier, une app avec un document) : ce que macOS lance là ne passe pas par la cage.
+_OUVRE = re.compile(_COMMANDE + r"open\b(?!\s*\()")  # pas le open( de Python
+
+
+def commande_anodine(commande: str) -> bool:
+    commande = commande.strip()
+    return bool(commande) and bool(_ANODIN.fullmatch(commande))
+
+
 def pilote_des_apps(outil: str, entree: dict[str, Any]) -> bool:
     if outil not in _ECRIT_DU_CODE:
         return False
-    texte = _texte_de(entree)
-    if outil == "Bash" and SANS_RISQUE.match(texte.strip()) and not re.search(r"[;&|`$]|\n", texte):
-        return False  # le volume, Spotify : la courte liste de toujours
-    return bool(PILOTE_APPS.search(texte))
+    if outil == "Bash":
+        commande = str(entree.get("command") or "")
+        if commande_anodine(commande):
+            return False  # le volume, Spotify, une adresse web : la courte liste de toujours
+        return bool(PILOTE_APPS.search(commande) or _OUVRE.search(commande))
+    return bool(PILOTE_APPS.search(_texte_de(entree)))
+
+
+# Après un texte venu d'ailleurs, chaque commande que le Gardien laisse passer seule tourne dans une cage de macOS
+# (sandbox-exec) : un script qu'une page aurait dicté, même maquillé (base64, eval, un fichier écrit avant, lancé
+# en fond), ne peut ni piloter une app (Apple Events, frappes, clics, lancer une app), ni écrire dans Messages, ni
+# s'installer pour plus tard (LaunchAgents, cron, ton shell, le code de Steve, Claude Code). Le reste marche comme
+# avant : fichiers, réseau, Python, son. Ce qu'il fait dans la cage, ses enfants le font aussi.
+CAGE_EXEC = "/usr/bin/sandbox-exec"
+_CAGE_INTERDITS = ("/usr/bin/open", "/usr/bin/osascript", "/bin/launchctl", "/usr/bin/crontab", "/usr/bin/at",
+                   "/usr/bin/batch", "/usr/bin/shortcuts", "/usr/bin/automator")
+_RACINE = Path(__file__).resolve().parent.parent  # ~/Jervis
+
+
+def _cage_profil() -> str:
+    maison = Path.home().resolve()
+    dossiers = [maison / "Library/Messages", maison / "Library/LaunchAgents", maison / ".claude",
+                maison / "Library/Application Support/com.apple.backgroundtaskmanagementagent",
+                _RACINE / "jervis", _RACINE / ".venv", _RACINE / "Jervis.app", _RACINE / ".git/hooks"]
+    fichiers = [maison / f for f in (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".bashrc", ".bash_profile",
+                                     ".profile")]
+    sp = lambda chemins, quoi: " ".join(f'({quoi} "{c}")' for c in chemins)  # noqa: E731
+    return ("(version 1)(allow default)"
+            "(deny appleevent-send)"
+            '(deny mach-lookup (global-name "com.apple.coreservices.appleevents")'
+            ' (global-name-prefix "com.apple.windowserver") (global-name-prefix "com.apple.backgroundtaskmanagement"))'
+            f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')})"
+            f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})")
+
+
+def encager(commande: str) -> str:
+    """La même commande, dans la cage (même shell, même dossier, même sortie)."""
+    return (f"MPLBACKEND=Agg {CAGE_EXEC} -p {shlex.quote(_cage_profil())} /bin/zsh -c {shlex.quote(commande)}")
+
+
+def a_encager(commande: str) -> bool:
+    """Ce qui n'a pas besoin de la cage : la courte liste anodine (elle pilote Spotify, ouvre une page), un « cd »."""
+    commande = commande.strip()
+    return not (commande_anodine(commande) or re.fullmatch(r"cd(?:\s+[^\s;&|`$<>()]+)?", commande)
+                or commande.startswith(CAGE_EXEC))
+
+
+# Ce qui se lance tout seul plus tard, hors de toute cage (au démarrage, à l'ouverture d'un terminal, au prochain
+# lancement de Steve) : après un texte venu d'ailleurs, écrire là par Write ou Edit, c'est toi qui dis oui.
+SE_LANCE_PLUS_TARD = re.compile(
+    r"Library/(?:LaunchAgents|LaunchDaemons|Messages)\b|com\.apple\.backgroundtaskmanagement|/\.claude/"
+    r"|/\.(?:zshrc|zprofile|zshenv|zlogin|bashrc|bash_profile|profile)$|/\.git/hooks/"
+    r"|/Jervis/(?:jervis|\.venv|Jervis\.app)/", re.IGNORECASE)
+
+
+def ecrit_ce_qui_se_lance(outil: str, entree: dict[str, Any]) -> bool:
+    if outil not in _ECRIT_DU_CODE or outil == "Bash":
+        return False
+    chemin = str(entree.get("file_path") or entree.get("notebook_path") or "")
+    try:
+        chemin = str(Path(chemin).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        pass
+    return bool(SE_LANCE_PLUS_TARD.search(chemin))
 
 
 # Ce que ses outils ont reçu ces 15 dernières minutes (tous les agents) : un iMessage « de toi » qui reprend l'un de
@@ -1006,12 +1087,17 @@ async def attendre_les_questions() -> None:
         await asyncio.sleep(0.2)
 
 
+# Les gestes qui peuvent écrire quelque part : ceux de GESTES_MAC, plus les raccourcis (⌘V, Entrée) et le glisser.
+GESTES_VERS_MESSAGES = GESTES_MAC | {"hotkey", "key", "press_key", "drag", "swipe"}
+
+
 def _vise_messages(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> bool:
-    """Un geste (taper, cliquer, coller…) qui arriverait dans la fenêtre de Messages."""
-    if action not in GESTES_MAC:
+    """Un geste (taper, cliquer, coller, ⌘V…) qui arriverait dans la fenêtre de Messages. Sans app ni pid nommés,
+    il va aussi à l'app du premier plan : celle-là compte toujours, même si see en a regardé une autre."""
+    if action not in GESTES_VERS_MESSAGES:
         return False
     apps = cibles_mac(action, entree, apps_vues)
-    if INCONNUE in apps:
+    if not entree.get("pid") and not entree.get("app"):
         apps = apps | {_app_devant() or INCONNUE}
     return any(re.fullmatch(r"messages", a.strip(), re.IGNORECASE) for a in apps)
 
@@ -1033,6 +1119,9 @@ class Gardien:
         self.mefiance = False
         # Il a lu un texte venu d'ailleurs pendant cette demande : ce qu'il note dans son carnet passe par toi.
         self.contenu_externe = False
+        # Pareil, mais pour toute la conversation : ce qu'une page a dicté reste dans sa tête d'une demande à
+        # l'autre, jusqu'à ce qu'elle reparte à neuf (conversation_neuve, après une longue pause).
+        self.dehors_dans_le_fil = False
         # La demande vient de ton iPhone, par iMessage (distance.py) : tu n'es pas devant le Mac.
         self.a_distance = False
         self._verrou = asyncio.Lock()  # une question à la fois, même si les appels arrivent ensemble
@@ -1045,6 +1134,15 @@ class Gardien:
         self.mefiance, self.contenu_externe = mefiance, False
         # Les apps vues juste avant restent valables (« clique sur OK » juste après), jusqu'au prochain see.
         self._vu_cette_demande = False
+
+    def a_lu_dehors(self) -> None:
+        """Il vient de lire (ou va lire) un texte venu d'ailleurs : une page, un mail, une sortie de commande."""
+        self.contenu_externe = self.dehors_dans_le_fil = True
+        noter_lecture_dehors()
+
+    def conversation_neuve(self) -> None:
+        """La conversation de Claude repart de zéro (/clear, ou un Claude Code neuf) : plus rien d'ailleurs dedans."""
+        self.dehors_dans_le_fil = False
 
     def _noter_vue(self, entree: dict[str, Any]) -> None:
         if not self._vu_cette_demande:
@@ -1073,10 +1171,10 @@ class Gardien:
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)
-        deja_dehors = self.contenu_externe or self.mefiance  # avant cet outil-ci (une commande lit aussi le dehors)
+        # Avant cet outil-ci (une commande lit aussi le dehors), dans cette demande ou plus tôt dans la conversation.
+        deja_dehors = self.contenu_externe or self.mefiance or self.dehors_dans_le_fil
         if lit_dehors(outil):
-            self.contenu_externe = True
-            noter_lecture_dehors()
+            self.a_lu_dehors()
         if outil == "mcp__jervis__noter_mot" and (self.contenu_externe or self.mefiance):
             # Son lexique réécrit ce que tu dis avant que Claude le lise : il ne s'apprend que de ta bouche, jamais
             # d'un mail, d'une page ou d'un agent, et quel que soit le mode (même autonome, pas de question : non).
@@ -1093,8 +1191,11 @@ class Gardien:
                 # Un numéro lu sur une page ou dans un mail, ou un numéro d'urgence : c'est toi qui dis oui, même
                 # en mode autonome (un appel ne se rattrape pas).
                 decision = Decision.DEMANDER
-        if decision is Decision.OUI and deja_dehors and pilote_des_apps(outil, entree):
-            decision = Decision.DEMANDER  # des frappes ou un script d'app après une page lue : même en autonome
+        if decision is Decision.OUI and deja_dehors and (pilote_des_apps(outil, entree)
+                                                         or ecrit_ce_qui_se_lance(outil, entree)):
+            # Des frappes, un script d'app, un « open » de fichier, ou un fichier qui se lancera tout seul plus tard
+            # (LaunchAgents, ton shell, le code de Steve) après une page lue : même en autonome.
+            decision = Decision.DEMANDER
         prudent = config.CONFIRMATIONS != "autonome"   # en mode autonome : plus de questions que pour l'argent
         if prudent and decision is Decision.OUI and self.mefiance and not est_lecture(outil):
             decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même
@@ -1103,6 +1204,10 @@ class Gardien:
             decision = Decision.DEMANDER  # ce qui viendrait d'un mail ou d'une page ne s'inscrit pas sans toi
         if decision is Decision.NON and (motif := motif_interdit(outil, entree)):
             return PermissionResultDeny(message=motif)  # refusé d'office : pas de question, et il sait quoi faire à la place
+        if decision is Decision.OUI and deja_dehors and outil == "Bash" and a_encager(str(entree.get("command") or "")):
+            if Path(CAGE_EXEC).exists():  # seul, mais dans la cage (après ton oui à une question, sans)
+                return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]))})
+            decision = Decision.DEMANDER  # pas de cage sur ce Mac : c'est toi qui dis oui
         if decision is Decision.DEMANDER:
             # Une réponse vaut pour toutes les actions identiques de la demande (6 mails à la corbeille),
             # mais chaque message envoyé à quelqu'un est confirmé à part.

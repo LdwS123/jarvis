@@ -13,7 +13,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ResultMessage, StreamEvent, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
 from . import comptes, compteur, config, graphe, lecons, lexique, naturel, outils, savoir_faire
-from .permissions import Gardien, lit_dehors, lu_dehors_depuis, noter_lecture_dehors, noter_outil
+from .permissions import Gardien, lit_dehors, lu_dehors_depuis, noter_outil
 
 # Ce que tu lui dis à voix haute pendant qu'il travaille : il le lit à la fin de l'outil en cours, sans s'arrêter.
 # Un code tiré au hasard à chaque lancement, connu de ses seules consignes : une page ou un mail qui recopierait
@@ -89,6 +89,10 @@ l'infinitif (elle est lue à voix haute s'il faut confirmer) :
 - ouvrir une app : open -a "Nom de l'app" ; un site : open "https://…"
 - volume : osascript -e 'set volume output volume 40'
 - musique : osascript -e 'tell application "Spotify" to play' (ou "Music"), next track, pause
+Après une page, un mail ou une sortie de commande lus, tes commandes tournent dans une cage : un script n'y pilote
+aucune app (Apple Events, frappes, open, capture d'écran) et n'écrit ni dans Messages ni dans ce qui se lance tout
+seul. Une erreur « Operation not permitted » vient de là : passe par tes outils du Mac, ou lance osascript en
+commande directe (elle lui sera demandée).
 Tu as accès à tout le Mac, pas seulement à ton dossier : n'importe quel fichier, dossier ou app, avec son chemin
 complet (/Users/…, ~/Desktop/…, /Applications/…). « Fais ci, fais ça » sur le Mac : fais-le.
 Pour l'agenda, utilise les outils Google Calendar ; pour les mails, les outils Gmail.
@@ -755,8 +759,7 @@ class Cerveau:
                             self._au_travail = not par_ecrit
                             utilises[bloc.id] = bloc.name.split("__")[-1]
                             if lit_dehors(bloc.name):
-                                self._gardien.contenu_externe = True
-                                noter_lecture_dehors()
+                                self._gardien.a_lu_dehors()
                             noter_outil(bloc.input)
                             a_la_ligne = True
                 elif isinstance(message, UserMessage) and isinstance(message.content, list):
@@ -832,6 +835,7 @@ class Cerveau:
             self._journal(f"   ⚠️  Conversation pas remise à zéro : {e!r}")
             return ""
         self._totaux = compteur.Totaux()  # les totaux de Claude Code repartent de zéro
+        self._gardien.conversation_neuve()  # ce qu'une page avait dicté n'est plus dans sa tête
         self._journal("   \033[2m(conversation neuve après la pause : il garde sa mémoire)\033[0m")
         return self._rappel("avant une pause")
 
@@ -867,6 +871,7 @@ class Cerveau:
             except BaseException:
                 pass
         self._totaux = compteur.Totaux()
+        self._gardien.conversation_neuve()
         await self.demarrer(attente_max=8)
         self._a_rappeler = True
 

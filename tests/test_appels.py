@@ -170,6 +170,7 @@ async def gardien() -> dict:
         vu[f"messages par {nom}"] = type(await g(outil, entree, FauxContexte())).__name__
     async def essai_bash(commande: str, page: bool) -> tuple[str, int]:
         questions.clear()
+        g.conversation_neuve()
         g.nouvelle_demande()
         if page:
             await g("mcp__navigateur__browser_snapshot", {}, FauxContexte())
@@ -185,6 +186,57 @@ async def gardien() -> dict:
     vu["geste dans Messages"] = type(await g("mcp__mac__type", {"text": "oui", "app": "Messages"},
                                              FauxContexte())).__name__
     vu["geste ailleurs"] = type(await g("mcp__mac__type", {"text": "oui", "app": "TextEdit"}, FauxContexte())).__name__
+    # Un geste sans app nommée va à l'app du premier plan : Messages devant → refusé, même pour ⌘V ou un clic
+    vrai_devant = permissions._app_devant
+    for devant in ("Messages", "TextEdit"):
+        permissions._app_devant = lambda d=devant: d
+        g.nouvelle_demande()
+        vu[f"⌘V, {devant} devant"] = type(await g("mcp__mac__hotkey", {"keys": ["cmd", "v"]},
+                                                  FauxContexte())).__name__
+        g._apps_vues = {"Safari"}
+        vu[f"clic sur Safari, {devant} devant"] = type(await g("mcp__mac__click", {"on": "B1"},
+                                                               FauxContexte())).__name__
+    permissions._app_devant = vrai_devant
+    g._apps_vues = set()
+
+    # La cage : après une page lue, une commande permise tourne dans sandbox-exec
+    async def cage(commande: str, page: bool, demande_suivante: bool = False) -> tuple[str, int, bool]:
+        questions.clear()
+        g.conversation_neuve()
+        g.nouvelle_demande()
+        if page:
+            await g("mcp__navigateur__browser_snapshot", {}, FauxContexte())
+        if demande_suivante:
+            g.nouvelle_demande()  # une autre de tes phrases, dans la même conversation
+        r = await g("Bash", {"command": commande}, FauxContexte())
+        lance = (getattr(r, "updated_input", None) or {}).get("command", "")
+        return type(r).__name__, len(questions), lance.startswith("MPLBACKEND=Agg /usr/bin/sandbox-exec")
+
+    vu["cage : ls sans page"] = await cage("ls ~/Documents", page=False)
+    vu["cage : ls après une page"] = await cage("ls ~/Documents", page=True)
+    vu["cage : script à la demande suivante"] = await cage("python3 calcul.py", page=True, demande_suivante=True)
+    vu["cage : base64 | sh"] = await cage("echo b3Nhc2NyaXB0 | base64 -d | sh &", page=True)
+    vu["cage : volume"] = await cage("osascript -e 'set volume output volume 40'", page=True)
+    vu["cage : volume puis frappe"] = await cage(
+        """osascript -e 'set volume 5' -e 'tell application "System Events" to keystroke "oui"'""", page=True)
+    vu["cage : une adresse web"] = await cage('open "https://example.com/a?b=1"', page=True)
+    vu["cage : lancer une app"] = await cage('open -a "Spotify"', page=True)
+    vu["cage : ouvrir un fichier"] = await cage("open ~/Downloads/facture.command", page=True)
+    vu["cage : cd"] = await cage("cd ~/Documents", page=True)
+    g.conversation_neuve()
+    vu["cage : conversation neuve"] = await cage("python3 calcul.py", page=False)
+
+    async def ecrire(chemin: str) -> tuple[str, int]:
+        questions.clear()
+        g.conversation_neuve()
+        g.nouvelle_demande()
+        await g("mcp__navigateur__browser_snapshot", {}, FauxContexte())
+        r = await g("Write", {"file_path": chemin, "content": "x"}, FauxContexte())
+        return type(r).__name__, len(questions)
+
+    vu["écrire un LaunchAgent"] = await ecrire("~/Library/LaunchAgents/com.x.plist")
+    vu["écrire son .zshrc"] = await ecrire("~/.zshrc")
+    vu["écrire un document"] = await ecrire("~/Documents/notes.txt")
     # Une question ❓ attend ta réponse par iMessage : ce qui pourrait écrire dans Messages attend avec
     with permissions.QuestionEnCours():
         en_attente = asyncio.ensure_future(g("Bash", {"command": "ls"}, FauxContexte()))
@@ -225,6 +277,48 @@ verifier("gardien : une commande banale après une page → sans question", vu["
          ("PermissionResultAllow", 0))
 verifier("gardien : taper dans Messages → refusé", vu["geste dans Messages"], "PermissionResultDeny")
 verifier("gardien : taper ailleurs → permis", vu["geste ailleurs"], "PermissionResultAllow")
+verifier("gardien : ⌘V sans app, Messages devant → refusé", vu["⌘V, Messages devant"], "PermissionResultDeny")
+verifier("gardien : ⌘V sans app, TextEdit devant → permis", vu["⌘V, TextEdit devant"], "PermissionResultAllow")
+verifier("gardien : un clic sur Safari vu, mais Messages devant → refusé", vu["clic sur Safari, Messages devant"],
+         "PermissionResultDeny")
+verifier("gardien : un clic sur Safari vu, TextEdit devant → permis", vu["clic sur Safari, TextEdit devant"],
+         "PermissionResultAllow")
+A, D = "PermissionResultAllow", 1
+verifier("cage : sans rien lu d'ailleurs, pas de cage", vu["cage : ls sans page"], (A, 0, False))
+verifier("cage : après une page, en cage et sans question", vu["cage : ls après une page"], (A, 0, True))
+verifier("cage : la page lue reste dans la conversation (demande suivante)", vu["cage : script à la demande suivante"],
+         (A, 0, True))
+verifier("cage : un script maquillé (base64 | sh, en fond) aussi", vu["cage : base64 | sh"][2], True)
+verifier("cage : le volume reste hors cage, sans question", vu["cage : volume"], (A, 0, False))
+verifier("cage : le volume suivi d'une frappe → demandé (plus de passe-droit par le début)",
+         vu["cage : volume puis frappe"][:2], (A, D))
+verifier("cage : une adresse web s'ouvre hors cage", vu["cage : une adresse web"], (A, 0, False))
+verifier("cage : lancer une app, hors cage", vu["cage : lancer une app"], (A, 0, False))
+verifier("cage : ouvrir un fichier après une page → demandé", vu["cage : ouvrir un fichier"][:2], (A, D))
+verifier("cage : un simple cd reste hors cage", vu["cage : cd"], (A, 0, False))
+verifier("cage : conversation neuve → plus de cage", vu["cage : conversation neuve"], (A, 0, False))
+verifier("après une page : écrire un LaunchAgent → demandé", vu["écrire un LaunchAgent"], (A, D))
+verifier("après une page : écrire dans son .zshrc → demandé", vu["écrire son .zshrc"], (A, D))
+verifier("après une page : écrire un document → sans question", vu["écrire un document"], (A, 0))
+
+# La cage pour de vrai (macOS) : une commande normale y marche, osascript et l'écriture dans .git/hooks non.
+import subprocess  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+def en_cage(commande: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["/bin/zsh", "-c", permissions.encager(commande)], capture_output=True, text=True,
+                          timeout=20)
+
+if Path(permissions.CAGE_EXEC).exists() and en_cage("true").returncode == 0:
+    temoin = Path(permissions.__file__).resolve().parent.parent / ".git/hooks/temoin-de-cage"
+    r = en_cage(f"echo ok; osascript -e 'return 1'; touch {temoin}")
+    ecrit = temoin.exists()
+    temoin.unlink(missing_ok=True)
+    verifier("cage réelle : la commande tourne", r.stdout.strip().splitlines()[:1], ["ok"])
+    verifier("cage réelle : osascript et l'écriture dans .git/hooks refusés",
+             ("not permitted" in (r.stdout + r.stderr).lower(), ecrit), (True, False))
+else:
+    print("   (cage réelle pas testée ici : sandbox-exec n'y tourne pas)")
 verifier("gardien : pendant une question ❓, une commande attend (une lecture non)", vu["pendant la question"],
          (False, True))
 verifier("gardien : la question finie, elle repart", vu["après la question"], True)

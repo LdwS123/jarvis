@@ -379,9 +379,19 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
   revient pas déguisé en ordre de toi. Les messages déjà là au démarrage sont ignorés.
 - **Contre une page piégée qui voudrait se faire passer pour toi** :
   - il n'écrit jamais dans Messages par un script (AppleScript, JXA, Python, adresses `sms:`/`imessage:`) ni par
-    des gestes dans sa fenêtre : seulement par son outil, qui note ce qui part ;
-  - après une page ou un mail lus, toute commande qui pilote une app (frappes, `osascript`, Raccourcis) t'est
-    demandée, même en mode autonome ;
+    des gestes dans sa fenêtre (taper, cliquer, ⌘V… y compris quand Messages est simplement au premier plan) :
+    seulement par son outil, qui note ce qui part ;
+  - après une page ou un mail lus — et pour toute la suite de la conversation, jusqu'à ce qu'elle reparte à neuf
+    après une pause — toute commande qui pilote une app (frappes, `osascript`, Raccourcis, `open` d'un fichier)
+    t'est demandée, même en mode autonome. Seules exceptions, la commande entière et seule : le volume, Spotify ou
+    Music, ouvrir une adresse web, lancer une app ;
+  - les autres commandes, il les lance seul mais **dans une cage** de macOS (`sandbox-exec`) : un script dicté par
+    une page, même maquillé (base64, `eval`, lancé en fond), n'y envoie aucun Apple Event, aucune frappe, n'ouvre
+    aucune app, n'écrit ni dans `~/Library/Messages` ni dans ce qui se lance tout seul (LaunchAgents, cron, ton
+    shell, le code de Steve, `~/.claude`). Fichiers, réseau, Python et son marchent comme avant ; une capture
+    d'écran par `screencapture` non (il a ses outils du Mac pour ça) ;
+  - écrire par Write ou Edit dans ce qui se lance tout seul (LaunchAgents, `.zshrc`, le code de Steve) t'est
+    demandé après une page lue ;
   - un message qui arrive pendant qu'il lit une page ou un mail (ou moins de 20 s après), ou qui reprend un texte
     passé par ses outils : il te demande d'abord « c'est bien toi qui l'as écrit ? » ;
   - pendant qu'une question ❓ attend ta réponse, aucun de ses agents ne lance ce qui pourrait écrire dans Messages,
