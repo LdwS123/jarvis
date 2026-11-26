@@ -388,8 +388,10 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
   - les autres commandes, il les lance seul mais **dans une cage** de macOS (`sandbox-exec`) : un script dicté par
     une page, même maquillé (base64, `eval`, lancé en fond), n'y envoie aucun Apple Event, aucune frappe, n'ouvre
     aucune app, n'écrit ni dans `~/Library/Messages` ni dans ce qui se lance tout seul (LaunchAgents, cron, ton
-    shell, `~/.ssh`, `~/.gitconfig`, le `.git` de Steve sauf ce que git écrit en travaillant, un hook actif dans n'importe quel dépôt, les `.pth` de Python, le code de Steve,
-    `~/.claude`), et ne renomme pas leurs dossiers parents pour en poser des faux.
+    shell, `~/.ssh`, `~/.gitconfig`, les `.pth` de Python, le code de Steve et tout son `.git` — `git status` y
+    marche, tes commits se font hors cage —, la config, les hooks et `info/` de tes dépôts déjà là, un hook actif
+    dans n'importe quel dépôt, `~/.claude`), et ne renomme pas leurs dossiers parents pour en poser des faux ;
+    `git clone` et `git init` d'un nouveau dépôt restent possibles.
     La cage ferme les services eux-mêmes (Apple Events, LaunchServices, l'écran, les éléments de connexion,
     Raccourcis, les actions d'apps, toute tâche confiée à launchd) : une copie d'`open` ou d'`osascript` sous un
     autre nom, ou un script Python qui les appelle directement, n'y arrive pas plus, et un `sandbox-exec` lancé

@@ -8,6 +8,7 @@ Aucun appel ne part : `open tel://…` et le clic sur « Appeler » sont remplac
 import asyncio
 import os
 import threading
+import time
 
 threading.Timer(40, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).start()
 
@@ -210,7 +211,7 @@ async def gardien() -> dict:
             g.nouvelle_demande()  # une autre de tes phrases, dans la même conversation
         r = await g("Bash", {"command": commande}, FauxContexte())
         lance = (getattr(r, "updated_input", None) or {}).get("command", "")
-        return type(r).__name__, len(questions), lance.startswith("MPLBACKEND=Agg /usr/bin/sandbox-exec")
+        return type(r).__name__, len(questions), lance.startswith(permissions.encager("")[:60])
 
     vu["cage : ls sans page"] = await cage("ls ~/Documents", page=False)
     vu["cage : ls après une page"] = await cage("ls ~/Documents", page=True)
@@ -356,17 +357,30 @@ if nue:
         r = en_cage(f"git init -q {t}/depot && echo init_ok; echo x > {t}/depot/.git/hooks/pre-commit")
         verifier("cage réelle : git init d'un autre dépôt marche, y poser un hook actif non",
                  ("init_ok" in r.stdout, (Path(t) / "depot/.git/hooks/pre-commit").exists()), (True, False))
-        # ~/Jervis/.git : git travaille (objets, branches, index), info/ et commondir restent fermés
+        # ~/Jervis/.git fermé en entier : git status lit, rien ne s'y écrit (ni objet, ni branche, ni refs/replace)
         racine = permissions._RACINE
-        (Path(t) / "blob").write_text("temoin de cage\n")
-        r = en_cage(f"cd {racine} && git status -s >/dev/null && h=$(git hash-object -w {t}/blob) && "
-                    f"git update-ref refs/temoin-de-cage $h && git update-ref -d refs/temoin-de-cage && echo git_ok;"
-                    f" touch .git/info/temoin-de-cage .git/commondir")
-        poses = [racine / ".git/info/temoin-de-cage", racine / ".git/commondir"]
-        verifier("cage réelle : dans ~/Jervis, git écrit ses objets et ses branches ; info/ et commondir refusés",
-                 ("git_ok" in r.stdout, [p.exists() for p in poses]), (True, [False, False]))
+        (Path(t) / "blob").write_text(f"temoin de cage {time.time()}\n")  # neuf : jamais encore dans .git
+        r = en_cage(f"cd {racine} && git status -s >/dev/null && echo status_ok; git hash-object -w {t}/blob;"
+                    f" mkdir -p .git/refs/replace && touch .git/refs/replace/temoin-de-cage .git/info/temoin-de-cage")
+        poses = [racine / ".git/refs/replace/temoin-de-cage", racine / ".git/info/temoin-de-cage"]
+        objet = subprocess.run(["git", "-C", str(racine), "hash-object", str(Path(t) / "blob")], capture_output=True,
+                               text=True).stdout.strip()
+        verifier("cage réelle : dans ~/Jervis, git status marche ; objet, refs/replace et info/ refusés",
+                 ("status_ok" in r.stdout, [p.exists() for p in poses],
+                  (racine / ".git/objects" / objet[:2] / objet[2:]).exists()), (True, [False, False], False))
         for p in poses:
             p.unlink(missing_ok=True)
+        # Un dépôt déjà là : sa config (core.fsmonitor…) refusée ; on ne le renomme pas pour en poser un faux
+        subprocess.run(["git", "init", "-q", f"{t}/ancien"], check=True)
+        garde = permissions._DEPOTS[:]
+        permissions._DEPOTS[:] = [time.monotonic(), [Path(t).resolve() / "ancien/.git"]]
+        try:
+            r = en_cage(f"git -C {t}/ancien config core.fsmonitor 'touch {t}/pwn' && echo config_ecrit;"
+                        f" mv {t}/ancien {t}/ancien2 && echo renomme")
+        finally:
+            permissions._DEPOTS[:] = garde
+        verifier("cage réelle : la config d'un dépôt déjà là refusée, et il ne se renomme pas",
+                 ("config_ecrit" in r.stdout, "renomme" in r.stdout), (False, False))
     config_git = permissions._RACINE / ".git/config"
     avant = config_git.read_bytes()
     r = en_cage(f": >> {config_git} && echo ecrit")  # n'ajoute rien, même si c'était permis

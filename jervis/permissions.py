@@ -5,6 +5,7 @@ une commande shell, un outil Gmail ou Agenda, une page web, un clic dans une app
 """
 
 import asyncio
+import glob
 import re
 import shlex
 import subprocess
@@ -1001,20 +1002,38 @@ _SE_LANCE_FICHIERS = (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", "
                       ".bash_login", ".profile", ".gitconfig")
 _STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git")  # .git : hooks, config (core.hooksPath), info, commondir…
 _STEVE_FICHIERS: tuple[str, ...] = ()
-# … sauf ce que git écrit en travaillant (objets, branches, index, HEAD, messages de commit) — rien qui se lance
-_GIT_DE_TRAVAIL = (r"/\.git/(objects|refs|logs|rebase-merge|rebase-apply|sequencer)/",
-                   # des noms en toutes lettres : la cage compare sans tenir compte de la casse ([A-Z]+ = config)
-                   r"/\.git/(HEAD|[A-Z_]+_HEAD|AUTO_MERGE|MERGE_MSG|MERGE_MODE|SQUASH_MSG|TAG_EDITMSG|COMMIT_EDITMSG"
-                   r"|index|packed-refs|gc\.log)(\.lock)?$")
-# Partout, quel que soit le dépôt : un hook actif (pre-commit…, sans « .sample », que git clone ne pose pas), et les
-# .pth / sitecustomize que python lit à chaque démarrage
-_SE_LANCE_MOTIFS = (r"/\.git/hooks/[^/.]+$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")
+# Dans la cage, ~/Jervis/.git est fermé en entier (objets, branches, index compris : rien d'y glisser pour plus tard)
+# et git y lit sans rien écrire (GIT_OPTIONAL_LOCKS=0 : git status marche). Tes commits se font hors cage.
+# Partout, quel que soit le dépôt : un hook actif (pre-commit…, sans « .sample », que git clone ne pose pas), le
+# config.worktree et le commondir des worktrees, et les .pth / sitecustomize que python lit à chaque démarrage
+_SE_LANCE_MOTIFS = (r"/\.git/hooks/[^/.]+$", r"/\.git/(config\.worktree|commondir)$", r"/site-packages/[^/]*\.pth$",
+                    r"/(site|user)customize\.py$")
+# Tes dépôts déjà là (jusqu'à 3 niveaux sous ~, hors ~/Library) : leur config (core.fsmonitor, core.hooksPath
+# lanceraient du code à ton prochain git), leurs hooks et info/ fermés. Un nouveau dépôt (git clone, git init)
+# reste possible : git doit pouvoir y écrire sa config.
+_DEPOTS: list[Any] = [float("-inf"), []]  # [quand, les .git]
+DEPOTS_S = 300
+
+
+def _depots_existants() -> list[Path]:
+    if time.monotonic() - _DEPOTS[0] > DEPOTS_S:
+        maison = Path.home().resolve()
+        # glob.glob passe les dossiers cachés (pathlib, lui, y descend : plus d'une minute)
+        trouves = [g for n in (1, 2, 3) for g in map(Path, glob.glob(glob.escape(str(maison)) + "/*" * n + "/.git"))
+                   if g.is_dir() and not g.is_relative_to(maison / "Library") and g.parent != _RACINE]
+        _DEPOTS[:] = [time.monotonic(), trouves]
+    return _DEPOTS[1]
 
 
 def _se_lance_chemins() -> tuple[list[Path], list[Path]]:
     maison = Path.home().resolve()
     return ([maison / d for d in _SE_LANCE_DOSSIERS] + [_RACINE / d for d in _STEVE_DOSSIERS],
             [maison / f for f in _SE_LANCE_FICHIERS] + [_RACINE / f for f in _STEVE_FICHIERS])
+
+
+def _sbpl(chemin: Path) -> str:
+    """Un chemin dans une chaîne du profil (un nom de dossier peut contenir « " » ou « \\ »)."""
+    return str(chemin).replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _cage_profil() -> str:
@@ -1024,8 +1043,11 @@ def _cage_profil() -> str:
     # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
     # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
     parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE]
-    travail = " ".join(f'(regex #"^{re.escape(str(_RACINE))}{m}")' for m in _GIT_DE_TRAVAIL)
-    sp = lambda chemins, quoi: " ".join(f'({quoi} "{c}")' for c in chemins)  # noqa: E731
+    depots = _depots_existants()
+    dossiers = dossiers + [g / d for g in depots for d in ("hooks", "info")]
+    fichiers = fichiers + [g / "config" for g in depots]
+    parents = parents + [c for g in depots for c in (g, g.parent)]  # ni renommer le dépôt pour en poser un faux
+    sp = lambda chemins, quoi: " ".join(f'({quoi} "{_sbpl(c)}")' for c in chemins)  # noqa: E731
     # Le refus de process-exec ne vise que ces chemins (une copie du binaire y échappe, et Python appelle les mêmes
     # services sans binaire) : ce qui ferme vraiment la porte, ce sont les services eux-mêmes — Apple Events,
     # l'écran, LaunchServices (lancer une app, ouvrir un fichier), les éléments de connexion, Raccourcis et les
@@ -1038,14 +1060,13 @@ def _cage_profil() -> str:
             ' (global-name-prefix "com.apple.shortcuts") (global-name-prefix "com.apple.WorkflowKit")'
             ' (global-name-prefix "com.apple.siriactionsd") (global-name-prefix "com.apple.linkd"))'
             f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')} {motifs})"
-            f"(allow file-write* {travail})"  # la dernière règle qui correspond l'emporte
             f"(deny file-write-unlink {sp(parents, 'literal')})"
             f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})")
 
 
 def encager(commande: str) -> str:
     """La même commande, dans la cage (même shell, même dossier, même sortie)."""
-    return (f"MPLBACKEND=Agg {CAGE_EXEC} -p {shlex.quote(_cage_profil())} /bin/zsh -c {shlex.quote(commande)}")
+    return (f"MPLBACKEND=Agg GIT_OPTIONAL_LOCKS=0 {CAGE_EXEC} -p {shlex.quote(_cage_profil())} /bin/zsh -c {shlex.quote(commande)}")
 
 
 def a_encager(commande: str) -> bool:
