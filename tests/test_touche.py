@@ -108,6 +108,11 @@ for nom, evenements, attendu in [
 ]:
     fn, h = jouer(*evenements)
     verifier(f"appel : fn {nom}", fn.tenue_tout_du_long(101.0, 104.0), attendu)
+fn, _ = jouer(1.0, FN_BAS, 0.1, FN_HAUT)
+verifier("appel : une phrase trop courte (fenêtre à l'envers), un fn tapé dedans ne prouve rien",
+         fn.tenue_tout_du_long(101.05, 101.0), False)
+fn, _ = jouer(0.5, FN_BAS, 0.6)
+verifier("appel : … même tenue", fn.tenue_tout_du_long(101.0, 101.0), False)
 fn, h = jouer(FN_BAS, 50.0)
 verifier("coincée depuis 50 s : pas pour ta phrase", fn.tenue_depuis(h.t - 2), False)
 fn, h = jouer()

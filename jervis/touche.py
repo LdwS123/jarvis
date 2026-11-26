@@ -84,6 +84,8 @@ class Fn:
     def tenue_tout_du_long(self, debut: float, fin: float) -> bool:
         """fn enfoncée (seule) avant `debut` et jusqu'à `fin` au moins, sans lâcher : la preuve que c'est toi qui
         parlais pendant tout ce temps (pendant un appel, un fn tapé au vol pendant qu'un autre parle ne l'est pas)."""
+        if fin <= debut:
+            return False  # une phrase trop courte pour le prouver (sinon un fn tapé au vol suffirait)
         if self._appui is not None:
             return not self._autre and self._appui <= debut and self._horloge() - self._appui <= TENUE_MAX_S
         return self._appui_precedent <= debut and self._relachee >= fin
