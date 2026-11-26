@@ -455,10 +455,17 @@ VUES.clear()
 r = appeler(apis.appeler_api, url="https://api.exemple.org/v1/chiens", graphql="{ a }")
 verifier("GraphQL : jamais un POST vers une adresse qui n'est pas GraphQL", (r.get("is_error"), "adresse GraphQL" in texte(r),
                                                                           VUES), (True, True, []))
+verifier("GraphQL : un segment entier du chemin ou le premier mot du nom, rien de glissé autour",
+         [apis.adresse_graphql(u) for u in (
+             "https://countries.trevorblades.com/graphql", "https://x.org/v1/GraphQL/", "https://x.org/api/gql?a=1",
+             "https://graphql.x.org/", "https://x.org/notgraphql", "https://x.org/graphql/../admin",
+             "https://x.org/a/%2e%2e/graphql", "https://x.org/graphql/%2e%2e/admin", "https://graphql-piege.x.org/",
+             "https://x.org/admin?graphql", "https://x.graphql.org/", "pas une adresse")],
+         [True, True, True, True, False, False, False, False, False, False, False, False])
 r = appeler(apis.appeler_api, url="https://api.exemple.org/graphql", graphql="{ a }", variables="c=FR")
 verifier("GraphQL : des variables qui ne sont pas un objet, refusées", r.get("is_error"), True)
-REPONSES[("api.exemple.org", "/gql-vieux")] = httpx.Response(307, headers={"location": "https://api.exemple.org/graphql"})
-r = appeler(apis.appeler_api, url="https://api.exemple.org/gql-vieux", graphql="{ a }")
+REPONSES[("api.exemple.org", "/gql/vieux")] = httpx.Response(307, headers={"location": "https://api.exemple.org/graphql"})
+r = appeler(apis.appeler_api, url="https://api.exemple.org/gql/vieux", graphql="{ a }")
 verifier("GraphQL : une redirection n'est pas suivie", (r.get("is_error"), "adresse finale" in texte(r)), (True, True))
 
 # --- Les clés gratuites, dans le Trousseau ----------------------------------------------------------------

@@ -623,9 +623,23 @@ def _garder(cle_memoire: str, texte: str) -> None:
 
 
 _MODIFIE = re.compile(r"\b(?:mutation|subscription)\b")
-# Le POST de GraphQL ne part que vers une adresse qui le dit (« /graphql », « gql.x.org »…) : jamais un POST vers
-# une API ordinaire, où il pourrait créer ou changer quelque chose.
-_ADRESSE_GQL = re.compile(r"graphql|gql", re.IGNORECASE)
+# Le POST de GraphQL ne part que vers une adresse qui le dit (« /graphql », « /v1/gql », « graphql.x.org ») : jamais un
+# POST vers une API ordinaire, où il pourrait créer ou changer quelque chose.
+_GQL = {"graphql", "gql"}
+
+
+def adresse_graphql(url: str) -> bool:
+    """Un segment entier du chemin, ou le premier mot du nom, vaut « graphql » ou « gql ». Le chemin est lu comme
+    httpx l'enverra (décodé, « .. » résolus), et un « . » ou « .. » qui y resterait (« %2e%2e ») est refusé : le
+    serveur pourrait le résoudre ailleurs."""
+    try:
+        u = httpx.URL(url)
+    except httpx.InvalidURL:
+        return False
+    segments = u.path.split("/")
+    if {".", ".."} & set(segments):
+        return False
+    return bool(_GQL & {s.casefold() for s in segments}) or u.host.split(".")[0].casefold() in _GQL
 
 
 def _facon_de_donner(cle: Any) -> dict[str, str] | str:
@@ -670,8 +684,7 @@ async def appeler_api(args: dict[str, Any]) -> dict[str, Any]:
         variables = args.get("variables") or {}
         if not isinstance(variables, dict):
             return _erreur("`variables` est un objet ({\"nom\": \"valeur\"}).")
-        m = urlsplit(url)
-        if not _ADRESSE_GQL.search(f"{m.hostname or ''}{m.path}"):
+        if not adresse_graphql(url):
             return _erreur("Refusé : GraphQL seulement vers une adresse GraphQL (« …/graphql », « …/gql ») ; "
                            "regarde dans sa doc l'adresse exacte.")
         if _MODIFIE.search(requete_gql):
