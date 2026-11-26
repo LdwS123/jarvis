@@ -439,8 +439,11 @@ corrigés ou épelés. Dès la phrase suivante, ce que tu dis arrive à Claude d
 d'un modèle qui s'adapte à ta voix. La correction se fait sur le Mac, en mots entiers (« au crow » ne touche pas
 « au crowd »), sans tenir compte des majuscules ni des tirets, et les plus longues d'abord. Elle ne touche ni le mot
 d'éveil ni le « stop », entendus avant, sur ta phrase brute, ni ce que tu tapes dans le chat (tu l'as écrit toi-même).
-Garde-fous : une paire ne contient jamais un mot qui porte le sens d'une phrase (non, pas, stop, ok, envoie, payer,
-supprime…), ni son nom, ni lien, adresse mail ou numéro ; une nouvelle correction du même mot remplace l'ancienne ;
+Garde-fous : le bon mot est un nom propre ou un mot technique (trois mots au plus, avec une majuscule ou un
+chiffre) ; une paire ne contient jamais un mot qui porte le sens d'une phrase (non, pas, stop, ok, envoie, payer,
+supprime, transfère, partage, publie…), ni son nom, ni lien, adresse mail ou numéro. Après avoir lu un texte venu
+d'ailleurs (mail, page, agent), il ne peut plus y écrire jusqu'à ta demande suivante, quel que soit le mode : son
+lexique ne s'apprend que de ta bouche. Une nouvelle correction du même mot remplace l'ancienne ;
 au-delà de `JERVIS_LEXIQUE_MAX` paires, les plus anciennes s'en vont. Menu → « Les mots qu'il entend mal (son
 lexique) » pour le lire ou rayer une ligne ; `JERVIS_LEXIQUE=non` coupe la correction. Chaque nouveau mot apparaît
 dans le journal (« 🔤 Lexique : … »).

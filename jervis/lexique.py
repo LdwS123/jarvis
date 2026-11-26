@@ -31,7 +31,10 @@ _LIGNE = re.compile(r"^- « (?P<entendu>[^«»]{2,40}) » → « (?P<voulu>[^«�
 SENSIBLES = frozenset(mot for m in (
     "non oui pas ne n jamais rien tout plus stop arrête annule annuler attends attendre envoie envoyer "
     "supprime supprimer efface effacer paye payer achète acheter valide valider confirme confirmer reset "
-    "continue vas-y vasy ok okay d'accord").split() for mot in _cle(m).split())
+    "continue vas-y vasy ok okay d'accord accepte accepter refuse refuser garde garder jette jeter transfère "
+    "transférer partage partager publie publier réponds répondre écris écrire appelle appeler ouvre ouvrir lance "
+    "lancer ferme fermer coupe couper vends vendre commande commander réserve réserver inscris inscrire donne "
+    "donner vire virer rembourse rembourser signe signer poste poster archive archiver bloque bloquer").split() for mot in _cle(m).split())
 NOM = re.compile(config.NOM, re.IGNORECASE)
 
 
@@ -74,8 +77,11 @@ def corriger(texte: str) -> str:
     « au crow »). Rien ne change si le lexique est coupé (JERVIS_LEXIQUE=non) ou vide."""
     if not (config.LEXIQUE and texte):
         return texte
-    for entendu, voulu in sorted(_lire(), key=lambda p: -len(p[0])):
-        texte = _motif(entendu).sub(voulu, texte)
+    try:
+        for entendu, voulu in sorted(_lire(), key=lambda p: -len(p[0])):
+            texte = _motif(entendu).sub(lambda _m, v=voulu: v, texte)  # tel quel : ni \1 ni \g<…> interprétés
+    except re.error:
+        pass
     return texte
 
 
@@ -83,8 +89,11 @@ def _refus(entendu: str, voulu: str) -> str:
     """Pourquoi cette paire ne peut pas entrer dans le lexique ("" si elle peut)."""
     if not 3 <= len(entendu) <= 40 or not 1 <= len(voulu) <= 40:
         return "Refusé : « entendu » fait de 3 à 40 caractères, « voulu » de 1 à 40."
-    if not re.search(r"\w", entendu) or "«" in entendu + voulu or "»" in entendu + voulu:
-        return "Refusé : écris les mots tels quels, sans guillemets."
+    if not re.search(r"\w", entendu) or any(c in entendu + voulu for c in "«»\\"):
+        return "Refusé : écris les mots tels quels, sans guillemets ni barre oblique inverse."
+    if len(voulu.split()) > 3 or not re.search(r"[A-Z0-9À-Þ]", voulu):
+        return ("Refusé : le lexique remet d'aplomb un nom propre ou un mot technique (« Oqro », « Stancer », "
+                "« GPT-5 ») : trois mots au plus, avec une majuscule ou un chiffre.")
     if _cle(entendu) == _cle(voulu):
         return "Refusé : c'est déjà le même mot."
     if _SUSPECT.search(entendu) or _SUSPECT.search(voulu):
@@ -150,7 +159,8 @@ def effacer() -> bool:
       "corrige (« non, j'ai dit Oqro », « Stancer, avec un S ») ou quand le même mot écorché revient et que tu as "
       "compris lequel c'était. `entendu` = ce que tu as reçu (« au crow »), `voulu` = le bon mot (« Oqro »). Ses "
       "phrases suivantes arriveront déjà corrigées. Seulement des noms propres et des mots techniques, jamais "
-      "« non », « pas », « stop » ni un verbe d'action. Ne le dis pas à voix haute, sauf s'il le demande.",
+      "« non », « pas », « stop » ni un verbe d'action ; `voulu` porte une majuscule ou un chiffre. Ne le dis pas "
+      "à voix haute, sauf s'il le demande.",
       {"type": "object",
        "properties": {"entendu": {"type": "string"}, "voulu": {"type": "string"}},
        "required": ["entendu", "voulu"]})

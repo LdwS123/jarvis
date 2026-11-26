@@ -608,8 +608,9 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         return (f"Je note dans mon lexique : quand j'entends « {str(entree.get('entendu', '')).strip()} », tu veux dire "
                 f"« {str(entree.get('voulu', '')).strip()} ». Je peux ?")
     if action == "noter_savoir_faire":
-        return (f"J'écris ma recette « {str(entree.get('titre', '')).strip()} » : "
-                f"{' '.join(str(entree.get('etapes', '')).split())}. Je peux ?")
+        titre, quand = str(entree.get('titre', '')).strip(), ' '.join(str(entree.get('quand') or '').split())
+        return (f"J'écris ma recette « {titre} »" + (f" (quand : {quand})" if quand else "")
+                + f" : {' '.join(str(entree.get('etapes', '')).split())}. Je peux ?")
     if action == "noter_publication":
         return (f"Je note que {str(entree.get('projet', '')).strip()} est sur {str(entree.get('site', '')).strip()} : "
                 f"« {str(entree.get('resume', '')).strip()} » (lien : {str(entree.get('lien', '')).strip() or 'aucun'}). Je peux ?")
@@ -942,6 +943,12 @@ class Gardien:
         decision = politique(outil, entree, self._apps_vues)
         if lit_dehors(outil):
             self.contenu_externe = True
+        if outil == "mcp__jervis__noter_mot" and (self.contenu_externe or self.mefiance):
+            # Son lexique réécrit ce que tu dis avant que Claude le lise : il ne s'apprend que de ta bouche, jamais
+            # d'un mail, d'une page ou d'un agent, et quel que soit le mode (même autonome, pas de question : non).
+            return PermissionResultDeny(message="Après un texte venu d'ailleurs, je n'écris pas dans mon lexique : il ne "
+                                                "s'apprend que de ce qu'il dit. La relecture de fin de conversation "
+                                                "relèvera sa correction.")
         prudent = config.CONFIRMATIONS != "autonome"   # en mode autonome : plus de questions que pour l'argent
         if prudent and decision is Decision.OUI and self.mefiance and not est_lecture(outil):
             decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même

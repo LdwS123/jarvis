@@ -18,7 +18,7 @@ threading.Timer(60, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).sta
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock  # noqa: E402
 
-from jervis import brain, compteur, config, fond, graphe, lecons, lexique, outils, savoir_faire  # noqa: E402
+from jervis import brain, compteur, config, fond, graphe, lecons, lexique, outils, permissions, savoir_faire  # noqa: E402
 from jervis.permissions import (A_MONTRER, ECRIT_POUR_PLUS_TARD, JERVIS_A_CONFIRMER, decrire,  # noqa: E402
                                 est_lecture, lit_dehors, tel_que_montre)
 
@@ -71,7 +71,12 @@ for entendu, voulu, quoi in [("non", "oui", "retourner un non"),
                              ("steve", "Bob", "réécrire son nom"),
                              ("ab", "Abc", "trop court"),
                              ("Oqro", "oqro", "le même mot"),
-                             ("« ok »", "x", "des guillemets")]:
+                             ("« ok »", "x", "des guillemets"),
+                             ("au crow", "Oqro\\1", "une barre oblique inverse"),
+                             ("mon ami", "pierre", "un mot courant (ni majuscule ni chiffre)"),
+                             ("la boîte", "Le Dossier Des Factures", "plus de trois mots"),
+                             ("transmets", "Transfère", "un verbe d'action"),
+                             ("mon dossier", "Partage", "un verbe d'action, même avec une majuscule")]:
     verifier(f"lexique : refusé pour {quoi}", lexique.noter_mot(entendu, voulu).startswith("Refusé"), True)
 verifier("… et rien de tout ça n'est entré", len(lexique.paires()), 3)
 
@@ -79,6 +84,10 @@ verifier("… et rien de tout ça n'est entré", len(lexique.paires()), 3)
 with lexique.FICHIER.open("a", encoding="utf-8") as f:
     f.write("- « raisin bank » → « Raisin »\n")
 verifier("une ligne écrite à la main compte", lexique.corriger("chez raisin bank"), "chez Raisin")
+with lexique.FICHIER.open("a", encoding="utf-8") as f:
+    f.write("- « groupe un » → « \\1\\g<0> »\n")
+verifier("une ligne à la main avec des \\ est remise telle quelle, sans planter",
+         lexique.corriger("le groupe un"), "le \\1\\g<0>")
 date_avant = lexique.FICHIER.read_text(encoding="utf-8").split("« au crow » → « Oqro »  (")[1][:10]
 lexique.noter_mot("en vidia", "Nvidia ")  # réécrit le fichier
 verifier("réécrire le fichier garde la date des anciennes lignes",
@@ -162,6 +171,9 @@ verifier("sinon, pas de question (comme le carnet)", {"noter_mot", "noter_savoir
 verifier("la question, s'il faut la poser, dit la paire exacte",
          decrire(J + "noter_mot", {"entendu": "au crow", "voulu": "Oqro"}),
          "Je note dans mon lexique : quand j'entends « au crow », tu veux dire « Oqro ». Je peux ?")
+verifier("… avec le « quand » qui sera gardé",
+         decrire(J + "noter_savoir_faire", {"titre": "Publier", "quand": "chaque  lundi", "etapes": "1. Ouvrir\n2. Coller"}),
+         "J'écris ma recette « Publier » (quand : chaque lundi) : 1. Ouvrir 2. Coller. Je peux ?")
 verifier("… et la recette entière, sur une ligne",
          decrire(J + "noter_savoir_faire", {"titre": "Publier", "etapes": "1. Ouvrir\n2. Coller"}),
          "J'écris ma recette « Publier » : 1. Ouvrir 2. Coller. Je peux ?")
@@ -171,6 +183,29 @@ verifier("ce qui s'exécute après le oui est ce qu'il a lu, et ça reste deux �
 verifier("une recette trop longue pour être lue en entier est refusée",
          tel_que_montre("noter_savoir_faire", {"titre": "x", "etapes": "y" * (A_MONTRER["noter_savoir_faire"]["etapes"] + 1)})[1],
          "etapes")
+
+
+async def tester_gardien():
+    questions = []
+
+    async def oui(q):
+        questions.append(q)
+        return True
+    mode = config.CONFIRMATIONS
+    for config.CONFIRMATIONS in ("autonome", "confiance"):
+        g = permissions.Gardien(oui)
+        g.nouvelle_demande()
+        mot = (J + "noter_mot", {"entendu": "au crow", "voulu": "Oqro"})
+        verifier(f"{config.CONFIRMATIONS} : ta correction s'écrit sans question",
+                 (type(await g(*mot, None)).__name__, questions), ("PermissionResultAllow", []))
+        await g("mcp__claude_ai_Gmail__get_thread", {"id": "1"}, None)
+        r = await g(*mot, None)
+        verifier(f"{config.CONFIRMATIONS} : après un mail lu, le lexique est fermé (non, pas de question)",
+                 (type(r).__name__, "lexique" in r.message, questions), ("PermissionResultDeny", True, []))
+    config.CONFIRMATIONS = mode
+
+
+asyncio.run(tester_gardien())
 consignes = brain.carnet()
 verifier("ses consignes contiennent le lexique et la liste des recettes",
          ("« au crow » = Oqro" in consignes, "Tes savoir-faire" in consignes), (True, True))
