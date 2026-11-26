@@ -956,7 +956,9 @@ def tel_que_montre(action: str, entree: dict[str, Any]) -> tuple[dict[str, Any],
 
 
 def est_lecture(outil: str) -> bool:
-    return bool(LECTURES.search(nom_action(outil))) or extras.est_lecture(outil)
+    if extras.extra_de(outil):  # un serveur en plus : sa liste à lui, rien de deviné d'après le nom
+        return extras.est_lecture(outil)
+    return bool(LECTURES.search(nom_action(outil)))
 
 
 def lit_dehors(outil: str) -> bool:
@@ -1666,8 +1668,9 @@ async def retirer_autorisation(args: dict[str, Any]) -> dict[str, Any]:
 OUTILS_BLOCAGES = [lister_blocages, autoriser_desormais, retirer_autorisation]
 
 
-def code_touche(action_dev: str, entree: dict[str, Any]) -> tuple[Path, float] | None:
-    """Les tests ou le serveur (lancer) d'un projet où du code a été écrit juste après un texte venu d'ailleurs."""
+def code_touche(action_dev: str, entree: dict[str, Any]) -> tuple[Path, float, str] | None:
+    """Les tests ou le serveur (lancer) d'un projet où du code a été écrit (« fichier ») ou a pu l'être (« commande »)
+    juste après un texte venu d'ailleurs."""
     if action_dev not in ("lancer_tests", "serveur_de_dev") or (
             action_dev == "serveur_de_dev" and str(entree.get("action") or "lancer") != "lancer"):
         return None
@@ -1676,12 +1679,12 @@ def code_touche(action_dev: str, entree: dict[str, Any]) -> tuple[Path, float] |
         depot = dev.trouver_projet(entree.get("projet"))
     except (dev.Introuvable, OSError):
         return None  # l'outil dira lui-même qu'il ne le trouve pas
-    quand = dev.touche_depuis(depot)
-    return (depot, quand) if quand is not None else None
+    note = dev.touche_depuis(depot)
+    return (depot, *note) if note is not None else None
 
 
 def noter_touches(outil: str, entree: dict[str, Any]) -> None:
-    """Write/Edit : le dépôt du fichier ; Bash (encagé) : les dépôts que la commande nomme (cd ~/oko && npm i…)."""
+    """Write/Edit : le dépôt du fichier ; Bash (encagé) : tous tes projets (on ne devine pas d'après le texte)."""
     from . import dev
     try:
         if outil in ECRITURE_FICHIERS:
@@ -1910,9 +1913,11 @@ class Gardien:
                             "Je vais lancer cette commande hors de la cage : ")
                 question += f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?"
             if touche:
-                projet, quand = touche  # la question, écrite par le code (le nom du dossier, une durée)
+                projet, quand, par = touche  # la question, écrite par le code (le nom du dossier, une durée)
                 quoi = "ses tests" if action_dev == "lancer_tests" else "son serveur"
-                question = (f"Du code de {projet.name} a été écrit juste après un texte venu d'ailleurs "
+                quoi_ecrit = (f"Du code de {projet.name} a été écrit" if par == "fichier" else
+                              f"Une commande a pu écrire dans {projet.name}")
+                question = (f"{quoi_ecrit} juste après un texte venu d'ailleurs "
                             f"({_il_y_a(quand)}). Je lance {quoi} hors de la cage ?")
                 cle = f"touche:{projet}"
             elif outil.startswith("mcp__mac__") and (app := atelier(action, entree, apps)):

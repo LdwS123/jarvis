@@ -552,10 +552,16 @@ async def tester_gardien():
     g.nouvelle_demande()
     g.a_lu_dehors()
     await g("Write", {"file_path": str(OKO / "conftest.py"), "content": "x"}, None)
-    await g("Bash", {"command": "cd ~/code/perso/Mon-Site_Perso && npm install"}, None)
-    verifier("après un texte venu d'ailleurs : Write et une commande encagée notent les projets touchés",
-             (dev.touche_depuis(OKO) is not None, dev.touche_depuis(SITE) is not None, dev.touche_depuis(CAFE)),
-             (True, True, None))
+    verifier("avant toute commande, Write ne note que son projet",
+             (dev.touche_depuis(OKO)[1], dev.touche_depuis(SITE), dev.touche_depuis(CAFE)), ("fichier", None, None))
+    # un cd relatif : le texte de la commande ne nomme aucun projet en entier, elle peut pourtant y écrire
+    await g("Bash", {"command": "cd ~/code && cd perso/Mon-Site_Perso && npm install"}, None)
+    verifier("… une commande encagée après un texte venu d'ailleurs note tous tes projets (sans deviner d'après "
+             "son texte), et ce que Write y a écrit le reste",
+             [(d.name, (dev.touche_depuis(d) or (0, None))[1]) for d in (OKO, SITE, CAFE)],
+             [("oko", "fichier"), ("Mon-Site_Perso", "commande"), ("Café", "commande")])
+    dev._ecrire_json(dev._fichier_touches(), {**dev._lire_json(dev._fichier_touches(), {}), str(CAFE.resolve()): 12.5})
+    verifier("… l'ancien format (une date seule) se lit encore", dev.touche_depuis(CAFE), (12.5, "fichier"))
     r = await g("mcp__jervis__lancer_tests", {"projet": "oko"}, None)
     verifier("… dans la même demande : ses tests dans la cage, sans question",
              r.updated_input.get("cage") if cage_dispo else nom(r), True if cage_dispo else "PermissionResultDeny")
@@ -571,11 +577,12 @@ async def tester_gardien():
     r = await neuf()("mcp__jervis__serveur_de_dev", {"projet": "mon site"}, None)
     verifier("… un non : le serveur ne se lance pas hors cage, et reste noté",
              (nom(r), questions[-1], dev.touche_depuis(SITE) is not None),
-             ("PermissionResultDeny", "Du code de Mon-Site_Perso a été écrit juste après un texte venu d'ailleurs "
-                                      "(à l'instant). Je lance son serveur hors de la cage ?", True))
+             ("PermissionResultDeny", "Une commande a pu écrire dans Mon-Site_Perso juste après un texte venu "
+                                      "d'ailleurs (à l'instant). Je lance son serveur hors de la cage ?", True))
     r = await neuf()("mcp__jervis__serveur_de_dev", {"projet": "mon site", "action": "arreter"}, None)
     verifier("… l'arrêter reste sans question", nom(r), "PermissionResultAllow")
-    dev.oublier_touche(SITE)
+    for depot in dev.trouver_depots():
+        dev.oublier_touche(depot)
     verifier("ce que la cage donne aux tests : leurs caches à eux", all(
         k in dev._env(cage=True) for k in ("TMPDIR", "npm_config_cache", "UV_CACHE_DIR", "CARGO_HOME", "GOPATH"))
         and "npm_config_cache" not in dev._env(), True)

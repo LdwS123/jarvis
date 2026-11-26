@@ -829,10 +829,12 @@ Dans cette cage, tes projets sont **fermés en écriture** (un test ne peut pas 
 `test-results/`, le cache de Vitest…). Les caches de tes outils (`~/.npm`, `~/.cache`, `~/.cargo`, Homebrew…) le sont
 aussi : npm, pnpm, uv, pip, cargo, go, bun et yarn y travaillent dans un dossier temporaire à part. Un serveur de
 dev qui a besoin d'écrire (`.next`, `node_modules`) s'arrête donc tout de suite dans la cage : redemande-le dans une
-nouvelle demande. Et si du code d'un projet a été écrit juste après un texte venu d'ailleurs (un fichier modifié,
-un `npm install` dans ce dossier), ses tests et son serveur **hors cage** te demandent d'abord : « Du code de oko a
-été écrit juste après un texte venu d'ailleurs (il y a 12 min). Je lance ses tests hors de la cage ? »
-(`espace/dev/touches.json` ; ton oui l'efface). Son git désactive ce qu'un dépôt piégé pourrait lancer
+nouvelle demande. Et si du code d'un projet a été écrit juste après un texte venu d'ailleurs, ses tests et son
+serveur **hors cage** te demandent d'abord : « Du code de oko a été écrit juste après un texte venu d'ailleurs (il y
+a 12 min). Je lance ses tests hors de la cage ? ». Un fichier modifié note son projet ; une commande lancée dans la
+cage à ce moment-là note **tous** tes projets (« Une commande a pu écrire dans oko… »), car on ne devine pas d'après
+son texte où elle écrit : un `cd` relatif, une variable ou un `$(…)` y échapperaient. (`espace/dev/touches.json` ;
+ton oui l'efface, projet par projet.) Son git désactive ce qu'un dépôt piégé pourrait lancer
 (`core.fsmonitor`, les hooks, les filtres `clean`/`smudge`, `diff.external`, le pager), et le nom d'une CI qu'il te
 lit n'a plus que des lettres, des chiffres et des espaces (30 caractères au plus).
 
@@ -862,7 +864,8 @@ restent toujours chargés.
 **Ajouter les tiens.** Crée `~/Jervis/mcp.json` au format de Claude Code, puis relance Steve :
 
 ```json
-{"mcpServers": {"notes": {"type": "stdio", "command": "/opt/homebrew/bin/notes-mcp"},
+{"mcpServers": {"notes": {"type": "stdio", "command": "/opt/homebrew/bin/notes-mcp",
+                          "lectures": ["search_notes", "get_note"]},
                 "doc-maison": {"type": "http", "url": "https://exemple.fr/mcp"}}}
 ```
 
@@ -872,8 +875,8 @@ ne peut jamais l'écrire avec ses outils, et la cage le ferme.
 
 **La sécurité.** Une action qui lit (chercher, lire, demander à la doc) passe seule, même juste après un texte venu
 d'ailleurs ; toute autre action d'un de ces serveurs te demande d'abord, **dans tous les modes**, autonome compris.
-Pour les tiens, le Gardien juge sur le nom de l'action (`search_…`, `get_…`, `read_…` lisent ; le reste se
-demande). Ce qu'ils renvoient compte comme un texte venu d'ailleurs, comme une page web.
+Pour les tiens, rien n'est deviné d'après le nom (un `query` peut effacer) : seules les actions de
+leur liste `"lectures"` passent seules, toutes les autres te sont demandées. Ce qu'ils renvoient compte comme un texte venu d'ailleurs, comme une page web.
 
 ### Ce qu'il te demande encore
 

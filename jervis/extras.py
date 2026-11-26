@@ -6,8 +6,9 @@ tournent sur ton Mac par npx (Node.js) ou uvx (uv : `brew install uv`), à une v
 
 Réglages :
   - JERVIS_MCP_GRATUITS : « tous » (par défaut), « aucun », ou une liste (« deepwiki,context7,wikipedia »).
-  - ~/Jervis/mcp.json : tes serveurs à toi, au format de Claude Code ({"mcpServers": {"nom": {...}}}). Il s'écrit à
-    la main : un serveur lance son programme à chaque démarrage, Steve n'y touche jamais lui-même.
+  - ~/Jervis/mcp.json : tes serveurs à toi, au format de Claude Code ({"mcpServers": {"nom": {...}}}), avec en plus
+    "lectures": [les actions qui ne font que lire]. Il s'écrit à la main : un serveur lance son programme à chaque
+    démarrage, Steve n'y touche jamais lui-même.
 
 Le Gardien : une action qui lit (chercher, lire, demander à la doc) passe seule, même quand il se méfie ; toute autre
 action d'un de ces serveurs te demande d'abord, dans tous les modes. Et ce qu'ils renvoient compte comme un texte
@@ -97,9 +98,8 @@ CATALOGUE: dict[str, Extra] = {
 # Un serveur de mcp.json qui en porterait un se ferait passer pour eux auprès du Gardien : il est ignoré.
 RESERVES = {"jervis", "navigateur", "mac", "ecran", "claude-in-chrome"}
 _NOM = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")
-# Pour les serveurs de mcp.json (on ne connaît pas leurs actions) : ce qui ne fait que lire, d'après le nom.
-_LIT = re.compile(r"^(?:search|list|get|read|fetch|query|lookup|find|resolve|ask|describe|show|view|explain)"
-                  r"(?:[_-]|$)", re.IGNORECASE)
+# Pour les serveurs de mcp.json, on ne devine rien d'après le nom (un « query » peut effacer, un « get_and_delete »
+# aussi) : seules les actions que tu as listées dans "lectures" passent seules, toutes les autres te sont demandées.
 
 
 def _nom_valide(nom: str) -> bool:
@@ -136,7 +136,21 @@ def _serveur(extra: Extra) -> dict[str, Any] | None:
             "alwaysLoad": False}
 
 
+def _lectures_perso() -> dict[str, frozenset[str]]:
+    """Les actions que tu as déclarées en lecture seule dans mcp.json ("lectures": ["search_notes", …])."""
+    lectures = {}
+    for nom, reglage in _perso_brut().items():
+        liste = reglage.get("lectures", [])
+        lectures[nom] = frozenset(a for a in liste if isinstance(a, str)) if isinstance(liste, list) else frozenset()
+    return lectures
+
+
 def perso() -> dict[str, dict[str, Any]]:
+    """Tes serveurs à toi, tels que Claude Code les reçoit (sans "lectures", qui n'est que pour le Gardien)."""
+    return {nom: {k: v for k, v in reglage.items() if k != "lectures"} for nom, reglage in _perso_brut().items()}
+
+
+def _perso_brut() -> dict[str, dict[str, Any]]:
     """Tes serveurs à toi (~/Jervis/mcp.json). Un fichier illisible ou un nom réservé : ignoré, sans planter."""
     try:
         contenu = json.loads(config.MCP_PERSO.read_text(encoding="utf-8"))
@@ -173,13 +187,14 @@ def extra_de(outil: str) -> tuple[str, str] | None:
 
 
 def est_lecture(outil: str) -> bool:
-    """Une action d'un extra qui ne fait que lire : celles du catalogue, ou un nom qui le dit pour les tiens."""
+    """Une action d'un extra qui ne fait que lire : celles du catalogue, ou pour les tiens celles de "lectures"."""
     if not (trouve := extra_de(outil)):
         return False
     nom, action = trouve
-    if nom in CATALOGUE and nom not in perso():
-        return action in CATALOGUE[nom].lectures
-    return bool(_LIT.match(action))
+    tiens = _lectures_perso()
+    if nom in tiens:  # le tien, même s'il porte un nom du catalogue
+        return action in tiens[nom]
+    return action in CATALOGUE[nom].lectures
 
 
 def consigne() -> str:

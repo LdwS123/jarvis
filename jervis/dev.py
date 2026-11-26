@@ -276,6 +276,17 @@ def _fichier_touches() -> Path:
     return config.DOSSIER_DEV / "touches.json"  # (dans la cage, ce dossier ne s'écrit pas)
 
 
+def _noter(depot: Path, par: str) -> None:
+    """par : « fichier » (Write/Edit y a écrit) ou « commande » (une commande a pu y écrire). « fichier » l'emporte."""
+    touches = _lire_json(_fichier_touches(), {})
+    touches = touches if isinstance(touches, dict) else {}
+    avant = touches.get(str(depot.resolve()))
+    if isinstance(avant, dict) and avant.get("par") == "fichier":
+        par = "fichier"
+    touches[str(depot.resolve())] = {"quand": time.time(), "par": par}
+    _ecrire_json(_fichier_touches(), touches)
+
+
 def noter_touche(chemin: str | Path) -> Path | None:
     """Un fichier écrit par Write/Edit juste après un texte venu d'ailleurs : s'il est dans un projet, on le note.
     Ce texte a pu dicter le code ; lancé plus tard hors cage (ses tests, son serveur), il tournerait sans garde."""
@@ -285,30 +296,33 @@ def noter_touche(chemin: str | Path) -> Path | None:
         return None
     if depot is None:
         return None
-    touches = _lire_json(_fichier_touches(), {})
-    touches = touches if isinstance(touches, dict) else {}
-    touches[str(depot.resolve())] = time.time()
-    _ecrire_json(_fichier_touches(), touches)
+    _noter(depot, "fichier")
     return depot
 
 
-def touche_depuis(depot: Path) -> float | None:
-    """Quand du code de ce projet a été écrit juste après un texte venu d'ailleurs (None : jamais, ou tu as dit oui)."""
+def touche_depuis(depot: Path) -> tuple[float, str] | None:
+    """(quand, par) : du code de ce projet a été écrit (« fichier ») ou a pu l'être (« commande ») juste après un
+    texte venu d'ailleurs. None : jamais, ou tu as dit oui depuis."""
     touches = _lire_json(_fichier_touches(), {})
-    quand = touches.get(str(depot.resolve())) if isinstance(touches, dict) else None
-    return float(quand) if isinstance(quand, (int, float)) else None
+    note = touches.get(str(depot.resolve())) if isinstance(touches, dict) else None
+    if isinstance(note, (int, float)):
+        return float(note), "fichier"
+    if isinstance(note, dict) and isinstance(note.get("quand"), (int, float)):
+        return float(note["quand"]), "commande" if note.get("par") == "commande" else "fichier"
+    return None
 
 
-def noter_touches_commande(commande: str) -> list[Path]:
-    """Une commande lancée dans la cage juste après un texte venu d'ailleurs (le terminal de Steve) : les projets
-    qu'elle nomme (cd ~/oko && npm install…) sont notés comme si Write les avait touchés."""
-    maison = str(Path.home())
-    texte = commande.replace("$HOME", maison).replace("${HOME}", maison)
-    texte = re.sub(r"(?<![\w/])~(?=/)", maison, texte)
+def noter_touches_commande(commande: str = "") -> list[Path]:
+    """Une commande lancée dans la cage juste après un texte venu d'ailleurs (le terminal de Steve) : la cage la laisse
+    écrire dans tes projets, et on ne devine pas lesquels d'après son texte (un `cd` relatif, une variable, un `$(…)`
+    y échappent). Tous tes projets sont donc notés : leurs prochains tests hors cage passeront par toi."""
     notes = []
     for depot in trouver_depots():
-        if re.search(re.escape(str(depot)) + r"(?![\w.-])", texte) and noter_touche(depot):
-            notes.append(depot)
+        try:
+            _noter(depot, "commande")
+        except OSError:
+            continue
+        notes.append(depot)
     return notes
 
 

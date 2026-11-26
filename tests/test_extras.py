@@ -72,17 +72,20 @@ verifier("pas de mcp.json", extras.perso(), {})
 config.MCP_PERSO.write_text("{ pas du json", encoding="utf-8")
 verifier("mcp.json illisible : ignoré", extras.perso(), {})
 config.MCP_PERSO.write_text(json.dumps({"mcpServers": {
-    "notes": {"type": "stdio", "command": "/usr/local/bin/notes-mcp"},
-    "context7": {"type": "http", "url": "https://exemple.fr/mcp"},
+    "notes": {"type": "stdio", "command": "/usr/local/bin/notes-mcp", "lectures": ["search_notes", "get-page", 3]},
+    "context7": {"type": "http", "url": "https://exemple.fr/mcp", "lectures": ["query-docs"]},
+    "sansliste": {"type": "http", "url": "https://y/mcp", "lectures": "search_x"},
     "outil": {"type": "http", "url": "https://x/mcp", "alwaysLoad": True},
     "mac": {"type": "stdio", "command": "/tmp/faux"}, "jervis": {"type": "stdio", "command": "/tmp/faux"},
     "navigateur": {"command": "x"}, "ecran": {"command": "x"}, "claude-in-chrome": {"command": "x"},
     "claude_ai_Gmail": {"command": "x"}, "Avec Espace": {"command": "x"}, "a__b": {"command": "x"},
     "pas_un_dict": "x"}}), encoding="utf-8")
 perso = extras.perso()
-verifier("mcp.json : les noms réservés, invalides ou mal formés sont ignorés", sorted(perso), ["context7", "notes", "outil"])
+verifier("mcp.json : les noms réservés, invalides ou mal formés sont ignorés", sorted(perso), ["context7", "notes", "outil", "sansliste"])
 verifier("mcp.json : chargé à la demande par défaut", perso["notes"]["alwaysLoad"], False)
 verifier("mcp.json : ton alwaysLoad est respecté", perso["outil"]["alwaysLoad"], True)
+verifier("mcp.json : « lectures » reste pour le Gardien, pas pour Claude Code",
+         any("lectures" in v for v in extras.serveurs().values()), False)
 s = extras.serveurs()
 verifier("mcp.json : le tien remplace celui du catalogue", s["context7"]["url"], "https://exemple.fr/mcp")
 verifier("mcp.json : branché avec les autres", "notes" in s and "deepwiki" in s, True)
@@ -104,12 +107,15 @@ for outil, attendu in [("mcp__deepwiki__ask_wiki_question", True), ("mcp__aws__a
                        ("mcp__huggingface__hub_repo_search", True), ("mcp__youtube__get_transcript", True),
                        ("mcp__arxiv__download_paper", True), ("mcp__arxiv__add_watch", False),
                        ("mcp__apple__search_apple_docs", True), ("mcp__deepwiki__delete_everything", False),
-                       # le context7 de ton mcp.json n'est plus celui du catalogue : jugé sur le nom de l'action
-                       ("mcp__context7__query-docs", True), ("mcp__context7__resolve-library-id", True),
+                       # le context7 de ton mcp.json n'est plus celui du catalogue : seules ses "lectures" à lui
+                       ("mcp__context7__query-docs", True), ("mcp__context7__resolve-library-id", False),
                        ("mcp__context7__publish", False),
+                       # les tiens : rien n'est deviné d'après le nom, seule ta liste compte
                        ("mcp__notes__search_notes", True), ("mcp__notes__get-page", True),
-                       ("mcp__notes__delete_note", False), ("mcp__notes__create_note", False),
-                       ("mcp__notes__searchandreplace", False)]:
+                       ("mcp__notes__get_note", False), ("mcp__notes__query_db", False),
+                       ("mcp__notes__get_and_delete", False), ("mcp__notes__delete_note", False),
+                       ("mcp__notes__create_note", False), ("mcp__outil__search_x", False),
+                       ("mcp__sansliste__search_x", False)]:
     verifier(f"lecture : {outil}", extras.est_lecture(outil), attendu)
     verifier(f"lecture (Gardien) : {outil}", permissions.est_lecture(outil), attendu)
 
@@ -118,7 +124,8 @@ for mode in ("autonome", "confiance", "essentielles", "toutes"):
     for outil, attendu in [("mcp__context7__query-docs", Decision.OUI), ("mcp__wikipedia__search_wikipedia", Decision.OUI),
                            ("mcp__nextjs__upgrade_nextjs_16", Decision.DEMANDER),
                            ("mcp__nextjs__browser_eval", Decision.DEMANDER),
-                           ("mcp__notes__create_note", Decision.DEMANDER), ("mcp__notes__search_notes", Decision.OUI)]:
+                           ("mcp__notes__create_note", Decision.DEMANDER), ("mcp__notes__search_notes", Decision.OUI),
+                           ("mcp__notes__query_db", Decision.DEMANDER)]:
         verifier(f"{mode} : {outil}", permissions.politique(outil, {}, mode=mode), attendu)
     # ses serveurs à lui ne changent pas
     verifier(f"{mode} : Gmail lire", permissions.politique("mcp__claude_ai_Gmail__search_threads", {}, mode=mode),
