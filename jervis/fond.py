@@ -27,7 +27,7 @@ from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
 from . import apis, compteur, config, infos, infos2, outils
 from .brain import EXPERT, _maintenant, carnet, documents, preparer_connecteurs
-from .permissions import Gardien, est_lecture
+from .permissions import Gardien, est_lecture, noter_outil
 
 
 @dataclass
@@ -274,6 +274,7 @@ class Taches:
                         if isinstance(bloc, TextBlock) and bloc.text.strip():
                             textes.append(bloc.text)
                         elif isinstance(bloc, ToolUseBlock):
+                            noter_outil(bloc.input)  # un iMessage qui reprendrait ce texte vient de lui, pas de toi
                             tache.etapes += 1
                             tache.action = decrire_action(bloc.name, bloc.input)
                 elif isinstance(message, ResultMessage):

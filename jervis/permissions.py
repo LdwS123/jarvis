@@ -8,6 +8,7 @@ import asyncio
 import re
 import subprocess
 import time
+from collections import deque
 from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
@@ -918,19 +919,101 @@ def lu_dehors_depuis() -> float:
     return time.monotonic() - _lu_dehors_a
 
 
-# Envoyer un iMessage par un script (osascript, JXA, un fichier .scpt) : refusé, il a son outil envoyer_imessage.
-# Ce que l'outil envoie est noté (distance.noter_envoi) et n'est jamais relu comme un ordre de toi ; un script, si :
-# c'est la porte par laquelle une page piégée se ferait passer pour toi dans ta conversation avec toi-même.
+# Écrire dans Messages autrement que par envoyer_imessage : refusé. Ce que l'outil envoie est noté
+# (distance.noter_envoi) et n'est jamais relu comme un ordre de toi ; un script ou un geste à l'écran, si : c'est la
+# porte par laquelle une page piégée se ferait passer pour toi dans ta conversation avec toi-même. Toute mention de
+# l'app dans un script (AppleScript, JXA, Python/ScriptingBridge), ses identifiants, ses adresses imessage:/sms:.
 _MESSAGES_PAR_SCRIPT = re.compile(
-    r"""(application\s+(id\s+)?["']?|Application\(\s*["'])(Messages|com\.apple\.(iChat|MobileSMS))\b""",
+    r"""\bcom\.apple\.(?:iChat|MobileSMS|Messages)\b"""
+    r"""|\bapp(?:lication)?\s*(?:id\s+)?\(?\s*["']?Messages\b"""
+    r"""|\b(?:SBApplication|NSRunningApplication|NSWorkspace)\b[^\n]*\bMessages\b"""
+    r"""|\b(?:imessage|sms|messages)://|(?:^|[\s"'(=])(?:imessage|sms):""",
     re.IGNORECASE)
+# Ce qui pilote d'autres apps (des frappes, des clics, des scripts d'app) : après un texte venu d'ailleurs, toujours
+# demandé, quel que soit le mode. Un « keystroke » dans la fenêtre de Messages enverrait un faux toi.
+PILOTE_APPS = re.compile(
+    r"\bosascript\b|\bshortcuts\s+run\b|\bautomator\b|\bcliclick\b|System Events|\bkeystroke\b|\bkey code\b"
+    r"|ScriptingBridge|SBApplication|NSAppleScript|OSAKit|\bappscript\b|CGEvent|pyautogui|pynput|AXUIElement",
+    re.IGNORECASE)
+_ECRIT_DU_CODE = {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"}
+
+
+def _texte_de(entree: Any) -> str:
+    """Tout le texte d'une entrée d'outil, à plat (les valeurs, pas les clés)."""
+    if isinstance(entree, dict):
+        return " ".join(_texte_de(v) for v in entree.values())
+    if isinstance(entree, (list, tuple)):
+        return " ".join(_texte_de(v) for v in entree)
+    return str(entree) if entree is not None else ""
 
 
 def envoie_par_messages(outil: str, entree: dict[str, Any]) -> bool:
-    if outil not in {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"}:
+    return outil in _ECRIT_DU_CODE and bool(_MESSAGES_PAR_SCRIPT.search(_texte_de(entree)))
+
+
+def pilote_des_apps(outil: str, entree: dict[str, Any]) -> bool:
+    if outil not in _ECRIT_DU_CODE:
         return False
-    texte = " ".join(str(v) for v in entree.values())
-    return bool(_MESSAGES_PAR_SCRIPT.search(texte)) and bool(re.search(r"\bsend\b", texte, re.IGNORECASE))
+    texte = _texte_de(entree)
+    if outil == "Bash" and SANS_RISQUE.match(texte.strip()) and not re.search(r"[;&|`$]|\n", texte):
+        return False  # le volume, Spotify : la courte liste de toujours
+    return bool(PILOTE_APPS.search(texte))
+
+
+# Ce que ses outils ont reçu ces 15 dernières minutes (tous les agents) : un iMessage « de toi » qui reprend l'un de
+# ces textes vient de lui, pas de toi (distance.vient_de_lui).
+_gestes: deque[tuple[str, float]] = deque(maxlen=300)
+GESTES_S = 900
+
+
+def _reduit(texte: str) -> str:
+    return " ".join(texte.split()).casefold()
+
+
+def noter_outil(entree: Any) -> None:
+    if texte := _reduit(_texte_de(entree)):
+        _gestes.append((texte[:20000], time.monotonic()))
+
+
+def vu_dans_ses_outils(texte: str) -> bool:
+    """Vrai si ce texte (assez long pour ne pas être un « oui ») est passé par l'un de ses outils récemment."""
+    t, maintenant = _reduit(texte), time.monotonic()
+    return len(t) >= 8 and any(t in g for g, quand in _gestes if maintenant - quand < GESTES_S)
+
+
+# Une question ❓ par iMessage attend ta réponse (distance.Boite.demander) : d'ici là, aucun de ses agents ne lance
+# ce qui pourrait écrire dans Messages (commande, fichier, geste à l'écran). Sans quoi un geste lancé en même temps
+# pourrait répondre « oui » à ta place dans ta conversation avec toi-même.
+_questions_en_cours = 0
+
+
+class QuestionEnCours:
+    def __enter__(self) -> None:
+        global _questions_en_cours
+        _questions_en_cours += 1
+
+    def __exit__(self, *_exc) -> None:
+        global _questions_en_cours
+        _questions_en_cours -= 1
+
+
+def peut_ecrire_dans_messages(outil: str) -> bool:
+    return outil in _ECRIT_DU_CODE or outil.startswith("mcp__mac__") or outil == "mcp__jervis__envoyer_imessage"
+
+
+async def attendre_les_questions() -> None:
+    while _questions_en_cours:
+        await asyncio.sleep(0.2)
+
+
+def _vise_messages(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> bool:
+    """Un geste (taper, cliquer, coller…) qui arriverait dans la fenêtre de Messages."""
+    if action not in GESTES_MAC:
+        return False
+    apps = cibles_mac(action, entree, apps_vues)
+    if INCONNUE in apps:
+        apps = apps | {_app_devant() or INCONNUE}
+    return any(re.fullmatch(r"messages", a.strip(), re.IGNORECASE) for a in apps)
 
 
 class Gardien:
@@ -979,12 +1062,18 @@ class Gardien:
                 comptes.apres_collage()
         if motif := motif_paiement(outil, entree):
             return PermissionResultDeny(message=motif)
-        if envoie_par_messages(outil, entree):
-            return PermissionResultDeny(message="Pas d'iMessage par un script : utilise l'outil envoyer_imessage (ce "
-                                                "qu'il envoie est noté, et jamais relu comme un ordre de lui).")
+        noter_outil(entree)
+        if peut_ecrire_dans_messages(outil):
+            await attendre_les_questions()  # une question ❓ attend sa réponse par iMessage : on attend avec
+        if envoie_par_messages(outil, entree) or (
+                outil.startswith("mcp__mac__") and _vise_messages(nom_action(outil), entree, self._apps_vues)):
+            return PermissionResultDeny(message="Pas de Messages par un script ni par des gestes à l'écran : pour un "
+                                                "iMessage, utilise l'outil envoyer_imessage (ce qu'il envoie est noté, "
+                                                "et jamais relu comme un ordre de lui).")
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)
+        deja_dehors = self.contenu_externe or self.mefiance  # avant cet outil-ci (une commande lit aussi le dehors)
         if lit_dehors(outil):
             self.contenu_externe = True
             noter_lecture_dehors()
@@ -1004,6 +1093,8 @@ class Gardien:
                 # Un numéro lu sur une page ou dans un mail, ou un numéro d'urgence : c'est toi qui dis oui, même
                 # en mode autonome (un appel ne se rattrape pas).
                 decision = Decision.DEMANDER
+        if decision is Decision.OUI and deja_dehors and pilote_des_apps(outil, entree):
+            decision = Decision.DEMANDER  # des frappes ou un script d'app après une page lue : même en autonome
         prudent = config.CONFIRMATIONS != "autonome"   # en mode autonome : plus de questions que pour l'argent
         if prudent and decision is Decision.OUI and self.mefiance and not est_lecture(outil):
             decision = Decision.DEMANDER  # le compte rendu d'un agent n'est pas toi : il ne fait rien de lui-même

@@ -159,12 +159,40 @@ async def gardien() -> dict:
             ("osascript", "Bash", {"command": """osascript -e 'tell application "Messages" to send "go" to buddy "x"'"""}),
             ("JXA", "Bash", {"command": """osascript -l JavaScript -e 'Application("Messages").send("go", {to: b})'"""}),
             ("script écrit", "Write", {"file_path": "/tmp/a.scpt",
-                                       "content": 'tell application id "com.apple.iChat"\nsend "go" to b\nend tell'})):
+                                       "content": 'tell application id "com.apple.iChat"\nsend "go" to b\nend tell'}),
+            ("« tell app »", "Bash", {"command": """osascript -e 'tell app "Messages" to send "go" to b'"""}),
+            ("Python", "Bash", {"command": "python3 -c \"from ScriptingBridge import SBApplication; "
+                                           "SBApplication.applicationWithBundleIdentifier_('com.apple.MobileSMS')\""}),
+            ("une adresse sms:", "Bash", {"command": 'open "sms:+33612345678&body=oui"'}),
+            ("imessage://", "Bash", {"command": "open imessage://+33612345678"}),
+            ("activer puis frapper", "Bash", {"command": """osascript -e 'tell application "Messages" to activate'"""})):
         g.nouvelle_demande()
         vu[f"messages par {nom}"] = type(await g(outil, entree, FauxContexte())).__name__
+    async def essai_bash(commande: str, page: bool) -> tuple[str, int]:
+        questions.clear()
+        g.nouvelle_demande()
+        if page:
+            await g("mcp__navigateur__browser_snapshot", {}, FauxContexte())
+        r = await g("Bash", {"command": commande}, FauxContexte())
+        return type(r).__name__, len(questions)
+
+    frappe = """osascript -e 'tell application "System Events" to keystroke "oui" & return'"""
+    vu["frappes sans page"] = await essai_bash(frappe, page=False)
+    vu["frappes après une page"] = await essai_bash(frappe, page=True)
+    vu["spotify après une page"] = await essai_bash("""osascript -e 'tell application "Spotify" to play'""", page=True)
+    vu["commande banale après une page"] = await essai_bash("ls ~/Documents", page=True)
     g.nouvelle_demande()
-    vu["messages sans envoi"] = type(await g("Bash", {"command": """osascript -e 'tell application "Messages" to activate'"""},
+    vu["geste dans Messages"] = type(await g("mcp__mac__type", {"text": "oui", "app": "Messages"},
                                              FauxContexte())).__name__
+    vu["geste ailleurs"] = type(await g("mcp__mac__type", {"text": "oui", "app": "TextEdit"}, FauxContexte())).__name__
+    # Une question ❓ attend ta réponse par iMessage : ce qui pourrait écrire dans Messages attend avec
+    with permissions.QuestionEnCours():
+        en_attente = asyncio.ensure_future(g("Bash", {"command": "ls"}, FauxContexte()))
+        lecture = asyncio.ensure_future(g("mcp__claude_ai_Gmail__search_threads", {"q": "x"}, FauxContexte()))
+        await asyncio.sleep(0.5)
+        vu["pendant la question"] = (en_attente.done(), lecture.done())
+    await asyncio.sleep(0.5)
+    vu["après la question"] = en_attente.done()
     permissions._lu_dehors_a = float("-inf")
     vu["jamais lu dehors"] = permissions.lu_dehors_depuis() > 1e9
     await g("mcp__navigateur__browser_snapshot", {}, FauxContexte())
@@ -185,10 +213,24 @@ verifier("gardien : un numéro lu sur une page → il demande", vu["après une p
 verifier("gardien : sur le rapport d'un agent → il demande", vu["sur le rapport d'un agent"], ("PermissionResultAllow", 1))
 verifier("gardien : depuis l'iPhone → refusé (ça sonnerait sur le Mac)", vu["depuis l'iPhone"],
          ("PermissionResultDeny", 0))
-for nom in ("osascript", "JXA", "script écrit"):
+for nom in ("osascript", "JXA", "script écrit", "« tell app »", "Python", "une adresse sms:", "imessage://",
+            "activer puis frapper"):
     verifier(f"gardien : un iMessage par {nom} → refusé (il a envoyer_imessage)", vu[f"messages par {nom}"],
              "PermissionResultDeny")
-verifier("gardien : Messages sans envoi → permis", vu["messages sans envoi"], "PermissionResultAllow")
+verifier("gardien : des frappes sans page lue → permis", vu["frappes sans page"], ("PermissionResultAllow", 0))
+verifier("gardien : des frappes après une page lue → demandé, même en autonome", vu["frappes après une page"],
+         ("PermissionResultAllow", 1))
+verifier("gardien : Spotify après une page → sans question", vu["spotify après une page"], ("PermissionResultAllow", 0))
+verifier("gardien : une commande banale après une page → sans question", vu["commande banale après une page"],
+         ("PermissionResultAllow", 0))
+verifier("gardien : taper dans Messages → refusé", vu["geste dans Messages"], "PermissionResultDeny")
+verifier("gardien : taper ailleurs → permis", vu["geste ailleurs"], "PermissionResultAllow")
+verifier("gardien : pendant une question ❓, une commande attend (une lecture non)", vu["pendant la question"],
+         (False, True))
+verifier("gardien : la question finie, elle repart", vu["après la question"], True)
+verifier("gardien : il retient le texte de ses outils (et pas un simple « oui »)",
+         (permissions.vu_dans_ses_outils("Keystroke  \"OUI\" & return"), permissions.vu_dans_ses_outils("oui")),
+         (True, False))
 verifier("gardien : il note quand il a lu un texte du dehors", (vu["jamais lu dehors"], vu["vient de lire dehors"]),
          (True, True))
 verifier("gardien : en mode essentielles, toujours demandé", vu["essentielles : appelle maman"],

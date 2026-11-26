@@ -376,9 +376,16 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
 - **Qui il écoute** : seulement toi, dans ta conversation avec toi-même. Un message de quelqu'un d'autre, un groupe,
   une réaction (« A aimé… ») ne sont jamais des ordres. Ses propres messages (ceux qui commencent par 🤖 ou ❓, et
   tout iMessage qu'il vient d'envoyer) ne sont jamais relus comme une demande : un texte copié d'une page ne
-  revient pas déguisé en ordre de toi. Les messages déjà là au démarrage sont ignorés. Il n'envoie jamais d'iMessage
-  par un script (osascript, JXA) : seulement par son outil, qui note ce qui part. Et un message qui arrive pendant
-  qu'il lit une page ou un mail (ou moins de 20 s après) : il te demande d'abord « c'est bien toi qui l'as écrit ? ».
+  revient pas déguisé en ordre de toi. Les messages déjà là au démarrage sont ignorés.
+- **Contre une page piégée qui voudrait se faire passer pour toi** :
+  - il n'écrit jamais dans Messages par un script (AppleScript, JXA, Python, adresses `sms:`/`imessage:`) ni par
+    des gestes dans sa fenêtre : seulement par son outil, qui note ce qui part ;
+  - après une page ou un mail lus, toute commande qui pilote une app (frappes, `osascript`, Raccourcis) t'est
+    demandée, même en mode autonome ;
+  - un message qui arrive pendant qu'il lit une page ou un mail (ou moins de 20 s après), ou qui reprend un texte
+    passé par ses outils : il te demande d'abord « c'est bien toi qui l'as écrit ? » ;
+  - pendant qu'une question ❓ attend ta réponse, aucun de ses agents ne lance ce qui pourrait écrire dans Messages,
+    et une réponse qui reprend l'un de ses textes ne vaut pas ton accord.
 - **Ce qui ne change pas** : les mêmes règles qu'au micro. Il ne paie jamais, les interdits tiennent, et ce qu'il
   demande d'habitude à voix haute, il te le demande par message. Il n'appelle personne depuis le Mac quand tu lui
   écris de l'iPhone : l'appel sonnerait sur le Mac, sans toi (appelle depuis l'iPhone, ou « Dis Siri, appelle … »).

@@ -13,7 +13,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ResultMessage, StreamEvent, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, query)
 
 from . import comptes, compteur, config, graphe, lecons, lexique, naturel, outils, savoir_faire
-from .permissions import Gardien, lit_dehors, lu_dehors_depuis, noter_lecture_dehors
+from .permissions import Gardien, lit_dehors, lu_dehors_depuis, noter_lecture_dehors, noter_outil
 
 # Ce que tu lui dis à voix haute pendant qu'il travaille : il le lit à la fin de l'outil en cours, sans s'arrêter.
 # Un code tiré au hasard à chaque lancement, connu de ses seules consignes : une page ou un mail qui recopierait
@@ -757,6 +757,7 @@ class Cerveau:
                             if lit_dehors(bloc.name):
                                 self._gardien.contenu_externe = True
                                 noter_lecture_dehors()
+                            noter_outil(bloc.input)
                             a_la_ligne = True
                 elif isinstance(message, UserMessage) and isinstance(message.content, list):
                     for bloc in message.content:  # un outil qui a échoué : de quoi en tirer une leçon

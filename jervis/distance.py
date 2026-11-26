@@ -11,7 +11,9 @@ Apple), et chaque message reçu doit venir d'une de tes adresses. Un message d'u
 (« A aimé… ») ne comptent jamais. Ses propres réponses commencent par 🤖 et ce qu'il vient d'envoyer est noté : il
 ne se relit jamais lui-même (pas de boucle, et un texte venu d'une page ne revient pas comme un ordre de toi).
 Un message qui arrive pendant qu'il lit une page ou un mail (ou juste après) a pu être écrit par lui, sous la
-dictée de ce texte : il te demande d'abord si c'est bien toi (`suspect`, Cerveau.lu_dehors).
+dictée de ce texte, comme un message qui reprend un texte passé par ses outils : il te demande d'abord si c'est bien
+toi (`suspect`, Cerveau.lu_dehors). Et pendant qu'une question ❓ attend ta réponse, rien de ce qui pourrait écrire
+dans Messages ne tourne (permissions.QuestionEnCours) : ton « oui » ne peut venir que de toi.
 
 Il faut l'Accès complet au disque pour « Jervis » (comme pour les codes reçus par SMS).
 """
@@ -26,7 +28,7 @@ from collections import deque
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from . import comptes, config
+from . import comptes, config, permissions
 
 MARQUE = "🤖 "              # le début de chacune de ses réponses
 QUESTION = "❓ "            # ses questions oui/non
@@ -207,11 +209,12 @@ class Boite:
         dit = False
         while True:
             for texte in await asyncio.to_thread(self.lire):
-                suspect = self._suspect()
+                # Ce texte vient de passer par l'un de ses outils (un script, une frappe) : il vient de lui.
+                de_lui = permissions.vu_dans_ses_outils(texte)
                 if self._question is not None and not self._question.done():
-                    self._question.set_result((texte, suspect))
-                else:
-                    self.arrivees.put_nowait((texte, suspect))
+                    self._question.set_result((texte, de_lui))  # sa réponse (pendant ce temps, rien n'écrit dans Messages)
+                else:  # il lisait une page ou un mail, ou c'est l'un de ses textes : il te demande si c'est bien toi
+                    self.arrivees.put_nowait((texte, de_lui or self._suspect()))
             if self.erreur and not dit:
                 self._journal(f"   📱 Je ne lis pas tes iMessages : il me faut l'Accès complet au disque (Réglages → "
                               f"Confidentialité et sécurité). ({self.erreur})")
@@ -235,18 +238,23 @@ class Boite:
         Autre chose qu'un oui ou un non : c'est non, et ton message est lu ensuite comme une nouvelle demande."""
         futur = asyncio.get_running_loop().create_future()
         self._question = futur
-        try:
-            if not await self.envoyer(f"{question} (réponds oui ou non)", QUESTION):
+        # D'ici ta réponse, aucun de ses agents ne lance ce qui pourrait écrire dans Messages : ton « oui » est le tien.
+        with permissions.QuestionEnCours():
+            try:
+                if not await self.envoyer(f"{question} (réponds oui ou non)", QUESTION):
+                    return False
+                texte, de_lui = await asyncio.wait_for(asyncio.shield(futur), delai or config.QUESTION_IMESSAGE_S)
+            except asyncio.TimeoutError:
+                await self.envoyer("Pas de réponse : je n'ai rien fait.")
                 return False
-            texte, suspect = await asyncio.wait_for(asyncio.shield(futur), delai or config.QUESTION_IMESSAGE_S)
-        except asyncio.TimeoutError:
-            await self.envoyer("Pas de réponse : je n'ai rien fait.")
+            finally:
+                self._question = None
+        if de_lui:  # la réponse reprend un texte passé par ses outils : elle vient de lui, ce n'est pas ton accord
+            self._journal(f"   📱 Réponse écartée (elle reprend un texte de ses outils) : {texte[:120]}")
             return False
-        finally:
-            self._question = None
         accord = self._accord(texte)
         if accord is None:
-            self.arrivees.put_nowait((texte, suspect))
+            self.arrivees.put_nowait((texte, False))
         return bool(accord)
 
 
@@ -266,10 +274,11 @@ async def servir(boite: Boite, demander: Callable[..., Awaitable[str]], relire: 
             relire()
             continue
         a_relire = True
-        if suspect:  # il lisait une page ou un mail : ce message a pu partir de lui, sous la dictée de ce texte
-            journal(f"   📱 Message arrivé pendant une lecture du dehors, je te demande si c'est toi : {texte[:120]}")
+        if suspect:  # il lisait une page ou un mail, ou le texte vient de ses outils : il a pu partir de lui
+            journal(f"   📱 Message peut-être pas de toi, je te demande : {texte[:120]}")
             court = texte if len(texte) <= 200 else texte[:199] + "…"
-            if not await boite.demander(f"Ce message est arrivé pendant que je lisais une page ou un mail : c'est "
+            if not await boite.demander(f"Je ne suis pas sûr que ce message vienne de toi (il est arrivé pendant que "
+                                        f"je lisais une page ou un mail, ou il reprend l'un de mes textes) : c'est "
                                         f"bien toi qui l'as écrit ? « {court} »"):
                 await boite.envoyer("Je l'ignore.")
                 continue
