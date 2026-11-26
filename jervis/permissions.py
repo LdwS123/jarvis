@@ -1006,10 +1006,30 @@ _STEVE_FICHIERS: tuple[str, ...] = ()
 # Partout, dans tout dépôt, à toute profondeur (sous-modules, worktrees) : la config (core.fsmonitor, core.hooksPath
 # lanceraient du code à ton prochain git), les hooks, info/, commondir/gitdir, et l'entrée .git elle-même (un
 # fichier .git peut pointer vers un faux dépôt) ; et les .pth / sitecustomize que python lit à chaque démarrage.
-# Un git clone ou git init doit donc sortir de la cage : après une page lue, il t'est demandé (NOUVEAU_DEPOT).
+# Un git clone ou git init doit donc sortir de la cage : après une page lue, il t'est demandé (nouveau_depot), mais
+# seulement tout seul et tout simple — sinon un « git init x; curl … | sh » sortirait de la cage avec ton oui.
 _SE_LANCE_MOTIFS = (r"/\.git/(.*/)?(config|config\.worktree|commondir|gitdir)(\.lock)?$", r"/\.git/(.*/)?(hooks|info)/",
                     r"/\.git$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")
-NOUVEAU_DEPOT = re.compile(_COMMANDE + r"git\s+(?:-[Cc]\s+\S+\s+)*(?:clone|init|submodule|worktree)\b")
+COMMANDE_MONTREE_MAX = 300  # après une page lue, une commande demandée t'est montrée en entier, jusqu'à cette taille
+_MOT_SIMPLE = r"[\w./:@~+=,%-]+"  # ni guillemet, ni $, ni ; & | ` < > ( ) : rien que le shell réinterprète
+NOUVEAU_DEPOT = re.compile(rf"(?:cd[ \t]+{_MOT_SIMPLE}[ \t]*&&[ \t]*)?git[ \t]+(clone|init)((?:[ \t]+{_MOT_SIMPLE})*)")
+# Les seules options permises : -c, --config, -u/--upload-pack, --template, --recurse-submodules, --separate-git-dir…
+# lanceraient du code ou poseraient une config hors cage
+_GIT_OPTIONS_SURES = re.compile(r"-q|--quiet|--single-branch|--no-tags|--depth=\d+|--filter=blob:none"
+                                r"|(?:--branch|--initial-branch|--origin)=[\w./-]+")
+
+
+def nouveau_depot(commande: str) -> bool:
+    """Un git clone ou git init tout seul et tout simple (un cd devant au plus), qu'on peut laisser sortir de la cage."""
+    m = NOUVEAU_DEPOT.fullmatch(commande.strip())
+    if not m:
+        return False
+    for mot in m.group(2).split():
+        if mot.startswith("-") and not _GIT_OPTIONS_SURES.fullmatch(mot):
+            return False
+        if not mot.startswith("-") and "::" in mot:  # ext::sh -c … : un transport qui lance une commande
+            return False
+    return True
 
 
 def _se_lance_chemins() -> tuple[list[Path], list[Path]]:
@@ -1234,7 +1254,7 @@ class Gardien:
                 decision = Decision.DEMANDER
         if decision is Decision.OUI and deja_dehors and (
                 pilote_des_apps(outil, entree) or ecrit_ce_qui_se_lance(outil, entree)
-                or (outil == "Bash" and NOUVEAU_DEPOT.search(str(entree.get("command") or "")))):
+                or (outil == "Bash" and nouveau_depot(str(entree.get("command") or "")))):
             # Des frappes, un script d'app, un « open » de fichier, ou un fichier qui se lancera tout seul plus tard
             # (LaunchAgents, ton shell, le code de Steve) après une page lue : même en autonome.
             decision = Decision.DEMANDER
@@ -1262,6 +1282,15 @@ class Gardien:
                                 f"redis-le en {A_MONTRER[action][trop_long]} caractères au plus, puis réessaie.")
             apps = cibles_mac(action, entree, self._apps_vues) if outil.startswith("mcp__mac__") else set()
             question = decrire(outil, entree, apps)
+            if outil == "Bash" and deja_dehors:
+                # Après une page lue, la description vient du modèle : c'est la commande elle-même qu'on te montre,
+                # puisque c'est elle qui tournera hors cage
+                commande = str(entree.get("command") or "").strip()
+                if len(commande) > COMMANDE_MONTREE_MAX:
+                    return PermissionResultDeny(
+                        message=f"Cette commande est trop longue pour que je la lui montre en entier avant de dire oui : "
+                                f"découpe-la en commandes de {COMMANDE_MONTREE_MAX} caractères au plus, puis réessaie.")
+                question = f"{question[:-len(' Je peux ?')]} — la commande : « {commande} ». Je peux ?"
             if outil.startswith("mcp__mac__") and (app := atelier(action, entree, apps)):
                 cle = f"atelier:{app}"  # un seul « oui » pour tout le travail dans Cursor pendant cette demande
                 question = _decrire_atelier(app, action, entree)
