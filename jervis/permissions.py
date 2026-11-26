@@ -1012,24 +1012,56 @@ _SE_LANCE_MOTIFS = (r"/\.git/(.*/)?(config|config\.worktree|commondir|gitdir)(\.
                     r"/\.git$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")
 COMMANDE_MONTREE_MAX = 300  # après une page lue, une commande demandée t'est montrée en entier, jusqu'à cette taille
 _MOT_SIMPLE = r"[\w./:@~+=,%-]+"  # ni guillemet, ni $, ni ; & | ` < > ( ) : rien que le shell réinterprète
-NOUVEAU_DEPOT = re.compile(rf"(?:cd[ \t]+{_MOT_SIMPLE}[ \t]*&&[ \t]*)?git[ \t]+(clone|init)((?:[ \t]+{_MOT_SIMPLE})*)")
+NOUVEAU_DEPOT = re.compile(rf"(?:cd[ \t]+({_MOT_SIMPLE})[ \t]*&&[ \t]*)?git[ \t]+(clone|init)((?:[ \t]+{_MOT_SIMPLE})*)")
 # Les seules options permises : -c, --config, -u/--upload-pack, --template, --recurse-submodules, --separate-git-dir…
 # lanceraient du code ou poseraient une config hors cage
 _GIT_OPTIONS_SURES = re.compile(r"-q|--quiet|--single-branch|--no-tags|--depth=\d+|--filter=blob:none"
                                 r"|(?:--branch|--initial-branch|--origin)=[\w./-]+")
+_CHEMIN_ABSOLU = re.compile(r"(?:~(?=/|$)|/)[\w./@+,%-]*")  # ni ~+ ni ~autre ni =git, que zsh réinterpréterait
+
+
+def _depot_ou(dossier: str | None, cible: str | None) -> Path | None:
+    """Où le nouveau dépôt se pose, ou None si on ne le sait pas d'avance (le dossier courant de Bash a pu changer)."""
+    if cible and _CHEMIN_ABSOLU.fullmatch(cible):
+        return Path(cible).expanduser().resolve()
+    if not dossier or not _CHEMIN_ABSOLU.fullmatch(dossier) or (cible and (cible.startswith(("~", "=")))):
+        return None
+    return (Path(dossier).expanduser() / (cible or "")).resolve()
 
 
 def nouveau_depot(commande: str) -> bool:
-    """Un git clone ou git init tout seul et tout simple (un cd devant au plus), qu'on peut laisser sortir de la cage."""
+    """Un git clone ou git init tout seul et tout simple (un cd devant au plus), qu'on peut laisser sortir de la cage,
+    vers un dossier connu d'avance qui n'est ni dans ce qui se lance tout seul (~/.claude, LaunchAgents, le code de
+    Steve…), ni au-dessus, ni dans un .git."""
     m = NOUVEAU_DEPOT.fullmatch(commande.strip())
     if not m:
         return False
-    for mot in m.group(2).split():
+    dossier, verbe, mots = m.group(1), m.group(2), m.group(3).split()
+    for mot in mots:
         if mot.startswith("-") and not _GIT_OPTIONS_SURES.fullmatch(mot):
             return False
         if not mot.startswith("-") and "::" in mot:  # ext::sh -c … : un transport qui lance une commande
             return False
-    return True
+    noms = [mot for mot in mots if not mot.startswith("-")]
+    if verbe == "clone":
+        if len(noms) not in (1, 2):
+            return False
+        cible = noms[1] if len(noms) == 2 else re.sub(r"\.git$", "", noms[0].rstrip("/").rsplit("/", 1)[-1]
+                                                       .rsplit(":", 1)[-1])
+        if not cible:
+            return False
+    else:
+        if len(noms) > 1:
+            return False
+        cible = noms[0] if noms else None
+    try:
+        ou = _depot_ou(dossier, cible)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if ou is None or ".git" in ou.parts or SE_LANCE_PLUS_TARD.search(f"{ou}/x"):
+        return False
+    dessous = [*_se_lance_chemins()[0], *_se_lance_chemins()[1]]
+    return not any(c == ou or ou in c.parents for c in dessous)  # ni ~ ni ~/Jervis : ils contiennent du protégé
 
 
 def _se_lance_chemins() -> tuple[list[Path], list[Path]]:
@@ -1290,7 +1322,9 @@ class Gardien:
                     return PermissionResultDeny(
                         message=f"Cette commande est trop longue pour que je la lui montre en entier avant de dire oui : "
                                 f"découpe-la en commandes de {COMMANDE_MONTREE_MAX} caractères au plus, puis réessaie.")
-                question = f"{question[:-len(' Je peux ?')]} — la commande : « {commande} ». Je peux ?"
+                # rien du modèle, que la commande ; ses « » deviennent des " pour qu'elle ne ferme pas la citation
+                question = (f"Je vais lancer cette commande hors de la cage : "
+                            f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?")
             if outil.startswith("mcp__mac__") and (app := atelier(action, entree, apps)):
                 cle = f"atelier:{app}"  # un seul « oui » pour tout le travail dans Cursor pendant cette demande
                 question = _decrire_atelier(app, action, entree)
