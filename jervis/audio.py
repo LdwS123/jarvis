@@ -2,9 +2,10 @@
 
 Le chemin du son, toutes les 80 ms :
 
-    micro 48 kHz ─► 16 kHz ─► anti-écho (retire sa propre voix) ─► « propre »  → transcription, « Hey Jarvis »,
-                                   ▲                                   │            fin de phrase, ta voix
-    haut-parleur ◄── sa voix ──────┘ (référence)                       └► débruitage → détecteur de voix
+    micro 48 kHz ─► 16 kHz ─► anti-écho ─► gain (si tu parles bas) ─► « propre »  → transcription, « Hey Jarvis »,
+                                   ▲                                       │           fin de phrase, ta voix
+    haut-parleur ◄── sa voix ──────┘ (référence)                           ├► débruitage → détecteur de voix
+                                                                           └► détecteur de voix (chuchotements)
 
 Le micro et le haut-parleur passent par un seul flux audio (« duplex ») : l'anti-écho sait ainsi exactement
 ce qui sort des enceintes, au bon moment. Si ce flux ne s'ouvre pas, on revient au micro seul et à `afplay`.
@@ -44,6 +45,7 @@ class Phrase:
     voix_stricte: float | None = None    # sa ressemblance avec ta voix principale seule (les « oui » sensibles)
     coupee: bool = False    # arrêtée par la durée maximale : tu parlais encore
     inconnue: bool = False  # pas ta voix (gardée seulement si on l'a demandé : un « stop » compte quand même)
+    chuchotee: bool = False  # dite en chuchotant (sans que la voix vibre)
 
 
 class _Decimateur:
@@ -74,6 +76,8 @@ class HautParleur:
         self.volume = 1.0    # 0 à 1 : il baisse la voix quand tu commences à lui parler
         self._gain = 1.0     # le volume réellement appliqué (il glisse vers `volume`, sans clic)
         self.niveau = 0.0    # le volume de ce qui sort en ce moment (pour le tableau de bord)
+        self.douceur = 1.0   # VOLUME_CHUCHOTE quand tu viens de lui chuchoter : il répond plus bas
+        self.dernier_son = 0.0  # quand il a joué un son pour la dernière fois (time.monotonic)
 
     @property
     def actif(self) -> bool:
@@ -118,7 +122,9 @@ class HautParleur:
                     termines.append(self._file.popleft()[2])
         for fini in termines:
             fini()
-        cible = self.volume
+        if rempli:
+            self.dernier_son = time.monotonic()
+        cible = self.volume * self.douceur
         if self._gain != cible or cible != 1.0:
             sortie *= np.linspace(self._gain, cible, n, dtype=np.float32)
             self._gain = cible
@@ -146,7 +152,7 @@ class Oreilles:
 
         openwakeword.utils.download_models(model_names=[])  # récupère le modèle Silero VAD (2 Mo)
         self._vad = VAD()
-        self._q: "queue.Queue[tuple[np.ndarray, np.ndarray]]" = queue.Queue()  # (propre, débruité)
+        self._q: "queue.Queue[tuple[np.ndarray, np.ndarray, bool]]" = queue.Queue()  # (propre, débruité, calme)
         self._ferme = threading.Event()
         self.en_pause = False
         self.niveau = 0.0  # le volume de ce que le micro capte (pour le tableau de bord)
@@ -155,6 +161,10 @@ class Oreilles:
                         if config.DETECTION != "whisper" and config.MOTCLE_MODELE else None)
         self._fin = _charger("Fin de phrase intelligente", voix.FinDeTour) if config.FIN_INTELLIGENTE else None
         self._debruiteur = _charger("Débruitage", voix.Debruiteur) if config.DEBRUITAGE != "non" else None
+        # Chuchotement : le gain, et un second détecteur sur le son non débruité (le débruitage efface un chuchotement).
+        self._chuchotee = voix.chuchotee if config.CHUCHOTEMENT else None
+        self._gain = voix.Gain() if config.CHUCHOTEMENT else None
+        self._vad_brut = VAD() if config.CHUCHOTEMENT and self._debruiteur and config.DEBRUITAGE == "detection" else None
         self._empreinte = None
         if config.APPRENDRE_VOIX or voix.Empreinte.FICHIER.exists():
             self._empreinte = _charger("Reconnaissance de ta voix", voix.Empreinte)
@@ -219,13 +229,25 @@ class Oreilles:
                     self._anti_echo = None
             self._ajouter(mic)
 
+    # Après sa voix, l'écho qui traîne dans la pièce : le gain et le détecteur de chuchotements attendent ce temps-là.
+    APRES_SA_VOIX_S = 0.5
+
+    def _calme(self) -> bool:
+        """Vrai s'il ne parle pas (et n'a pas parlé juste avant) : on peut monter le son sans monter son écho.
+        Micro seul (sans flux duplex), on ne sait pas quand il parle : jamais."""
+        hp = self.haut_parleur
+        return hp is not None and time.monotonic() - hp.dernier_son > self.APRES_SA_VOIX_S
+
     def _ajouter(self, propre: np.ndarray) -> None:
         x = propre.astype(np.float32) / 32768.0
         self.niveau = float(np.sqrt(x.dot(x) / max(1, len(x))))
+        calme = self._calme()
+        if self._gain:
+            propre = self._gain.traiter(propre, figer=not calme)
         debruite = self._debruiteur.traiter(propre) if self._debruiteur else propre
         if config.DEBRUITAGE == "tout":
             propre = debruite
-        self._q.put((propre, debruite))
+        self._q.put((propre, debruite, calme))
 
     def _resume(self) -> None:
         def etat(nom, ok, raison=""):
@@ -234,6 +256,7 @@ class Oreilles:
         print("   " + "  ".join([
             etat("anti-écho", self._anti_echo is not None),
             etat("débruitage", self._debruiteur is not None),
+            *([etat("chuchotements", self._chuchotee is not None)] if config.CHUCHOTEMENT else []),
             *([etat(f"« {config.PHRASE_MOTCLE} »", self._motcle is not None)] if config.MOTCLE_MODELE else []),
             etat("fin de phrase intelligente", self._fin is not None),
             etat("ta voix", self.voix_connue, self._apprentissage()),
@@ -253,8 +276,8 @@ class Oreilles:
 
     def apprendre_voix(self, phrase: Phrase, sure: bool) -> str | None:
         """Une phrase comprise, dite par toi : il affine ta voix (ou l'apprend, si `sure` = tu as dit son nom)."""
-        if self._empreinte is None or phrase.empreinte is None or not config.APPRENDRE_VOIX:
-            return None
+        if self._empreinte is None or phrase.empreinte is None or not config.APPRENDRE_VOIX or phrase.chuchotee:
+            return None  # (un chuchotement n'apprend rien : son empreinte ne ressemble pas à ta voix)
         try:
             return self._empreinte.apprendre(phrase.empreinte, sure)
         except Exception:  # apprendre est un bonus : ça ne doit jamais l'empêcher de répondre
@@ -272,6 +295,8 @@ class Oreilles:
         while not self._q.empty():
             self._q.get_nowait()
         self._vad.reset_states()
+        if self._vad_brut is not None:
+            self._vad_brut.reset_states()
         if self._motcle:
             self._motcle.oublier()
 
@@ -286,7 +311,7 @@ class Oreilles:
             self._stream.start()
 
     def _lire(self, arret: threading.Event | None, fin: float | None = None):
-        """Le bloc suivant (propre, débruité), ou None si on doit arrêter d'écouter (ou si `fin` est passée)."""
+        """Le bloc suivant (propre, débruité, calme), ou None si on doit arrêter d'écouter (ou si `fin` est passée)."""
         while not self._ferme.is_set() and not (arret and arret.is_set()):
             if fin is not None and time.monotonic() > fin:
                 return None
@@ -296,8 +321,14 @@ class Oreilles:
                 continue
         return None
 
-    def _est_voix(self, bloc: np.ndarray) -> bool:
-        return float(self._vad.predict(bloc, frame_size=640)) >= config.SEUIL_VAD
+    def _est_voix(self, propre: np.ndarray, debruite: np.ndarray, calme: bool = False) -> bool:
+        """Quelqu'un parle dans ce bloc ? Le détecteur écoute le son débruité ; pour un chuchotement, que le
+        débruitage prend pour du souffle, un second écoute le son tel quel (seulement quand il ne parle pas)."""
+        voix = float(self._vad.predict(debruite, frame_size=640)) >= config.SEUIL_VAD
+        if self._vad_brut is not None:  # appelé à chaque bloc : il se souvient des blocs d'avant
+            brut = float(self._vad_brut.predict(propre, frame_size=640)) >= config.SEUIL_VAD_BRUT
+            voix = voix or (brut and calme)
+        return voix
 
     @staticmethod
     def seuil_fin(silence: float) -> float:
@@ -330,7 +361,8 @@ class Oreilles:
 
     def _diagnostic(self, phrase: Phrase, inconnue: bool) -> None:
         """JERVIS_DIAGNOSTIC_VOIX=oui : une ligne par phrase dans jervis.log, pour régler les seuils de voix."""
-        parole = f"{phrase.duree_parole:.1f} s de parole{' + mot-clé' if phrase.reveil else ''}"
+        parole = (f"{phrase.duree_parole:.1f} s de parole{' chuchotée' if phrase.chuchotee else ''}"
+                  f"{' + mot-clé' if phrase.reveil else ''}")
         if phrase.voix is None:
             raison = "trop courte pour juger" if phrase.duree_parole < config.MIN_VERIF_VOIX_S else "pas encore d'empreinte"
             print(f"   🔎 voix : {raison} ({parole}) → acceptée", flush=True)
@@ -351,8 +383,10 @@ class Oreilles:
             return
         if self._empreinte.reference is not None:
             phrase.voix = self._empreinte.score(phrase.empreinte)
-            phrase.voix_stricte = self._empreinte.score_strict(phrase.empreinte)
+            phrase.voix_stricte = self._empreinte.score_strict(phrase.empreinte)  # inchangé : un « oui » sensible
             phrase.seuil_voix = self._empreinte.seuil(phrase.duree_parole, phrase.reveil)
+            if phrase.chuchotee:  # l'empreinte d'un chuchotement ne ressemble plus à ta voix : seuil bien plus bas
+                phrase.seuil_voix = min(phrase.seuil_voix, config.SEUIL_VOIX_CHUCHOTE)
 
     def ecouter_phrase(
         self,
@@ -392,10 +426,10 @@ class Oreilles:
                 lu = self._lire(arret, fin)
                 if lu is None:
                     return None
-                propre, debruite = lu
+                propre, debruite, calme = lu
                 if ecoute_motcle and self._motcle.score(propre) >= config.SEUIL_MOTCLE:
                     reveil = True
-                if self._est_voix(debruite):
+                if self._est_voix(propre, debruite, calme):
                     break
                 avant.append(propre)
 
@@ -408,11 +442,11 @@ class Oreilles:
                 lu = self._lire(None if laisser_finir else arret)
                 if lu is None:
                     return None
-                propre, debruite = lu
+                propre, debruite, calme = lu
                 morceaux.append(propre)
                 if ecoute_motcle and not reveil and self._motcle.score(propre) >= config.SEUIL_MOTCLE:
                     reveil = True
-                if self._est_voix(debruite):
+                if self._est_voix(propre, debruite, calme):
                     parole += duree_bloc
                     silence, demande = 0.0, -1.0  # tu as repris : on redemandera à smart-turn
                     if quand_tu_parles and not signale and parole >= config.MIN_PAROLE_S:
@@ -432,6 +466,7 @@ class Oreilles:
                     quand_tu_parles(False)  # pas pour lui : on remet le volume
                 continue  # sans le mot-clé, on ne transcrit même pas
             phrase = Phrase(np.concatenate(morceaux), reveil, parole, silence, coupee=coupee)
+            phrase.chuchotee = self._chuchotee is not None and self._chuchotee(phrase.audio)
             self._signer(phrase)
             if verifier_voix and self._voix_inconnue(phrase):
                 if garder_inconnue:

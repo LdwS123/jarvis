@@ -402,6 +402,16 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     chrono: dict = {"texte_pret": None}  # les étapes de ta dernière phrase, pour mesurer son temps de réponse
     delais: list[float] = []
 
+    def chuchote(oui: bool) -> None:
+        """Tu viens de chuchoter : il te répond plus bas (VOLUME_CHUCHOTE), jusqu'à ce que tu reparles normalement."""
+        hp = oreilles.haut_parleur
+        if hp is None or not config.CHUCHOTEMENT:
+            return
+        douceur = config.VOLUME_CHUCHOTE if oui else 1.0
+        if douceur < 1.0 and hp.douceur == 1.0:
+            print("   \033[2m(tu chuchotes : je te réponds plus bas)\033[0m", flush=True)
+        hp.douceur = douceur
+
     async def entendre(attente: float | None, veille: bool = False,
                        arret: threading.Event | None = None, garder: bool = False) -> tuple[str | None, bool]:
         """(ce que tu as dit, mot-clé entendu). Le texte vaut None si personne n'a parlé à temps,
@@ -420,8 +430,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             chrono.update(fin=entendue - phrase.silence, silence=phrase.silence,
                           transcription=time.monotonic() - entendue, texte_pret=time.monotonic())
         if not texte or HALLUCINATIONS.search(texte) or BRUITS.match(texte) or hors_alphabet(texte):
-            texte = ""  # (hors_alphabet : une vidéo en russe, en arabe…)
-        elif not en_anglais(texte):
+            return "", phrase.reveil  # (hors_alphabet : une vidéo en russe, en arabe…)
+        chuchote(getattr(phrase, "chuchotee", False))
+        if not en_anglais(texte):
             # Une vraie phrase de toi : il affine ta voix. Avec son nom dedans, c'est sûr que c'est toi.
             if appris := oreilles.apprendre_voix(phrase, sure=phrase.reveil or bool(NOM.search(texte))):
                 print(f"   🎙  Ta voix : {appris}.", flush=True)

@@ -88,7 +88,16 @@ def _deuxieme_avis(audio_int16: np.ndarray, texte: str) -> str:
 
 
 def _flottant(audio_int16: np.ndarray) -> np.ndarray:
-    return audio_int16.astype(np.float32) / 32768.0
+    """En float32, entre -1 et 1. Une phrase restée très basse (chuchotée de loin) est remontée avant d'être
+    transcrite : ses pics à 0,5 (×8 au plus). Une voix normale n'est pas touchée."""
+    x = audio_int16.astype(np.float32) / 32768.0
+    pic = float(np.abs(x).max()) if len(x) else 0.0
+    if config.CHUCHOTEMENT and PIC_BAS > pic > 1e-4:
+        x *= min(0.5 / pic, 8.0)
+    return x
+
+
+PIC_BAS = 0.25   # en dessous, la phrase est remontée
 
 
 def _fin_du_caractere(resultat, position: int) -> float:

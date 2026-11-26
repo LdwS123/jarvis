@@ -179,11 +179,30 @@ Tout tourne en local sur le Mac, avec de petits modèles open source (téléchar
 | Transcription | ~0,1 s par phrase (Whisper : ~0,35 s) | NVIDIA Parakeet v3 (MLX) |
 | Anti-écho | retire sa propre voix du micro, pour pouvoir lui couper la parole | WebRTC AEC3 (LiveKit) |
 | Débruitage | ignore le bruit de fond (ventilateur, rue) pour savoir si tu parles | DPDFNet (sherpa-onnx) |
+| Chuchotements | monte le son quand tu parles bas, et un second détecteur de voix entend ce que le débruitage prend pour du souffle | gain automatique + Silero VAD |
 | Ta voix | ignore les phrases dites par quelqu'un d'autre (télé, collègues) | CAM++ (sherpa-onnx) |
 | Deuxième avis | deux ou trois mots sortis en anglais (« Skip the mail. ») : il les réécoute en français | Whisper large-v3-turbo (MLX) |
 | Sa voix | fabrique chaque phrase sur le Mac, sans Internet (voir « Sa voix » plus bas) | Pocket TTS (Kyutai) |
 
 Au démarrage, une ligne indique ce qui est actif (`✓`) ou pas (`·`). Si une brique ne se charge pas, il marche sans elle.
+
+**Tu peux lui chuchoter** (quand les autres dorment). Trois choses, toutes sur le Mac :
+
+- un gain automatique monte ton micro (×10 au plus) quand tu parles bas. Il ne monte jamais une voix normale
+  (elle passe telle quelle), ni le bruit de fond au-dessus de -45 dB. Il redescend tout de suite si une voix forte
+  arrive, et ne touche à rien pendant qu'il parle et une demi-seconde après : son écho n'est jamais monté, et
+  l'anti-écho et la coupure de parole marchent comme avant ;
+- le débruitage efface un chuchotement (il le prend pour du souffle). Un second détecteur de voix écoute donc le son
+  tel quel, avec un seuil plus strict (0,6), seulement quand il ne parle pas. Une phrase restée très basse est
+  remontée avant d'être transcrite ;
+- il reconnaît un chuchotement (ta voix ne vibre plus : rien que du souffle) et te répond alors plus bas (35 % du
+  volume). L'empreinte d'un chuchotement ne ressemble pas à ta voix habituelle : pour ces phrases-là, le seuil de
+  ta voix descend à 0,15 (un chuchotement de la télé reste rare). Un chuchotement n'apprend rien à ta voix, et le
+  « oui » d'une confirmation sensible doit toujours être dit de ta voix normale.
+
+Mesuré sur des chuchotements de synthèse : de -52 à -58 dB (à quelques mètres, dans une pièce calme), il n'entendait
+rien ; il transcrit maintenant la phrase entière. Avec `JERVIS_DIAGNOSTIC_VOIX=oui`, les lignes de `jervis.log`
+disent « parole chuchotée ». `JERVIS_CHUCHOTEMENT=non` revient à l'écoute d'avant.
 
 **Apprendre ta voix** (facultatif) : lance une fois
 
@@ -696,6 +715,14 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_DEUXIEME_AVIS` | oui | `non` = il ne réécoute plus en français les deux ou trois mots sortis en anglais (0,4 s de gagné sur ces phrases-là) |
 | `JERVIS_ANTI_ECHO` | oui | `non` pour le couper (par ex. si ton micro a déjà le sien) |
 | `JERVIS_DEBRUITAGE` | detection | `tout` = débruite aussi ce qui est transcrit ; `non` = coupé |
+| `JERVIS_CHUCHOTEMENT` | oui | `non` = plus de gain, plus de second détecteur de voix ni de réponse plus basse (l'écoute d'avant) |
+| `JERVIS_GAIN_MAX` | 10 | combien il peut monter ton micro quand tu parles bas (×10 = +20 dB ; 16 s'il rate encore tes chuchotements) |
+| `JERVIS_BRUIT_MAX_DB` | -45 | le bruit de fond n'est jamais monté au-dessus : baisse-le (-50) si un ventilateur le réveille |
+| `JERVIS_NIVEAU_VOIX_DB` | -26 | une voix n'est jamais montée plus fort que ça (une voix normale passe donc telle quelle) |
+| `JERVIS_SEUIL_VAD_BRUT` | 0.6 | le second détecteur (son non débruité, chuchotements) : baisse-le (0.5) s'il rate tes chuchotements, monte-le (0.75) s'il réagit au bruit |
+| `JERVIS_SEUIL_CHUCHOTE` | 0.15 | sous cette part de voix « qui vibre », la phrase est chuchotée |
+| `JERVIS_SEUIL_VOIX_CHUCHOTE` | 0.15 | le seuil de ta voix pour une phrase chuchotée (si ta voix est apprise) |
+| `JERVIS_VOLUME_CHUCHOTE` | 0.35 | son volume quand tu viens de lui chuchoter (1 = il répond normalement) |
 | `JERVIS_SEUIL_VOIX` | 0.5 | si ta voix est apprise : baisse-le (0.4) s'il t'ignore, monte-le (0.6) s'il écoute les autres (phrases de `VOIX_LONGUE_S` et plus, et les « oui » sensibles) |
 | `JERVIS_SEUIL_VOIX_COURTE` | 0.42 | le seuil des phrases les plus courtes (`MIN_VERIF_VOIX_S`) ; entre les deux, il descend en douceur |
 | `JERVIS_VOIX_LONGUE_S` | 2 | à partir de ce temps de parole, le seuil plein (`SEUIL_VOIX`) |

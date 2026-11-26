@@ -5,6 +5,7 @@
 - Empreinte    : est-ce bien ta voix ? (wespeaker CAM++, via sherpa-onnx)
 - Debruiteur   : retire le bruit de fond (DPDFNet, dérivé de DeepFilterNet, via sherpa-onnx)
 - AntiEcho     : retire sa propre voix du micro (WebRTC AEC3, via LiveKit)
+- Gain         : monte le son quand tu parles bas ; part_voisee / chuchotee : as-tu chuchoté ? (sans modèle)
 
 Les modèles sont rangés dans Jervis/modeles/voix (téléchargés une fois, quelques Mo chacun).
 Chaque brique est optionnelle : si un modèle manque, l'assistant fonctionne sans elle.
@@ -412,3 +413,78 @@ class AntiEcho:
             self._apm.process_stream(mic)
             sortie[i:i + self.TRAME] = np.frombuffer(mic.data, dtype=np.int16)
         return sortie
+
+
+# --- Chuchotement ------------------------------------------------------------------------------------
+
+def _amplitude(db: float) -> float:
+    return 10 ** (db / 20)
+
+
+class Gain:
+    """Monte le son quand tu parles bas, bloc par bloc (un « contrôle automatique de gain »), sans modèle.
+    Trois limites : jamais au-delà de GAIN_MAX, jamais un bruit de fond monté au-dessus de BRUIT_MAX_DB, jamais
+    une voix poussée plus fort que NIVEAU_VOIX_DB : une voix normale reste donc telle quelle. Il redescend tout de
+    suite (une voix forte arrive), et ne remonte qu'après TENUE blocs plus calmes, en douceur : les blancs entre
+    tes mots, quand tu parles normalement, ne sont pas gonflés."""
+
+    MONTEE = _amplitude(1.6)          # +1,6 dB par bloc de 80 ms : de ×1 à ×10 en une seconde
+    BRUIT_MONTEE = _amplitude(0.25)   # le bruit de fond suivi remonte de 3 dB/s au plus (ta voix ne le gonfle pas)
+    TENUE = 6                         # ~0,5 s
+
+    def __init__(self) -> None:
+        self.gain = 1.0
+        self.bruit: float | None = None   # le niveau du bruit de fond (le plus bas récent)
+        self._tenue = 0
+
+    def traiter(self, bloc_int16: np.ndarray, figer: bool = False) -> np.ndarray:
+        """`figer=True` (il parle, ou vient de parler) : le son passe tel quel, pour que l'écho qui reste
+        de sa voix ne soit jamais monté."""
+        x = _flottant(bloc_int16)
+        rms = float(np.sqrt(x.dot(x) / max(1, len(x)))) + 1e-7
+        self.bruit = rms if self.bruit is None else min(rms, self.bruit * self.BRUIT_MONTEE)
+        voulu = 1.0 if figer else max(1.0, min(config.GAIN_MAX, _amplitude(config.BRUIT_MAX_DB) / self.bruit,
+                                               _amplitude(config.NIVEAU_VOIX_DB) / rms))
+        ancien = self.gain
+        if voulu <= ancien:
+            self.gain, self._tenue = voulu, self.TENUE   # tout de suite, pour tout le bloc : pas de saturation
+            debut = voulu
+        elif self._tenue > 0:
+            self._tenue -= 1
+            debut = ancien
+        else:
+            self.gain = min(voulu, ancien * self.MONTEE)
+            debut = ancien
+        if debut == self.gain == 1.0:
+            return bloc_int16
+        rampe = np.linspace(debut, self.gain, len(x), dtype=np.float32)  # sans « clic » en remontant
+        return np.clip(x * rampe * 32768.0, -32768, 32767).astype(np.int16)
+
+
+def part_voisee(audio_int16: np.ndarray) -> float | None:
+    """La part de ta phrase où ta voix vibre (les cordes vocales) : ~0,7 à 0,9 quand tu parles, presque 0 quand
+    tu chuchotes (rien que du souffle). None : trop court pour le dire. On prend les moments les plus forts de la
+    phrase (40 ms chacun) et on y cherche une période qui se répète entre 70 et 400 Hz, la hauteur d'une voix."""
+    x = _flottant(audio_int16)
+    n, pas = 640, 320
+    if len(x) < n:
+        return None
+    trames = np.lib.stride_tricks.sliding_window_view(x, n)[::pas]
+    rms = np.sqrt((trames ** 2).mean(axis=1))
+    fortes = trames[rms > max(3 * np.percentile(rms, 10), 0.3 * np.percentile(rms, 95), 3e-5)]
+    if len(fortes) < 5:
+        return None
+    fortes = fortes - fortes.mean(axis=1, keepdims=True)
+    # On écrête le centre (le vieux truc des détecteurs de hauteur) : les résonances de la bouche, qui existent
+    # aussi dans un chuchotement, s'effacent, et seule la vibration des cordes vocales se répète encore.
+    seuil = 0.3 * np.abs(fortes).max(axis=1, keepdims=True)
+    fortes = np.sign(fortes) * np.maximum(np.abs(fortes) - seuil, 0)
+    auto = np.fft.irfft(np.abs(np.fft.rfft(fortes, 2 * n, axis=1)) ** 2, axis=1)[:, :n]
+    auto = auto / (auto[:, :1] + 1e-12)
+    hauteur = auto[:, config.SAMPLE_RATE // 400:config.SAMPLE_RATE // 70 + 1].max(axis=1)
+    return float((hauteur > 0.45).mean())
+
+
+def chuchotee(audio_int16: np.ndarray) -> bool:
+    part = part_voisee(audio_int16)
+    return part is not None and part < config.SEUIL_CHUCHOTE

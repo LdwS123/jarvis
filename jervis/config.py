@@ -371,5 +371,19 @@ CONFIRMATION_VOIX = _env("CONFIRMATION_VOIX", "oui").lower() not in {"non", "off
 # Il apprend ta voix tout seul (les phrases où tu dis son nom), puis l'affine à chaque phrase de toi.
 APPRENDRE_VOIX = _env("APPRENDRE_VOIX", "oui").lower() not in {"non", "off", "0"}
 SEUIL_APPRENDRE = float(_env("SEUIL_APPRENDRE", "0.65"))  # il n'apprend que des phrases où il est sûr que c'est toi
+# Tu chuchotes (des gens dorment) : il t'entend quand même, et te répond plus bas. Le son du micro est monté tout seul
+# quand tu parles bas (jamais quand tu parles normalement, jamais pendant que lui parle : l'anti-écho reste intact),
+# le détecteur de voix écoute aussi le son non débruité (le débruitage prend un chuchotement pour du souffle), et une
+# phrase chuchotée n'est pas jugée sur ta voix comme une autre : l'empreinte d'un chuchotement ne ressemble plus à ta
+# voix (un « oui » sensible, lui, se dit toujours à voix normale). JERVIS_CHUCHOTEMENT=non pour revenir à avant.
+CHUCHOTEMENT = _env("CHUCHOTEMENT", "oui").lower() not in {"non", "off", "0"}
+GAIN_MAX = float(_env("GAIN_MAX", "10"))           # le son est monté jusqu'à ×10 ; baisse (4) s'il réagit au moindre bruit
+BRUIT_MAX_DB = float(_env("BRUIT_MAX_DB", "-45"))  # … sans que le bruit de fond dépasse ce niveau (dB, 0 = le maximum)
+NIVEAU_VOIX_DB = float(_env("NIVEAU_VOIX_DB", "-26"))  # … ni qu'une voix soit poussée plus fort qu'une voix normale
+SEUIL_VAD_BRUT = float(_env("SEUIL_VAD_BRUT", "0.6"))  # le détecteur sur le son non débruité (un peu plus exigeant)
+# Une phrase est « chuchotée » quand ta voix y vibre moins que cette part du temps (parler : 0,7 à 0,9 ; chuchoter : ~0).
+SEUIL_CHUCHOTE = float(_env("SEUIL_CHUCHOTE", "0.15"))
+SEUIL_VOIX_CHUCHOTE = float(_env("SEUIL_VOIX_CHUCHOTE", "0.15"))  # ressemblance qu'il faut à une phrase chuchotée
+VOLUME_CHUCHOTE = float(_env("VOLUME_CHUCHOTE", "0.35"))  # sa voix quand tu viens de chuchoter (1 = comme d'habitude)
 # Taille max d'un message de Claude Code : une capture d'écran (outil « see ») dépasse le 1 Mo par défaut.
 TAMPON_MAX = 64 * 1024 * 1024
