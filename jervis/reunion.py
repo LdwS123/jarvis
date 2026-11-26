@@ -35,7 +35,7 @@ from typing import Any, Callable
 import numpy as np
 from claude_agent_sdk import tool
 
-from . import appareils, config
+from . import appareils, config, vocal
 
 # --- Qui écoute le micro -----------------------------------------------------------------------------------
 
@@ -111,6 +111,15 @@ class Surveillance:
     def regarder(self) -> None:
         """Un coup d'œil (le fil le fait toutes les deux secondes ; les tests, à la main)."""
         apps, maintenant = apps_en_appel(self._lire()), self._horloge()
+        if vocal.whatsapp_ignore():
+            # Il enregistre un vocal WhatsApp (vocal.py) : WhatsApp au micro, c'est lui, pas un appel. Les autres
+            # apps comptent toujours ; un appel déjà en cours n'est pas déclaré fini pour autant.
+            ignorees = [a for a in apps if vocal.est_whatsapp(a)]
+            apps = [a for a in apps if not vocal.est_whatsapp(a)]
+            if not ignorees:
+                vocal.whatsapp_a_lache()
+            elif self.apps:
+                self._vu = maintenant
         if apps:
             self._vu = maintenant
             nouveau, self.apps = not self.apps, apps

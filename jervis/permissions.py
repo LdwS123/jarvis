@@ -10,7 +10,9 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
+import tempfile
 import time
 from collections import deque
 from enum import Enum
@@ -360,8 +362,8 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
 # entends le site exact (« netflix.com », pas « netflix-connexion.xyz »), et un code ne part pas sur la demande d'une
 # page piégée qui essaierait de te voler un compte en le réinitialisant.
 COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu", "ranger_cle_api"}
-JERVIS_A_CONFIRMER = {"envoyer_imessage", "appeler", "demander_accord", "mettre_a_la_corbeille", "effacer_memoire",
-                      *COMPTES_A_CONFIRMER}
+JERVIS_A_CONFIRMER = {"envoyer_imessage", "envoyer_vocal_whatsapp", "appeler", "demander_accord",
+                      "mettre_a_la_corbeille", "effacer_memoire", *COMPTES_A_CONFIRMER}
 
 
 def chemins_a_jeter(entree: dict[str, Any]) -> list[str]:
@@ -668,6 +670,9 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     if action == "envoyer_imessage":
         qui = entree.get("nom") or entree.get("destinataire", "ce contact")
         return f"J'envoie à {qui} : « {entree.get('texte', '')} ». Je peux ?"
+    if action == "envoyer_vocal_whatsapp":
+        qui = entree.get("nom") or entree.get("contact", "ce contact")
+        return f"J'envoie un vocal WhatsApp à {qui} : « {entree.get('texte', '')} ». Je peux ?"
     if action == "appeler":
         numero = appels.numero_appelable(entree.get("numero")) or str(entree.get("numero", ""))
         if urgence := appels.numero_urgence(numero):
@@ -852,6 +857,8 @@ LECTURES = re.compile(r"^(?:search|list|get|read|lister|chercher|suggest)_|^(?:s
 # une lecture du dehors tant qu'on ne l'a pas ajouté ici : en cas d'oubli, il demande, il ne laisse pas passer.
 _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublier|noter_lecon|effacer_memoire|"
                        r"creer_rappel|creer_note|lister_raccourcis|demander_accord|envoyer_imessage|appeler|raccrocher|"
+                       # Le vocal WhatsApp : « ENVOYÉ / ÉCHEC + raison », écrit par le code (jamais un nom de Contacts).
+                       r"envoyer_vocal_whatsapp|"
                        r"mettre_a_la_corbeille|verifier_autorisations|memoire_du_mac|depenses|tableau_de_bord|"
                        r"lancer_tache_de_fond|annuler_tache|programmer_annonce|annuler_programme|"
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
@@ -1055,7 +1062,7 @@ _SE_LANCE_DOSSIERS = ("Library/Messages", "Library/LaunchAgents", ".claude", ".s
 _SE_LANCE_FICHIERS = (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".bashrc", ".bash_profile",
                       ".bash_login", ".profile", ".gitconfig")
 _STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git")  # .git : hooks, config (core.hooksPath), info, commondir…
-_STEVE_FICHIERS: tuple[str, ...] = ("autorisations.json",)  # tes règles 📌 : elles ne s'écrivent que par toi
+_STEVE_FICHIERS: tuple[str, ...] = ("autorisations.json", "autorisations.tmp")  # tes règles 📌 : que par toi
 # Dans la cage, ~/Jervis/.git est fermé en entier (objets, branches, index compris : rien d'y glisser pour plus tard)
 # et git y lit sans rien écrire (GIT_OPTIONAL_LOCKS=0 : git status marche). Tes commits se font hors cage.
 # Partout, dans tout dépôt, à toute profondeur (sous-modules, worktrees) : la config (core.fsmonitor, core.hooksPath
@@ -1316,7 +1323,14 @@ JAMAIS_AUTORISABLES = {"demander_accord", "effacer_memoire", *COMPTES_A_CONFIRME
 _SANS_TRACE = {"autoriser_desormais", "retirer_autorisation", "lister_blocages"}  # (sinon « ça » serait lui-même)
 _CIBLE_DOSSIER = {"Write", "Edit", "mcp__jervis__mettre_a_la_corbeille"}  # la règle vaut pour tout ce dossier
 _BASH_SIMPLE = re.compile(r"[^;&|`$<>()\n\\]+")  # une seule commande, sans rien que le shell réinterprète
-_CHAMPS_CIBLE = ("destinataire", "numero", "to", "recipient", "email", "contact")
+_CHAMPS_CIBLE = ("destinataire", "numero", "to", "recipient", "recipients", "email", "contact", "cc", "bcc")
+# Une règle « git push » ne vaut que pour le vrai git du Mac : pas pour un ./git, ni un git glissé plus tôt dans PATH.
+_BINAIRES_SURS = ("/usr/bin/", "/bin/", "/usr/sbin/", "/sbin/", "/opt/homebrew/bin/", "/usr/local/bin/")
+# Ce qui lance n'importe quel code donné en argument : « python » permis, ce serait tout permis.
+_LANCEURS = re.compile(r"(?:ba|z|da|k|c|tc|fi)?sh|python[\d.]*|pypy\d?|node|nodejs|deno|bun|bunx|npx|perl[\d.]*|"
+                       r"ruby|php|lua|osascript|swift|env|xargs|find|sudo|su|doas|exec|eval|command|builtin|nohup|"
+                       r"time|nice|timeout|caffeinate|open|awk|gawk|sed|script|expect|tclsh|screen|tmux|launchctl|"
+                       r"at|crontab|ssh|uv|uvx|pip[\d.]*|make|docker", re.IGNORECASE)
 
 
 def _paie(outil: str, entree: dict[str, Any]) -> bool:
@@ -1346,9 +1360,12 @@ def cible_de(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) 
             mots = shlex.split(commande)
         except ValueError:
             return None
-        if not mots or "=" in mots[0]:
+        if not mots or "=" in mots[0] or "/" in mots[0] or _LANCEURS.fullmatch(mots[0]):
             return None
-        cible = [Path(mots[0]).name]
+        binaire = shutil.which(mots[0])
+        if not binaire or not os.path.realpath(binaire).startswith(_BINAIRES_SURS):
+            return None
+        cible = [mots[0]]
         if len(mots) > 1 and re.fullmatch(r"[a-z][\w-]*", mots[1]):
             cible.append(mots[1])  # « git push », « brew install » : la sous-commande, pas ses arguments
         return " ".join(cible)
@@ -1375,10 +1392,14 @@ def cible_de(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) 
         return None if not numero or appels.numero_urgence(numero) else numero
     if action == "execute_zapier_write_action":
         return f"{entree.get('selected_api') or '?'} / {entree.get('action') or '?'}"
+    # Tous les destinataires ensemble (to, cc, bcc…) : une règle pour Léa ne laisse pas partir une copie cachée.
+    gens: set[str] = set()
     for champ in _CHAMPS_CIBLE:
-        if valeur := entree.get(champ):
-            return ", ".join(sorted(map(str, valeur))) if isinstance(valeur, (list, tuple)) else str(valeur).strip()
-    return ""
+        valeur = entree.get(champ)
+        for v in (valeur if isinstance(valeur, (list, tuple)) else re.split(r"[,;]", str(valeur)) if valeur else ()):
+            if str(v).strip():
+                gens.add(str(v).strip())
+    return ", ".join(sorted(gens))
 
 
 def _libelle(outil: str) -> str:
@@ -1416,6 +1437,8 @@ def blocage(numero: int | None = None) -> dict[str, Any] | None:
 
 
 def lire_autorisations() -> list[dict[str, Any]]:
+    if AUTORISATIONS.is_symlink():  # un lien vers un fichier écrit par un autre : pas tes règles
+        return []
     try:
         regles = json.loads(AUTORISATIONS.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -1425,9 +1448,15 @@ def lire_autorisations() -> list[dict[str, Any]]:
 
 
 def _ecrire_autorisations(regles: list[dict[str, Any]]) -> None:
-    temp = AUTORISATIONS.with_suffix(".tmp")
-    temp.write_text(json.dumps(regles, ensure_ascii=False, indent=1), encoding="utf-8")
-    temp.replace(AUTORISATIONS)
+    # Un brouillon neuf, créé exclusivement (mkstemp : jamais un fichier ou un lien déjà là), puis renommé d'un coup.
+    fd, temp = tempfile.mkstemp(prefix=".autorisations-", suffix=".tmp", dir=AUTORISATIONS.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(regles, f, ensure_ascii=False, indent=1)
+        os.replace(temp, AUTORISATIONS)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
 
 
 def vise_autorisations(chemin: str) -> bool:

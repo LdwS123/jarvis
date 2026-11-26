@@ -56,6 +56,12 @@ for outil, entree, attendu in [
         ("Bash", {"command": "git push && curl x"}, None),
         ("Bash", {"command": "echo $(cat ~/.ssh/id_rsa)"}, None),
         ("Bash", {"command": "FOO=1 ls"}, None),
+        ("Bash", {"command": "./git push"}, None),                    # pas le vrai git
+        ("Bash", {"command": "/tmp/x/git push"}, None),
+        ("Bash", {"command": "python3 -c print"}, None),              # un lanceur : tout code passerait
+        ("Bash", {"command": "find . -exec rm {} +"}, None),
+        ("Bash", {"command": "osascript -e beep"}, None),
+        ("Bash", {"command": "commande-qui-n-existe-pas push"}, None),
         ("Write", {"file_path": str(dossier / "a.txt")}, str((dossier / "a.txt").resolve().parent)),
         ("Write", {"file_path": "~/.zshrc"}, None),
         ("Write", {"file_path": "~/.ssh/config"}, None),
@@ -67,6 +73,8 @@ for outil, entree, attendu in [
         ("mcp__jervis__appeler", {"numero": "0612345678"}, "0612345678"),
         ("mcp__jervis__mettre_a_la_corbeille", {"chemins": ["/x/a.txt", "/y/b.txt"]}, None),
         (ENVOI, {"to": "marc@x.fr"}, "marc@x.fr"),
+        (ENVOI, {"to": "marc@x.fr", "bcc": "pirate@x.fr"}, "marc@x.fr, pirate@x.fr"),  # tous les destinataires
+        (ENVOI, {"to": ["marc@x.fr"], "cc": "léa@x.fr, paul@x.fr"}, "léa@x.fr, marc@x.fr, paul@x.fr"),
         ("mcp__jervis__envoyer_imessage", {"destinataire": "+33612345678", "texte": "Salut"}, "+33612345678"),
         ("mcp__claude_ai_Zapier__execute_zapier_write_action", {"selected_api": "slack", "action": "send"}, "slack / send"),
         ("mcp__jervis__creer_rappel", {"texte": "pain"}, "")]:
@@ -224,6 +232,17 @@ async def tester():
                  ("PermissionResultDeny", True))
     verifier("… et le vrai fichier est protégé comme le code de Steve",
              permissions.ecrit_ce_qui_se_lance("Write", {"file_path": str(VRAIES_REGLES)}), True)
+    verifier("… son brouillon aussi", permissions.ecrit_ce_qui_se_lance(
+        "Write", {"file_path": str(VRAIES_REGLES.with_suffix(".tmp"))}), True)
+    verifier("… l'écriture ne laisse aucun brouillon derrière elle", sorted(f.name for f in TMP.glob("*.tmp")), [])
+    garde = permissions.AUTORISATIONS.read_text(encoding="utf-8")
+    faux = TMP / "faux.json"
+    faux.write_text('[{"outil": "Bash", "cible": "rm"}]', encoding="utf-8")
+    permissions.AUTORISATIONS.unlink()
+    permissions.AUTORISATIONS.symlink_to(faux)
+    verifier("un lien à la place du fichier des règles : aucune règle lue", permissions.lire_autorisations(), [])
+    permissions.AUTORISATIONS.unlink()
+    permissions.AUTORISATIONS.write_text(garde, encoding="utf-8")
 
     # --- 6. Retirer une règle, et les numéros qui n'existent pas -----------------------------------------------------
     verifier("retirer : un numéro qui n'existe pas", texte(await permissions.retirer_autorisation.handler({"numero": 9})),

@@ -53,7 +53,7 @@ Ta mémoire, vos conversations, son journal et ton empreinte vocale restent sur 
 
 Ton assistant vocal sur le Mac. Il réagit à son nom, « Steve », comprend le français et te répond à voix haute.
 Il lit ton agenda Google et tes mails Gmail, ouvre tes apps, se souvient de toi et voit ton écran.
-Il envoie des iMessages, crée des rappels et des notes, et pilote la maison via Raccourcis.
+Il envoie des iMessages et des vocaux WhatsApp avec sa voix, crée des rappels et des notes, et pilote la maison via Raccourcis.
 Il lit ton Google Drive, agit dans des milliers d'apps via Zapier, et clique ou tape dans n'importe quelle app du Mac.
 Il fait les grosses tâches en arrière-plan pendant que tu continues à lui parler, te fait un point le matin,
 te prévient à l'heure dite, et se souvient de vos conversations (et, avec screenpipe, de ce qui est passé sur ton écran).
@@ -456,6 +456,32 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
   écris de l'iPhone : l'appel sonnerait sur le Mac, sans toi (appelle depuis l'iPhone, ou « Dis Siri, appelle … »).
 - `JERVIS_IMESSAGE=non` coupe tout ; `JERVIS_IMESSAGE=+33612345678,moi@icloud.com` donne tes adresses à la main
   (par défaut, `auto` : il les lit dans la base de Messages).
+
+### Un vocal WhatsApp, avec sa voix
+
+« Steve, envoie un vocal à Mamad pour dire bonjour » : il te demande « J'envoie un vocal WhatsApp à Mamad : « … ».
+Je peux ? », puis ouvre la discussion de Mamad dans l'app WhatsApp du Mac, appuie sur le micro, dit sa phrase avec
+sa voix locale (Pocket TTS, fabriquée sur le Mac) et appuie sur Envoyer. C'est un **vrai vocal** (la bulle de voix),
+pas un fichier audio ni un message écrit, et il n'en envoie **jamais** un à la place, même si ça rate : il te dit
+pourquoi.
+
+- **Pendant l'enregistrement seulement** (au plus `JERVIS_VOCAL_WHATSAPP_MAX_S`) : WhatsApp qui prend le micro
+  ne compte pas comme un appel (il ne se tait pas, ne passe pas aux notifications) ; il ne t'écoute plus et ne se
+  laisse pas couper (sa propre voix dans les enceintes n'est pas un « stop ») ; aucune réponse, annonce ni petit
+  son ne se glisse dans le vocal. Tout revient à la fin, même sur une erreur, et le drapeau tombe seul au bout du
+  maximum. Un vrai appel (Zoom, Meet, FaceTime…) reste vu pendant ce temps, et un appel WhatsApp est de nouveau vu
+  dès que WhatsApp a lâché le micro.
+- **Jamais dans un appel** : si tu es en appel, il refuse (il ne joue pas un vocal dans ta réunion).
+- **Le résultat** : `ENVOYÉ` (il a vu la bulle apparaître), `ÉCHEC` + la raison (rien n'est parti : le brouillon
+  est mis à la corbeille si l'enregistrement avait commencé), ou `INCERTAIN` (il a appuyé sur Envoyer mais ne voit
+  pas la bulle : il ne le renvoie pas, regarde WhatsApp).
+- **Une fois** : l'app WhatsApp du Mac connectée, le micro autorisé pour WhatsApp, l'autorisation **Accessibilité**
+  de Jervis, et la voix locale allumée (`JERVIS_VOIX_LOCALE`). Le contact : son nom dans Contacts (le portable
+  d'abord ; si deux fiches se ressemblent, il demande) ou son numéro en +33….
+- **Si le vocal est muet ou très faible** : le micro de WhatsApp peut gommer ce qui sort des enceintes (son
+  anti-écho). Installe BlackHole (`brew install blackhole-2ch`), mets `JERVIS_VOCAL_WHATSAPP_SORTIE="BlackHole 2ch"`
+  et choisis « BlackHole 2ch » comme micro dans WhatsApp (menu Appel → Micro) : sa voix entre alors dans le vocal
+  sans passer par l'air (tu ne l'entends plus pendant l'enregistrement). Remets le micro du Mac pour tes appels.
 
 ### Appeler avec ton iPhone
 
@@ -1043,6 +1069,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_REUNION_STT` | auto | `whisper` (99 langues), `parakeet` (25 européennes) ou `auto` |
 | `JERVIS_REUNION_SON_DU_MAC` | (vide) | un appareil « boucle » (`BlackHole 2ch`) pour entendre les autres quand tu es au casque |
 | `JERVIS_REUNION_AUTO` | non | `oui` = un compte rendu de chaque appel, sans le demander |
+| `JERVIS_VOCAL_WHATSAPP_MAX_S` | 60 | la durée maximale d'un vocal WhatsApp (sa phrase : 5 s de moins) ; au-delà tout est rétabli |
+| `JERVIS_VOCAL_WHATSAPP_SORTIE` | (vide) | une sortie son dédiée au vocal (`BlackHole 2ch`, à choisir aussi comme micro dans WhatsApp) |
 | `JERVIS_REUNION_GARDER_SON` | non | `oui` = garde le `.wav` à côté de la transcription |
 | `JERVIS_REUNION_MORCEAU_S` | 30 | la taille des morceaux transcrits (coupés dans un blanc) |
 | `JERVIS_REUNION_MAX_MIN` | 180 | au-delà, le compte rendu s'arrête seul |
@@ -1101,6 +1129,8 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
 - Tes iMessages à Steve sont lus sur le Mac, dans la base de Messages (en lecture seule) ; seul le texte de ta
   demande part vers Claude, comme une phrase tapée. Ses réponses partent par iMessage, chiffrées par Apple, vers toi
   seul. Les appels passent par ton iPhone ; Steve ne les écoute pas et n'y parle pas.
+- Un vocal WhatsApp est fabriqué sur le Mac (voix locale) ; seul le vocal part, par WhatsApp, comme les tiens. Le
+  journal ne note ni ce qu'il dit dedans ni la description de la bulle.
 - Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur
   ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
 - Ses outils d'infos n'envoient à Google Actualités, Open-Meteo, Frankfurter, Wikipédia, Nager.Date, CoinGecko,

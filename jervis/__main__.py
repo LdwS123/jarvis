@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 
-from . import bureau, chat, compteur, config, oral, reunion, tts, voix_locale
+from . import bureau, chat, compteur, config, oral, reunion, tts, vocal, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
 from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond
@@ -437,6 +437,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                                              laisser_finir=arret is not None, repartir_a_zero=not garder)
             if phrase is None:
                 return None, False
+            if vocal.en_cours():
+                return "", False  # sa propre voix, enregistrée dans un vocal WhatsApp : ni une demande, ni ta voix
             # Le score de ta voix principale (sans les empreintes apprises seules) : confirmer s'en sert pour les oui sensibles
             chrono["voix"] = getattr(phrase, "voix_stricte", None)
             entendue = time.monotonic()
@@ -489,6 +491,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             """Dès que tu commences à parler, il baisse sa voix (comme quelqu'un qui t'entend). Et s'il
             allait prendre la parole, il se retient : il attend que tu aies fini."""
             maintenant = time.monotonic()
+            if vocal.en_cours():
+                tu_parles = False  # c'est sa voix dans le vocal WhatsApp : il ne la baisse pas, ne se retient pas
             if tu_parles and guet["parle"]:
                 guet["coupe_sa_voix"] = True  # tu as commencé à parler pendant qu'il parlait
             elif tu_parles and maintenant - guet["fin_voix"] > 0.6:  # (juste après sa voix : c'est son écho)
@@ -523,6 +527,11 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                     premier = False
                     if phrase is None:
                         return
+                    if vocal.en_cours():
+                        # Il enregistre un vocal WhatsApp : ce que le micro entend, c'est sa voix dans les enceintes.
+                        # Ni « stop », ni coupure, ni suite de ta phrase : l'outil va au bout.
+                        baisser(False)
+                        continue
                     debut = time.monotonic() - len(phrase.audio) / config.SAMPLE_RATE
                     par_dessus = (guet.pop("coupe_sa_voix", False) or bool(guet["parle"])
                                   or debut < guet["fin_voix"] + 0.3)

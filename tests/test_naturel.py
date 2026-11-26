@@ -588,6 +588,27 @@ verifier("par-dessus pendant le travail : ta phrase lui est glissée", GLISSES, 
 verifier("par-dessus pendant le travail : pas de « (interrompu) » qui le ferait tout lâcher",
          [r for r in recu if "interrompu" in r], [])
 verifier("par-dessus pendant le travail : il ne raconte plus rien après", "Je remplis le formulaire." in dit_par_steve, False)
+
+print("\n🎙  Pendant un vocal WhatsApp, sa propre voix dans les enceintes ne le coupe pas")
+from jervis import vocal  # noqa: E402
+
+
+def vocal_pendant(debut, fin):
+    """Le drapeau du vocal (vocal.suspendre), posé et retiré à heure fixe pendant la conversation."""
+    threading.Timer(debut, lambda: setattr(vocal, "_jusqua", time.monotonic() + 60)).start()
+    threading.Timer(fin, lambda: setattr(vocal, "_jusqua", 0.0)).start()
+
+
+vocal_pendant(0.9, 2.6)
+jouer([
+    (0.2, "Steve, raconte-moi une histoire"),
+    (1.0, "Stop, stop !", 0.95),                 # sa voix, enregistrée dans le vocal : le micro l'entend
+    (1.3, "en fait mets plutôt du jazz"),
+    (3.0, "merci"),
+], 4.5)
+verifier("vocal : « stop » entendu pendant l'enregistrement ne coupe rien", "Fin de l'histoire." in dit_par_steve, True)
+verifier("vocal : rien de ce qu'il a entendu n'est renvoyé à Claude", recu, ["raconte-moi une histoire"])
+verifier("vocal : après, il t'écoute de nouveau", dit_par_steve[-1:], ["À plus tard."])
 FIN.set()
 
 print("\n🔊 La voix : longues phrases dites par bouts, le premier fabriqué seul")

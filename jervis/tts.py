@@ -9,6 +9,7 @@ Sinon (micro en pause, flux duplex impossible), on joue avec `afplay` comme avan
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import subprocess
 import tempfile
@@ -26,6 +27,8 @@ _POP = Path("/System/Library/Sounds/Pop.aiff")
 _compteur = 0
 _lecture: asyncio.subprocess.Process | None = None  # le son afplay en cours, pour pouvoir le couper
 _tais_toi = False
+_reserve = False       # un vocal s'enregistre : ni réponse ni petit son ne doit s'y glisser
+_sortie_dediee = False  # un son joué sur un autre appareil (vocal.py), pour pouvoir le couper
 _haut_parleur = None   # audio.HautParleur, branché par le mode vocal
 
 
@@ -266,6 +269,10 @@ def taire() -> None:
         _haut_parleur.arreter()
     if _lecture and _lecture.returncode is None:
         _lecture.terminate()
+    if _sortie_dediee:
+        with contextlib.suppress(Exception):
+            import sounddevice as sd
+            sd.stop()
 
 
 _verrou = asyncio.Lock()  # une seule voix à la fois, jamais deux phrases qui se chevauchent
@@ -311,11 +318,67 @@ async def parler(texte: str) -> None:
                 fichier.unlink(missing_ok=True)
 
 
+@contextlib.asynccontextmanager
+async def micro_reserve():
+    """Pendant un vocal WhatsApp : il garde la parole pour lui seul. Ses réponses et ses annonces attendent la fin
+    (elles passent après, dans l'ordre), ses petits sons ne jouent pas. Tout le son du vocal passe par
+    jouer_tel_quel, appelé dedans."""
+    global _tais_toi, _reserve
+    async with _verrou:
+        _tais_toi, _reserve = False, True
+        try:
+            yield
+        finally:
+            _reserve = False
+
+
+def _jouer_sur(appareil: str, echantillons: np.ndarray) -> bool:
+    """Joue sur un appareil précis (« BlackHole 2ch ») et attend la fin. Faux s'il n'existe pas."""
+    global _sortie_dediee
+    import sounddevice as sd
+    nom = appareil.casefold()
+    numero = next((i for i, a in enumerate(sd.query_devices())
+                   if a["max_output_channels"] > 0 and nom in a["name"].casefold()), None)
+    if numero is None:
+        return False
+    _sortie_dediee = True
+    try:
+        sd.play(np.asarray(echantillons, dtype=np.float32), 48000, device=numero, blocking=True)
+    finally:
+        _sortie_dediee = False
+    return True
+
+
+async def jouer_tel_quel(echantillons: np.ndarray, appareil: str = "") -> bool:
+    """Joue ce son tel quel (à plein volume : ni chuchoté, ni baissé parce que tu parles) et attend qu'il soit
+    fini. Faux s'il a été coupé (taire) ou si l'appareil demandé n'existe pas. À appeler dans micro_reserve()."""
+    if appareil:
+        return await asyncio.to_thread(_jouer_sur, appareil, echantillons) and not _tais_toi
+    if _duplex():
+        hp = _haut_parleur
+        avant = hp.volume, hp.douceur
+        hp.volume = hp.douceur = 1.0
+        try:
+            await hp.jouer(np.asarray(echantillons, dtype=np.float32))
+        finally:
+            hp.volume, hp.douceur = avant
+    else:
+        fichier = _nouveau_fichier(".wav")
+        _ecrire_wav(fichier, echantillons)
+        try:
+            await _jouer(["afplay", str(fichier)])
+        finally:
+            fichier.unlink(missing_ok=True)
+    return not _tais_toi
+
+
 _sons: dict[Path, np.ndarray] = {}
 
 
 def _jouer_son(chemin: Path, volume: float = 1.0) -> None:
     """Joue un son système sans attendre (par le haut-parleur de l'anti-écho s'il existe)."""
+    if _reserve:
+        return  # un vocal s'enregistre : pas de « tink » dedans
     if _duplex():
         if chemin not in _sons:
             wav = _nouveau_fichier(".wav")

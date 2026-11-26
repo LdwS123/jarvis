@@ -456,6 +456,14 @@ REUNION_GARDER_SON = _env("REUNION_GARDER_SON", "non").lower() in {"oui", "on", 
 REUNION_SON_DU_MAC = _env("REUNION_SON_DU_MAC", "")
 REUNION_AUTO = _env("REUNION_AUTO", "non").lower() in {"oui", "on", "1"}  # compte rendu de chaque appel, sans le demander
 
+# --- Le vocal WhatsApp (vocal.py) --------------------------------------------
+# Le temps maximal d'un enregistrement : au-delà, tout est rétabli quoi qu'il arrive (écoute, barge-in, appels).
+VOCAL_WHATSAPP_MAX_S = float(_env("VOCAL_WHATSAPP_MAX_S", "60"))
+# Par où sort sa voix pendant le vocal : vide = les enceintes (le micro du Mac l'entend, comme toi). Le nom d'un
+# appareil virtuel (« BlackHole 2ch ») = directement dans WhatsApp, sans bruit de la pièce ; il faut alors choisir ce
+# même appareil comme micro dans WhatsApp (menu Appel → Micro).
+VOCAL_WHATSAPP_SORTIE = _env("VOCAL_WHATSAPP_SORTIE", "")
+
 # --- Le bureau (bureau.py) ---------------------------------------------------
 FICHIER_MODES = DOSSIER / "modes.json"            # tes modes (« mode travail ») : apps, liens, volume, raccourci
 FICHIER_RANGEMENT = DOSSIER / "rangement.json"    # tes règles de rangement (« les factures vont dans… »)
