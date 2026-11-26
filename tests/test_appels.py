@@ -223,6 +223,8 @@ async def gardien() -> dict:
     vu["cage : lancer une app"] = await cage('open -a "Spotify"', page=True)
     vu["cage : ouvrir un fichier"] = await cage("open ~/Downloads/facture.command", page=True)
     vu["cage : cd"] = await cage("cd ~/Documents", page=True)
+    vu["cage : sa propre cage ouverte"] = await cage(
+        "/usr/bin/sandbox-exec -p '(version 1)(allow default)' /bin/zsh -c 'echo b3Nh | base64 -d | sh'", page=True)
     g.conversation_neuve()
     vu["cage : conversation neuve"] = await cage("python3 calcul.py", page=False)
 
@@ -296,6 +298,10 @@ verifier("cage : une adresse web s'ouvre hors cage", vu["cage : une adresse web"
 verifier("cage : lancer une app, hors cage", vu["cage : lancer une app"], (A, 0, False))
 verifier("cage : ouvrir un fichier après une page → demandé", vu["cage : ouvrir un fichier"][:2], (A, D))
 verifier("cage : un simple cd reste hors cage", vu["cage : cd"], (A, 0, False))
+verifier("cage : un sandbox-exec à lui « (allow default) » est encagé quand même", vu["cage : sa propre cage ouverte"][2],
+         True)
+verifier("après une page : écrire dans ~/.ssh/authorized_keys → demandé",
+         permissions.ecrit_ce_qui_se_lance("Write", {"file_path": "~/.ssh/authorized_keys"}), True)
 verifier("cage : conversation neuve → plus de cage", vu["cage : conversation neuve"], (A, 0, False))
 verifier("après une page : écrire un LaunchAgent → demandé", vu["écrire un LaunchAgent"], (A, D))
 verifier("après une page : écrire dans son .zshrc → demandé", vu["écrire son .zshrc"], (A, D))
@@ -317,6 +323,12 @@ if Path(permissions.CAGE_EXEC).exists() and en_cage("true").returncode == 0:
     verifier("cage réelle : la commande tourne", r.stdout.strip().splitlines()[:1], ["ok"])
     verifier("cage réelle : osascript et l'écriture dans .git/hooks refusés",
              ("not permitted" in (r.stdout + r.stderr).lower(), ecrit), (True, False))
+    # LaunchServices fermé : une copie d'open ou de lsappinfo ne voit ni ne lance plus aucune app
+    verifier("cage réelle : LaunchServices injoignable (lsappinfo front → NULL)",
+             "NULL" in en_cage("/usr/bin/lsappinfo front").stdout, True)
+    dedans = en_cage("/usr/bin/sandbox-exec -p '(version 1)(allow default)' /bin/zsh -c \"osascript -e 'return 1'\"")
+    verifier("cage réelle : une cage « (allow default) » lancée dedans n'en sort pas",
+             "not permitted" in (dedans.stdout + dedans.stderr).lower() or dedans.returncode != 0, True)
 else:
     print("   (cage réelle pas testée ici : sandbox-exec n'y tourne pas)")
 verifier("gardien : pendant une question ❓, une commande attend (une lecture non)", vu["pendant la question"],

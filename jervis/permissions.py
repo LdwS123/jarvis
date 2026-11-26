@@ -1000,11 +1000,15 @@ def _cage_profil() -> str:
                 maison / "Library/Application Support/com.apple.backgroundtaskmanagementagent",
                 _RACINE / "jervis", _RACINE / ".venv", _RACINE / "Jervis.app", _RACINE / ".git/hooks"]
     fichiers = [maison / f for f in (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".bashrc", ".bash_profile",
-                                     ".profile")]
+                                     ".profile", ".ssh/rc", ".ssh/authorized_keys", ".ssh/environment")]
     sp = lambda chemins, quoi: " ".join(f'({quoi} "{c}")' for c in chemins)  # noqa: E731
+    # Le refus de process-exec ne vise que ces chemins (une copie du binaire y échappe) : ce qui ferme vraiment la
+    # porte, ce sont les services qu'il joint — Apple Events, l'écran, LaunchServices (lancer une app, ouvrir un
+    # fichier) et les éléments de connexion. Une copie d'open ou d'osascript n'arrive plus à rien.
     return ("(version 1)(allow default)"
             "(deny appleevent-send)"
             '(deny mach-lookup (global-name "com.apple.coreservices.appleevents")'
+            ' (global-name "com.apple.coreservices.launchservicesd") (global-name-prefix "com.apple.lsd.")'
             ' (global-name-prefix "com.apple.windowserver") (global-name-prefix "com.apple.backgroundtaskmanagement"))'
             f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')})"
             f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})")
@@ -1016,10 +1020,11 @@ def encager(commande: str) -> str:
 
 
 def a_encager(commande: str) -> bool:
-    """Ce qui n'a pas besoin de la cage : la courte liste anodine (elle pilote Spotify, ouvre une page), un « cd »."""
+    """Ce qui n'a pas besoin de la cage : la courte liste anodine (elle pilote Spotify, ouvre une page), un « cd ».
+    Une commande qui lance elle-même sandbox-exec est encagée comme les autres : une cage dans la cage n'ajoute que
+    des interdits, alors qu'un profil « (allow default) » à lui seul en sortirait."""
     commande = commande.strip()
-    return not (commande_anodine(commande) or re.fullmatch(r"cd(?:\s+[^\s;&|`$<>()]+)?", commande)
-                or commande.startswith(CAGE_EXEC))
+    return not (commande_anodine(commande) or re.fullmatch(r"cd(?:\s+[^\s;&|`$<>()]+)?", commande))
 
 
 # Ce qui se lance tout seul plus tard, hors de toute cage (au démarrage, à l'ouverture d'un terminal, au prochain
@@ -1027,6 +1032,7 @@ def a_encager(commande: str) -> bool:
 SE_LANCE_PLUS_TARD = re.compile(
     r"Library/(?:LaunchAgents|LaunchDaemons|Messages)\b|com\.apple\.backgroundtaskmanagement|/\.claude/"
     r"|/\.(?:zshrc|zprofile|zshenv|zlogin|bashrc|bash_profile|profile)$|/\.git/hooks/"
+    r"|/\.ssh/(?:rc|authorized_keys|environment)$"
     r"|/Jervis/(?:jervis|\.venv|Jervis\.app)/", re.IGNORECASE)
 
 
