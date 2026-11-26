@@ -263,6 +263,21 @@ Ce qu'il faut savoir :
 | « C'est qui, Hedy Lamarr ? » | il lit le résumé de l'article **Wikipédia** en français, même si tu écorches le nom : `chercher_wikipedia` |
 | « C'est quand, le prochain jour férié ? » | il donne les jours fériés de l'année (**Nager.Date**, la France par défaut, ou un autre pays) et le prochain : `chercher_jours_feries` |
 | « Combien vaut le bitcoin ? » | il donne son cours en euros et sa variation sur 24 h (**CoinGecko**) : `chercher_crypto` |
+| « C'est qui, les dirigeants de Mistral AI ? » | il lit la fiche de l'**annuaire officiel des entreprises** : SIREN, en activité ou fermée, création, siège, activité, taille, dirigeants : `chercher_entreprise` |
+| « Quel est le code postal de Brest ? », « l'adresse exacte du 8 bd du Port à Amiens » | il demande à la **Base Adresse Nationale** et à geo.api.gouv.fr : l'adresse complète, ou la commune (population, codes postaux, superficie) : `chercher_adresse` |
+| « Le Nutella, c'est quel Nutri-Score ? » | il lit **Open Food Facts** : Nutri-Score, NOVA, sucres, gras, sel, ingrédients, allergènes (par nom ou par code-barres) : `chercher_produit` |
+| « L'air est bon aujourd'hui ? Il y a des pollens ? » | **Open-Meteo** : l'indice européen, les polluants, les pollens, le lever et le coucher du soleil, l'indice UV : `chercher_qualite_air` |
+| « Où est le gazole le moins cher à Brest ? » | le **site officiel des prix des carburants** : les stations les moins chères, ou le moins cher de chaque carburant : `chercher_carburant` |
+| « Il a écrit quoi d'autre, Camus ? » | **Open Library** : titre, auteur, année, pages, éditions (par titre, auteur ou ISBN) : `chercher_livre` |
+| « C'est quoi cette chanson, Get Lucky ? », « elle coûte combien, l'app Doctolib ? » | le catalogue d'**Apple** (iTunes) : morceaux, albums, artistes, podcasts, apps, livres audio : `chercher_musique` |
+| « Quoi de neuf dans la tech ? », « ce qu'on dit de Rust en ce moment » | **Hacker News** : la une, ou les plus populaires sur ton sujet : `chercher_tech` |
+| « Il y a eu un séisme au Japon ? » | l'**USGS** : les plus forts du monde, ou les derniers près d'un lieu : `chercher_seismes` |
+| « Comment on dit "bon appétit" en japonais ? » | **MyMemory** (traductions humaines de référence, quota du jour limité ; sinon il traduit lui-même) : `chercher_traduction` |
+| « La saison 3 de Severance sort quand ? » | **TVmaze** : chaîne, statut, note, prochain et dernier épisode : `chercher_serie` |
+| « Il existe un assistant vocal open source pour Mac ? » | la recherche de **GitHub** (sans compte, une dizaine par minute) : étoiles, langage, licence, dernière modification : `chercher_code` |
+| « C'est quoi la dernière version de httpx ? » | **PyPI** et **npm** : version, date, licence, lien : `chercher_paquet` |
+| « Qu'est-ce que dit la recherche sur la caféine et le sommeil ? » | **OpenAlex** (plus de 200 millions de publications) : titre, auteurs, revue, citations, lien vers le texte gratuit : `chercher_articles` |
+| « Il est quelle heure à San Francisco ? » | le fuseau vient d'Open-Meteo, l'heure est calculée sur le Mac (heure d'été comprise), avec le décalage avec Paris : `chercher_heure` |
 | « Envoie un message à Léa : j'arrive dans 10 minutes » | il cherche Léa dans Contacts, puis te lit le message avant de l'envoyer |
 | « Rappelle-moi d'appeler maman demain à 18 h » | il crée un rappel dans Rappels, qui sonne aussi sur l'iPhone |
 | « Note mes idées : … » | il crée une note dans Notes |
@@ -284,8 +299,9 @@ Ce qu'il faut savoir :
 | « Renomme / déplace / ouvre / range… » n'importe où sur le Mac | il a accès à tout le disque avec les chemins complets (`~/Desktop/…`, `/Applications/…`), pas seulement à son dossier |
 Il réfléchit avant de répondre, autant que la question le demande : presque pas pour « mets de la musique »,
 beaucoup plus pour « organise ma semaine ». Il enchaîne seul les étapes et vérifie que ça a marché.
-Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos) passent par des services gratuits,
-sans clé ni compte (`jervis/infos.py`) ; s'ils ne suffisent pas ou ne répondent pas, il cherche sur le web.
+Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos, et entreprises, adresses,
+produits, air, carburants, livres, musique, tech, séismes, traduction, séries, code, paquets, articles, heure)
+passent par des services gratuits, sans clé ni compte (`jervis/infos.py`, `jervis/infos2.py`) ; s'ils ne suffisent pas ou ne répondent pas, il cherche sur le web.
 
 ### Ce qu'il retient tout seul
 
@@ -750,6 +766,7 @@ Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_d
 Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.
 Payer coupé, les numéros de carte, les CAPTCHA et ses publications (fausse notification, dossier temporaire) : `tests/test_paiements.py`.
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
+Ses autres outils d'infos (entreprises, adresses, produits… jusqu'à l'heure dans le monde), sans réseau : `tests/test_infos2.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
@@ -762,8 +779,10 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   lit dans tes apps partent vers Claude pour qu'il réponde.
 - Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur
   ce Mac (127.0.0.1), puis le texte part vers Claude pour qu'il réponde, comme une phrase dite.
-- Ses outils d'infos n'envoient à Google Actualités, Open-Meteo, Frankfurter, Wikipédia, Nager.Date et CoinGecko
-  que le sujet, le lieu, la monnaie ou le pays demandés (sans clé ni compte, sous un nom générique), jamais ta voix ni ta mémoire.
+- Ses outils d'infos n'envoient à Google Actualités, Open-Meteo, Frankfurter, Wikipédia, Nager.Date, CoinGecko,
+  l'annuaire des entreprises, la Base Adresse Nationale, geo.api.gouv.fr, Open Food Facts, le site des prix des
+  carburants, Open Library, Apple (iTunes), Hacker News (Algolia), l'USGS, MyMemory, TVmaze, GitHub, PyPI, npm et
+  OpenAlex que le sujet, le lieu, la monnaie, le pays, le nom, le code-barres ou la phrase à traduire demandés (sans clé ni compte, sous un nom générique), jamais ta voix ni ta mémoire.
 - Vos conversations (`espace/conversations.jsonl`), sa mémoire, son carnet (`lecons.md`), son lexique (`lexique.md`), ses recettes (`espace/savoir-faire/`), son graphe (`espace/graphe.db`,
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents

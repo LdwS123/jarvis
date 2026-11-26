@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import comptes, compteur, config, graphe, infos, lecons, lexique, savoir_faire
+from . import comptes, compteur, config, graphe, infos, infos2, lecons, lexique, savoir_faire
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -962,6 +962,7 @@ OUTILS.append(lexique.outil_noter_mot)  # les mots qu'il entend mal chez toi (le
 OUTILS.extend([savoir_faire.outil_noter_savoir_faire, savoir_faire.outil_chercher_savoir_faire])  # ses recettes
 OUTILS.extend(comptes.OUTILS_COMPTES)  # créer des comptes à ta place (comptes.py)
 OUTILS.extend(infos.OUTILS_INFOS)  # actualité, météo, change, Wikipédia, jours fériés, cryptos (infos.py)
+OUTILS.extend(infos2.OUTILS_INFOS2)  # entreprises, adresses, produits, air, carburants, livres… (infos2.py)
 if graphe.ACTIF:
     OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)
 
