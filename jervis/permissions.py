@@ -999,9 +999,16 @@ _SE_LANCE_DOSSIERS = ("Library/Messages", "Library/LaunchAgents", ".claude", ".s
                       "Library/Python", "Library/Application Support/com.apple.backgroundtaskmanagementagent")
 _SE_LANCE_FICHIERS = (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".bashrc", ".bash_profile",
                       ".bash_login", ".profile", ".gitconfig")
-_STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git/hooks")
-_STEVE_FICHIERS = (".git/config",)  # core.hooksPath, core.fsmonitor : du code au prochain git
-_SE_LANCE_MOTIFS = (r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")  # lus à chaque démarrage de python
+_STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git")  # .git : hooks, config (core.hooksPath), info, commondir…
+_STEVE_FICHIERS: tuple[str, ...] = ()
+# … sauf ce que git écrit en travaillant (objets, branches, index, HEAD, messages de commit) — rien qui se lance
+_GIT_DE_TRAVAIL = (r"/\.git/(objects|refs|logs|rebase-merge|rebase-apply|sequencer)/",
+                   # des noms en toutes lettres : la cage compare sans tenir compte de la casse ([A-Z]+ = config)
+                   r"/\.git/(HEAD|[A-Z_]+_HEAD|AUTO_MERGE|MERGE_MSG|MERGE_MODE|SQUASH_MSG|TAG_EDITMSG|COMMIT_EDITMSG"
+                   r"|index|packed-refs|gc\.log)(\.lock)?$")
+# Partout, quel que soit le dépôt : un hook actif (pre-commit…, sans « .sample », que git clone ne pose pas), et les
+# .pth / sitecustomize que python lit à chaque démarrage
+_SE_LANCE_MOTIFS = (r"/\.git/hooks/[^/.]+$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")
 
 
 def _se_lance_chemins() -> tuple[list[Path], list[Path]]:
@@ -1016,7 +1023,8 @@ def _cage_profil() -> str:
     motifs = " ".join(f'(regex #"{m}")' for m in _SE_LANCE_MOTIFS)
     # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
     # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
-    parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE, _RACINE / ".git"]
+    parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE]
+    travail = " ".join(f'(regex #"^{re.escape(str(_RACINE))}{m}")' for m in _GIT_DE_TRAVAIL)
     sp = lambda chemins, quoi: " ".join(f'({quoi} "{c}")' for c in chemins)  # noqa: E731
     # Le refus de process-exec ne vise que ces chemins (une copie du binaire y échappe, et Python appelle les mêmes
     # services sans binaire) : ce qui ferme vraiment la porte, ce sont les services eux-mêmes — Apple Events,
@@ -1030,6 +1038,7 @@ def _cage_profil() -> str:
             ' (global-name-prefix "com.apple.shortcuts") (global-name-prefix "com.apple.WorkflowKit")'
             ' (global-name-prefix "com.apple.siriactionsd") (global-name-prefix "com.apple.linkd"))'
             f"(deny file-write* {sp(dossiers, 'subpath')} {sp(fichiers, 'literal')} {motifs})"
+            f"(allow file-write* {travail})"  # la dernière règle qui correspond l'emporte
             f"(deny file-write-unlink {sp(parents, 'literal')})"
             f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})")
 
@@ -1050,7 +1059,10 @@ def a_encager(commande: str) -> bool:
 # Après un texte venu d'ailleurs, écrire par Write ou Edit dans ce qui se lance tout seul, c'est toi qui dis oui
 # (les mêmes chemins que la cage, plus les LaunchAgents/LaunchDaemons du système).
 SE_LANCE_PLUS_TARD = re.compile("|".join(
-    [r"Library/(?:LaunchAgents|LaunchDaemons|Messages)\b", r"com\.apple\.backgroundtaskmanagement"]
+    [r"Library/(?:LaunchAgents|LaunchDaemons|Messages)\b", r"com\.apple\.backgroundtaskmanagement",
+     # où que soit le dossier (un autre compte, un autre dépôt, un chemin pas encore résolu)
+     r"/\.claude/", r"/\.ssh/", r"/\.config/(?:git|fish)/", r"/\.git/(?:hooks|info)/",
+     r"/\.git/(?:config|config\.worktree|commondir)$"]
     + [re.escape(str(d)) + r"(?:/|$)" for d in _se_lance_chemins()[0]]
     + [re.escape(str(f)) + "$" for f in _se_lance_chemins()[1]] + list(_SE_LANCE_MOTIFS)), re.IGNORECASE)
 

@@ -308,6 +308,11 @@ verifier("après une page : git (~/.gitconfig, .git/config), fish, .zlogout, un 
              "~/.gitconfig", str(permissions._RACINE / ".git/config"), "~/.config/fish/config.fish", "~/.zlogout",
              "/opt/homebrew/lib/python3.12/site-packages/evil.pth", "~/Library/Python/3.12/lib/python/x.py")],
          [True] * 6)
+verifier("après une page : .git/config, hooks, info d'un autre dépôt, ou un .ssh/.claude ailleurs → demandé",
+         [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c}) for c in (
+             "/Volumes/Disque/depot/.git/config", "/Volumes/Disque/depot/.git/hooks/pre-push",
+             "/Volumes/Disque/depot/.git/info/attributes", "/Users/autre/.ssh/authorized_keys",
+             "/Users/autre/.claude/settings.json", str(permissions._RACINE / ".git/commondir"))], [True] * 6)
 verifier("après une page : un modèle .pth dans Documents, ~/.zshrc.bak → sans question",
          [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c})
           for c in ("~/Documents/modele.pth", "~/.zshrc.bak")], [False, False])
@@ -347,6 +352,21 @@ if nue:
         en_cage(f"touch {sp}/evil.pth {t}/modele.pth")
         verifier("cage réelle : un .pth dans site-packages refusé, un modèle .pth ailleurs permis",
                  ((sp / "evil.pth").exists(), (Path(t) / "modele.pth").exists()), (False, True))
+        # Un autre dépôt : git init marche (il pose des hooks « .sample »), un hook actif non
+        r = en_cage(f"git init -q {t}/depot && echo init_ok; echo x > {t}/depot/.git/hooks/pre-commit")
+        verifier("cage réelle : git init d'un autre dépôt marche, y poser un hook actif non",
+                 ("init_ok" in r.stdout, (Path(t) / "depot/.git/hooks/pre-commit").exists()), (True, False))
+        # ~/Jervis/.git : git travaille (objets, branches, index), info/ et commondir restent fermés
+        racine = permissions._RACINE
+        (Path(t) / "blob").write_text("temoin de cage\n")
+        r = en_cage(f"cd {racine} && git status -s >/dev/null && h=$(git hash-object -w {t}/blob) && "
+                    f"git update-ref refs/temoin-de-cage $h && git update-ref -d refs/temoin-de-cage && echo git_ok;"
+                    f" touch .git/info/temoin-de-cage .git/commondir")
+        poses = [racine / ".git/info/temoin-de-cage", racine / ".git/commondir"]
+        verifier("cage réelle : dans ~/Jervis, git écrit ses objets et ses branches ; info/ et commondir refusés",
+                 ("git_ok" in r.stdout, [p.exists() for p in poses]), (True, [False, False]))
+        for p in poses:
+            p.unlink(missing_ok=True)
     config_git = permissions._RACINE / ".git/config"
     avant = config_git.read_bytes()
     r = en_cage(f": >> {config_git} && echo ecrit")  # n'ajoute rien, même si c'était permis

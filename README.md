@@ -388,7 +388,7 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
   - les autres commandes, il les lance seul mais **dans une cage** de macOS (`sandbox-exec`) : un script dicté par
     une page, même maquillé (base64, `eval`, lancé en fond), n'y envoie aucun Apple Event, aucune frappe, n'ouvre
     aucune app, n'écrit ni dans `~/Library/Messages` ni dans ce qui se lance tout seul (LaunchAgents, cron, ton
-    shell, `~/.ssh`, la config de git — `~/.gitconfig`, `.git/config` —, les `.pth` de Python, le code de Steve,
+    shell, `~/.ssh`, `~/.gitconfig`, le `.git` de Steve sauf ce que git écrit en travaillant, un hook actif dans n'importe quel dépôt, les `.pth` de Python, le code de Steve,
     `~/.claude`), et ne renomme pas leurs dossiers parents pour en poser des faux.
     La cage ferme les services eux-mêmes (Apple Events, LaunchServices, l'écran, les éléments de connexion,
     Raccourcis, les actions d'apps, toute tâche confiée à launchd) : une copie d'`open` ou d'`osascript` sous un
