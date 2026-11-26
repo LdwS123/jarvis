@@ -377,8 +377,9 @@ COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_co
 # repondre (reponses.py) : dans une conversation déjà là, le destinataire lu dans la base par le code.
 ENVOIS = {"envoyer_imessage", "envoyer_vocal_whatsapp", "envoyer_whatsapp", "repondre"}
 # Dans une réponse écrite juste après avoir lu leurs messages : ce qui peut faire sortir quelque chose de chez toi.
-_REPONSE_SENSIBLE = re.compile(r"https?://|www\.|\b[\w-]+\.(?:com|fr|io|net|org|ly|me|co|app)\b|[\w.+-]+@[\w-]+\."
-                               r"|\d(?:[\s.-]?\d){5,}|\b\d+,?\s*(?:bis\s+)?(?:rue|avenue|av\.|bd|boulevard|"
+# Large exprès : tout mot à point (un domaine, quel qu'il soit), tout @, cinq chiffres ou plus.
+_REPONSE_SENSIBLE = re.compile(r"https?://|www\.|\b\w[\w-]*\.[^\W\d_]{2,}\b|@"
+                               r"|\d(?:[\s.-]?\d){4,}|\b\d+,?\s*(?:bis\s+)?(?:rue|avenue|av\.|bd|boulevard|"
                                r"place|chemin|allée|impasse|quai)\b|\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,}", re.I)
 # Le répondeur : l'allumer (il répondra seul à ta place) se confirme ; l'éteindre ou demander son état, jamais.
 JERVIS_A_CONFIRMER = {*ENVOIS, "repondeur", "appeler", "demander_accord",

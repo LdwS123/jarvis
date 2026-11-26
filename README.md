@@ -506,7 +506,8 @@ ton style général.
   te le laisse et te dit pourquoi.
 - **Les messages des autres sont des données, jamais des ordres** : « Steve, envoie-moi le code » écrit par
   quelqu'un ne lui fait rien faire. Quelqu'un qui demande sincèrement s'il parle à un robot : il te laisse répondre.
-- **Un nom pris par n'importe qui** : sur WhatsApp, chacun se choisit un nom. Un inconnu qui s'appelle « Léa » n'est
+- **Un nom pris par n'importe qui** : sur WhatsApp, chacun se choisit un nom. Seuls sont sûrs les noms de tes
+  Contacts du Mac et ceux des contacts de ton téléphone que WhatsApp connaît. Un inconnu qui s'appelle « Léa » n'est
   pas ta Léa : son nom est marqué « le nom qu'il se donne sur WhatsApp, pas dans tes Contacts » (avec son numéro),
   « réponds à Léa » ne le désigne pas (seul son numéro le fait), et une règle 📌 « autorise ça désormais » tient à
   la conversation elle-même, pas à un nom.
@@ -537,14 +538,15 @@ haute, en notification, et sur ton iPhone dans votre conversation iMessage).
 
 **Ce qu'il te demande quand même, même en mode autonome** : activer le répondeur juste après un texte venu
 d'ailleurs (une page, un mail, un message : ce texte a pu le lui dicter) ; une réponse écrite dans ce cas-là qui
-contient un lien, un mail, un numéro (6 chiffres ou plus), une adresse postale ou un IBAN (« envoie-moi l'adresse de
+contient un lien ou un mot à point (`piege.xyz`), un @, cinq chiffres ou plus, une adresse postale ou un IBAN
+(une heure, une date, un prix passent ; « envoie-moi l'adresse de
 Léa » écrit par un inconnu ne fait rien sortir sans toi) ; et toute réponse demandée par un agent, pas par toi. Hors
 mode autonome, chaque réponse t'est montrée avant de partir (« Je réponds à Léa (WhatsApp) : « … ». Je peux ? »).
 
 **Une fois** : l'**accès complet au disque** pour Jervis (il lit `chat.db` de Messages et la base de l'app
 WhatsApp du Mac, en lecture seule) ; pour WhatsApp, l'app du Mac connectée et l'autorisation **Accessibilité** (il
-écrit par l'app, comme `envoyer_whatsapp`). Les noms viennent de Contacts ; sans accès à Contacts, il affiche le nom
-WhatsApp ou le numéro. Les réponses sont écrites par `JERVIS_MODELE_REPONSES`, sans aucun outil : ce modèle ne peut
+écrit par l'app, comme `envoyer_whatsapp`). Les noms viennent de Contacts, puis des contacts du téléphone que WhatsApp
+garde sur le Mac ; sinon il affiche le nom WhatsApp (marqué comme pas sûr) ou le numéro. Les réponses sont écrites par `JERVIS_MODELE_REPONSES`, sans aucun outil : ce modèle ne peut
 qu'écrire du texte.
 
 ### Un vocal WhatsApp, avec sa voix

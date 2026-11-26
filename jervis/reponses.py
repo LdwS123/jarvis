@@ -215,6 +215,20 @@ def _de_moi_imessage(lien: sqlite3.Connection, rowid: int | None, n: int) -> lis
 
 # --- WhatsApp (ChatStorage.sqlite) --------------------------------------------------------------------------
 
+def _carnet_whatsapp() -> dict[str, str]:
+    """Les contacts de ton téléphone, tels que WhatsApp les a (JID ou LID → nom) : les seuls noms sûrs avec Contacts."""
+    try:
+        lien = _ouvrir(WHATSAPP_DB.with_name("ContactsV2.sqlite"))
+        try:
+            lignes = lien.execute("SELECT ZWHATSAPPID, ZLID, ZFULLNAME FROM ZWAADDRESSBOOKCONTACT "
+                                  "WHERE ZFULLNAME IS NOT NULL AND ZFULLNAME != ''").fetchall()
+        finally:
+            lien.close()
+    except sqlite3.Error:
+        return {}   # illisible : aucun nom de WhatsApp n'est sûr (seuls Contacts et le numéro le sont)
+    return {jid: nom for wid, lid, nom in lignes for jid in (wid, lid) if jid}
+
+
 _GENRES = {1: "(photo)", 2: "(vidéo)", 3: "(vocal)", 4: "(contact)", 5: "(position)", 8: "(fichier)", 15: "(sticker)"}
 
 
@@ -231,10 +245,7 @@ def _fils_whatsapp(lien: sqlite3.Connection, depuis: float, groupes: bool, seul:
     else:
         sessions = lien.execute("SELECT Z_PK, ZCONTACTJID, COALESCE(ZPARTNERNAME, '') FROM ZWACHATSESSION "
                                 "WHERE Z_PK = ?", (seul,)).fetchall()
-    try:   # le nom que chacun se donne sur WhatsApp : n'importe qui peut s'appeler « Léa »
-        pseudos = dict(lien.execute("SELECT ZJID, ZPUSHNAME FROM ZWAPROFILEPUSHNAME").fetchall())
-    except sqlite3.Error:
-        pseudos = {}
+    connus = _carnet_whatsapp()   # hors de là, le nom vient de lui : n'importe qui peut s'appeler « Léa »
     fils = []
     for pk, jid, nom in sessions:
         jid = jid or ""
@@ -256,8 +267,8 @@ def _fils_whatsapp(lien: sqlite3.Connection, depuis: float, groupes: bool, seul:
         messages = [Message(bool(de_moi), t, float(date or 0) + _EPOQUE, "" if de_moi else qui)
                     for de_moi, texte, date, genre, qui in reversed(lignes) if (t := _texte_whatsapp(texte, genre))]
         if messages:
-            contact = carnet().get(distance.cle(adresse), "") if adresse else ""
-            sur = bool(contact) or groupe or not nom or not (nom == pseudos.get(jid) or nom.startswith("~"))
+            contact = (carnet().get(distance.cle(adresse), "") if adresse else "") or connus.get(jid, "")
+            sur = bool(contact) or groupe or not nom   # sans nom : son numéro, qui ne ment pas
             fils.append(Fil("whatsapp", f"whatsapp:{pk}", contact or nom or adresse, adresse, groupe,
                             messages[-CONTEXTE:], sur))
     return fils

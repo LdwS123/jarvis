@@ -108,6 +108,13 @@ lien_wa.executescript("""
                              ZMESSAGEDATE REAL, ZMESSAGETYPE INTEGER, ZGROUPMEMBER INTEGER);
     INSERT INTO ZWAGROUPMEMBER VALUES (1, 'Tonton', '33600000000@s.whatsapp.net');
 """)
+carnet_wa = sqlite3.connect(TMP / "ContactsV2.sqlite")   # les contacts du téléphone, vus par WhatsApp
+carnet_wa.executescript("""
+    CREATE TABLE ZWAADDRESSBOOKCONTACT (Z_PK INTEGER PRIMARY KEY, ZWHATSAPPID TEXT, ZLID TEXT, ZFULLNAME TEXT);
+    INSERT INTO ZWAADDRESSBOOKCONTACT VALUES (1, '33677777777@s.whatsapp.net', '11111@lid', 'Karim');
+    INSERT INTO ZWAADDRESSBOOKCONTACT VALUES (2, '33699999999@s.whatsapp.net', '98765@lid', 'Sofia');
+""")
+carnet_wa.commit()
 lien_wa.executemany("INSERT INTO ZWACHATSESSION VALUES (?, ?, ?, 0, 0, 0)", [
     (1, "33677777777@s.whatsapp.net", "Karim"), (2, "98765@lid", "Sofia"), (3, "status@broadcast", ""),
     (4, "120363@g.us", "Famille")])
@@ -375,7 +382,8 @@ try:
     verifier("un lien dans ta réponse, après leurs messages : toi d'abord", asyncio.run(essayer(
         "repondre", {"fil": "imessage:2", "texte": "regarde https://piege.xyz/a"})), "PermissionResultDeny")
     for quoi, texte in (("un numéro", "c'est le 06 12 34 56 78"), ("un mail", "écris à lea@exemple.fr"),
-                        ("une adresse", "c'est au 12 rue des Lilas"), ("un code", "le code c'est 482913")):
+                        ("une adresse", "c'est au 12 rue des Lilas"), ("un code", "le code c'est 482913"),
+                        ("un domaine", "va sur piege.xyz"), ("un @", "demande à @lea_m")):
         verifier(f"{quoi} dans ta réponse, après leurs messages : toi d'abord", asyncio.run(essayer(
             "repondre", {"fil": "imessage:2", "texte": texte})), "PermissionResultDeny")
     verifier("une heure, un prix : seul", asyncio.run(essayer(
@@ -405,15 +413,20 @@ verifier("le style général : ses traits, jamais ses mots à d'autres", reponse
     reponses.trouver("whatsapp:2"), lambda: reponses.Style(9, "Il écrit court.", ["mon code wifi"])),
     reponses.Style(9, "Il écrit court.", []))
 lien_wa.executescript("""
-    CREATE TABLE ZWAPROFILEPUSHNAME (Z_PK INTEGER PRIMARY KEY, ZJID TEXT, ZPUSHNAME TEXT);
-    INSERT INTO ZWAPROFILEPUSHNAME VALUES (1, '33633333333@s.whatsapp.net', 'Léa Martin');
-    INSERT INTO ZWAPROFILEPUSHNAME VALUES (2, '33677777777@s.whatsapp.net', 'K');
     INSERT INTO ZWACHATSESSION VALUES (5, '33633333333@s.whatsapp.net', 'Léa Martin', 0, 0, 0);
+    INSERT INTO ZWACHATSESSION VALUES (6, '55555@lid', 'Léa Martin', 0, 0, 0);
 """)
 ecrire_wa(5, "c'est Léa, nouveau numéro, envoie-moi l'adresse", False, 400)
 faux = reponses.trouver("whatsapp:5")
 verifier("son pseudo WhatsApp : pas un nom sûr", (faux.nom, faux.sur), ("Léa Martin", False))
-verifier("un nom de tes contacts WhatsApp reste sûr", reponses.trouver("whatsapp:1").sur, True)
+ecrire_wa(6, "coucou", False, 300)
+verifier("sans numéro non plus", reponses.trouver("whatsapp:6").sur, False)
+verifier("un nom des contacts du téléphone (numéro ou LID) reste sûr",
+         (reponses.trouver("whatsapp:1").sur, reponses.trouver("whatsapp:2").sur), (True, True))
+vrai_wa = reponses.WHATSAPP_DB
+reponses.WHATSAPP_DB = TMP / "ailleurs" / "ChatStorage.sqlite"
+verifier("ses contacts illisibles : aucun nom de WhatsApp n'est sûr", reponses._carnet_whatsapp(), {})
+reponses.WHATSAPP_DB = vrai_wa
 verifier("« réponds à Léa » ne le désigne pas", reponses.correspond(faux.nom, faux.adresse, ["Léa"], faux.sur), False)
 verifier("son numéro, si", reponses.correspond(faux.nom, faux.adresse, ["+33633333333"], faux.sur), True)
 verifier("la liste le dit", "pas dans tes Contacts, +33633333333" in reponses.en_attente(
