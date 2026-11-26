@@ -226,6 +226,9 @@ async def gardien() -> dict:
     vu["cage : cd"] = await cage("cd ~/Documents", page=True)
     vu["cage : sa propre cage ouverte"] = await cage(
         "/usr/bin/sandbox-exec -p '(version 1)(allow default)' /bin/zsh -c 'echo b3Nh | base64 -d | sh'", page=True)
+    vu["cage : git clone après une page"] = await cage("git clone -q https://example.com/x.git", page=True)
+    vu["cage : git init après une page"] = await cage("cd ~/Documents && git init projet", page=True)
+    vu["cage : git clone sans page"] = await cage("git clone -q https://example.com/x.git", page=False)
     g.conversation_neuve()
     vu["cage : conversation neuve"] = await cage("python3 calcul.py", page=False)
 
@@ -317,6 +320,9 @@ verifier("après une page : .git/config, hooks, info d'un autre dépôt, ou un .
 verifier("après une page : un modèle .pth dans Documents, ~/.zshrc.bak → sans question",
          [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c})
           for c in ("~/Documents/modele.pth", "~/.zshrc.bak")], [False, False])
+verifier("cage : git clone / git init après une page → demandés (hors cage, ils posent config et hooks)",
+         [vu["cage : git clone après une page"][:2], vu["cage : git init après une page"][:2]], [(A, D), (A, D)])
+verifier("cage : git clone sans page → sans question", vu["cage : git clone sans page"][:2], (A, 0))
 verifier("cage : conversation neuve → plus de cage", vu["cage : conversation neuve"], (A, 0, False))
 verifier("après une page : écrire un LaunchAgent → demandé", vu["écrire un LaunchAgent"], (A, D))
 verifier("après une page : écrire dans son .zshrc → demandé", vu["écrire son .zshrc"], (A, D))
@@ -353,10 +359,9 @@ if nue:
         en_cage(f"touch {sp}/evil.pth {t}/modele.pth")
         verifier("cage réelle : un .pth dans site-packages refusé, un modèle .pth ailleurs permis",
                  ((sp / "evil.pth").exists(), (Path(t) / "modele.pth").exists()), (False, True))
-        # Un autre dépôt : git init marche (il pose des hooks « .sample »), un hook actif non
-        r = en_cage(f"git init -q {t}/depot && echo init_ok; echo x > {t}/depot/.git/hooks/pre-commit")
-        verifier("cage réelle : git init d'un autre dépôt marche, y poser un hook actif non",
-                 ("init_ok" in r.stdout, (Path(t) / "depot/.git/hooks/pre-commit").exists()), (True, False))
+        # Un nouveau dépôt ne se crée pas en cage (git init y poserait config et hooks : il t'est demandé avant)
+        r = en_cage(f"git init -q {t}/depot && echo init_ok")
+        verifier("cage réelle : git init refusé dans la cage", "init_ok" in r.stdout, False)
         # ~/Jervis/.git fermé en entier : git status lit, rien ne s'y écrit (ni objet, ni branche, ni refs/replace)
         racine = permissions._RACINE
         (Path(t) / "blob").write_text(f"temoin de cage {time.time()}\n")  # neuf : jamais encore dans .git
@@ -370,17 +375,19 @@ if nue:
                   (racine / ".git/objects" / objet[:2] / objet[2:]).exists()), (True, [False, False], False))
         for p in poses:
             p.unlink(missing_ok=True)
-        # Un dépôt déjà là : sa config (core.fsmonitor…) refusée ; on ne le renomme pas pour en poser un faux
-        subprocess.run(["git", "init", "-q", f"{t}/ancien"], check=True)
-        garde = permissions._DEPOTS[:]
-        permissions._DEPOTS[:] = [time.monotonic(), [Path(t).resolve() / "ancien/.git"]]
-        try:
-            r = en_cage(f"git -C {t}/ancien config core.fsmonitor 'touch {t}/pwn' && echo config_ecrit;"
-                        f" mv {t}/ancien {t}/ancien2 && echo renomme")
-        finally:
-            permissions._DEPOTS[:] = garde
-        verifier("cage réelle : la config d'un dépôt déjà là refusée, et il ne se renomme pas",
-                 ("config_ecrit" in r.stdout, "renomme" in r.stdout), (False, False))
+        # Un dépôt déjà là, à n'importe quelle profondeur : config, hooks, sous-modules, worktrees, gitfile refusés
+        depot = Path(t).resolve() / "a/b/c/ancien"
+        subprocess.run(["git", "init", "-q", str(depot)], check=True)
+        for d in ("modules/sous", "worktrees/w"):
+            (depot / ".git" / d).mkdir(parents=True)
+        (depot / "lien").mkdir()
+        r = en_cage(f"git -C {depot} config core.fsmonitor 'touch {t}/pwn' && echo config_ecrit;"
+                    f" echo x > {depot}/.git/hooks/pre-commit; echo x > {depot}/.git/modules/sous/config;"
+                    f" echo x > {depot}/.git/worktrees/w/commondir; echo 'gitdir: {t}' > {depot}/lien/.git")
+        verifier("cage réelle : un dépôt déjà là (config, hook, sous-module, worktree, gitfile) refusé",
+                 ("config_ecrit" in r.stdout, [(depot / c).exists() for c in (
+                     ".git/hooks/pre-commit", ".git/modules/sous/config", ".git/worktrees/w/commondir", "lien/.git")]),
+                 (False, [False] * 4))
     config_git = permissions._RACINE / ".git/config"
     avant = config_git.read_bytes()
     r = en_cage(f": >> {config_git} && echo ecrit")  # n'ajoute rien, même si c'était permis

@@ -5,7 +5,6 @@ une commande shell, un outil Gmail ou Agenda, une page web, un clic dans une app
 """
 
 import asyncio
-import glob
 import re
 import shlex
 import subprocess
@@ -1004,25 +1003,13 @@ _STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git")  # .git : hooks, con
 _STEVE_FICHIERS: tuple[str, ...] = ()
 # Dans la cage, ~/Jervis/.git est fermé en entier (objets, branches, index compris : rien d'y glisser pour plus tard)
 # et git y lit sans rien écrire (GIT_OPTIONAL_LOCKS=0 : git status marche). Tes commits se font hors cage.
-# Partout, quel que soit le dépôt : un hook actif (pre-commit…, sans « .sample », que git clone ne pose pas), le
-# config.worktree et le commondir des worktrees, et les .pth / sitecustomize que python lit à chaque démarrage
-_SE_LANCE_MOTIFS = (r"/\.git/hooks/[^/.]+$", r"/\.git/(config\.worktree|commondir)$", r"/site-packages/[^/]*\.pth$",
-                    r"/(site|user)customize\.py$")
-# Tes dépôts déjà là (jusqu'à 3 niveaux sous ~, hors ~/Library) : leur config (core.fsmonitor, core.hooksPath
-# lanceraient du code à ton prochain git), leurs hooks et info/ fermés. Un nouveau dépôt (git clone, git init)
-# reste possible : git doit pouvoir y écrire sa config.
-_DEPOTS: list[Any] = [float("-inf"), []]  # [quand, les .git]
-DEPOTS_S = 300
-
-
-def _depots_existants() -> list[Path]:
-    if time.monotonic() - _DEPOTS[0] > DEPOTS_S:
-        maison = Path.home().resolve()
-        # glob.glob passe les dossiers cachés (pathlib, lui, y descend : plus d'une minute)
-        trouves = [g for n in (1, 2, 3) for g in map(Path, glob.glob(glob.escape(str(maison)) + "/*" * n + "/.git"))
-                   if g.is_dir() and not g.is_relative_to(maison / "Library") and g.parent != _RACINE]
-        _DEPOTS[:] = [time.monotonic(), trouves]
-    return _DEPOTS[1]
+# Partout, dans tout dépôt, à toute profondeur (sous-modules, worktrees) : la config (core.fsmonitor, core.hooksPath
+# lanceraient du code à ton prochain git), les hooks, info/, commondir/gitdir, et l'entrée .git elle-même (un
+# fichier .git peut pointer vers un faux dépôt) ; et les .pth / sitecustomize que python lit à chaque démarrage.
+# Un git clone ou git init doit donc sortir de la cage : après une page lue, il t'est demandé (NOUVEAU_DEPOT).
+_SE_LANCE_MOTIFS = (r"/\.git/(.*/)?(config|config\.worktree|commondir|gitdir)(\.lock)?$", r"/\.git/(.*/)?(hooks|info)/",
+                    r"/\.git$", r"/site-packages/[^/]*\.pth$", r"/(site|user)customize\.py$")
+NOUVEAU_DEPOT = re.compile(_COMMANDE + r"git\s+(?:-[Cc]\s+\S+\s+)*(?:clone|init|submodule|worktree)\b")
 
 
 def _se_lance_chemins() -> tuple[list[Path], list[Path]]:
@@ -1043,10 +1030,6 @@ def _cage_profil() -> str:
     # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
     # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
     parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE]
-    depots = _depots_existants()
-    dossiers = dossiers + [g / d for g in depots for d in ("hooks", "info")]
-    fichiers = fichiers + [g / "config" for g in depots]
-    parents = parents + [c for g in depots for c in (g, g.parent)]  # ni renommer le dépôt pour en poser un faux
     sp = lambda chemins, quoi: " ".join(f'({quoi} "{_sbpl(c)}")' for c in chemins)  # noqa: E731
     # Le refus de process-exec ne vise que ces chemins (une copie du binaire y échappe, et Python appelle les mêmes
     # services sans binaire) : ce qui ferme vraiment la porte, ce sont les services eux-mêmes — Apple Events,
@@ -1249,8 +1232,9 @@ class Gardien:
                 # Un numéro lu sur une page ou dans un mail, ou un numéro d'urgence : c'est toi qui dis oui, même
                 # en mode autonome (un appel ne se rattrape pas).
                 decision = Decision.DEMANDER
-        if decision is Decision.OUI and deja_dehors and (pilote_des_apps(outil, entree)
-                                                         or ecrit_ce_qui_se_lance(outil, entree)):
+        if decision is Decision.OUI and deja_dehors and (
+                pilote_des_apps(outil, entree) or ecrit_ce_qui_se_lance(outil, entree)
+                or (outil == "Bash" and NOUVEAU_DEPOT.search(str(entree.get("command") or "")))):
             # Des frappes, un script d'app, un « open » de fichier, ou un fichier qui se lancera tout seul plus tard
             # (LaunchAgents, ton shell, le code de Steve) après une page lue : même en autonome.
             decision = Decision.DEMANDER

@@ -389,9 +389,11 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
     une page, même maquillé (base64, `eval`, lancé en fond), n'y envoie aucun Apple Event, aucune frappe, n'ouvre
     aucune app, n'écrit ni dans `~/Library/Messages` ni dans ce qui se lance tout seul (LaunchAgents, cron, ton
     shell, `~/.ssh`, `~/.gitconfig`, les `.pth` de Python, le code de Steve et tout son `.git` — `git status` y
-    marche, tes commits se font hors cage —, la config, les hooks et `info/` de tes dépôts déjà là, un hook actif
-    dans n'importe quel dépôt, `~/.claude`), et ne renomme pas leurs dossiers parents pour en poser des faux ;
-    `git clone` et `git init` d'un nouveau dépôt restent possibles.
+    marche, tes commits se font hors cage —, la config, les hooks et `info/` de n'importe quel dépôt, à toute
+    profondeur, sous-modules et worktrees compris, ni un fichier `.git` qui pointerait ailleurs, `~/.claude`), et ne
+    renomme pas leurs dossiers parents pour en poser des faux. Un `git clone`, `git init`, `git submodule` ou
+    `git worktree` ne passe donc pas en cage : après une page lue, il t'est demandé et, si tu dis oui, tourne hors
+    cage.
     La cage ferme les services eux-mêmes (Apple Events, LaunchServices, l'écran, les éléments de connexion,
     Raccourcis, les actions d'apps, toute tâche confiée à launchd) : une copie d'`open` ou d'`osascript` sous un
     autre nom, ou un script Python qui les appelle directement, n'y arrive pas plus, et un `sandbox-exec` lancé
