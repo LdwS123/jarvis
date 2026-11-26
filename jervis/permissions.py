@@ -1088,7 +1088,8 @@ def nouveau_depot(commande: str) -> Path | None:
             return None
     except (OSError, RuntimeError, ValueError):
         return None
-    if any(partie.casefold() == ".git" for partie in ou.parts) or SE_LANCE_PLUS_TARD.search(f"{ou}/x"):
+    if (any(partie.casefold() == ".git" for partie in ou.parts) or SE_LANCE_PLUS_TARD.search(f"{ou}/x")
+            or SE_LANCE_PLUS_TARD.search(_plie(f"{ou}/x"))):
         return None
     ici = str(ou).casefold()  # APFS ne distingue pas ~/.Claude de ~/.claude
     for c in (*_se_lance_chemins()[0], *_se_lance_chemins()[1]):
@@ -1110,28 +1111,52 @@ def _sbpl(chemin: Path) -> str:
     return str(chemin).replace("\\", "\\\\").replace('"', '\\"')
 
 
+# Ce qu'APFS confond avec des lettres ASCII, au-delà de la casse (pliage Unicode) : K (kelvin) avec k, ſ avec s, et
+# les ligatures ﬁ, ﬆ… avec fi, st. Un « hooKs » ou un « conﬁg » ouvrirait le même fichier que hooks ou config.
+_PLIAGES = {"s": ("\u017f",), "k": ("\u212a",), "ss": ("\u00df", "\u1e9e"), "ff": ("\ufb00",), "fi": ("\ufb01",),
+            "fl": ("\ufb02",), "ffi": ("\ufb03",), "ffl": ("\ufb04",), "st": ("\ufb05", "\ufb06")}
+
+
+def _mot_sans_casse(mot: str) -> str:
+    """Une suite de lettres ASCII, dans toutes les façons de l'écrire qu'APFS confond avec elle."""
+    if not mot:
+        return ""
+    lettre = mot[0]
+    autres = _PLIAGES.get(lettre.lower(), ())
+    debut = f"({'|'.join((lettre.lower(), lettre.upper(), *autres))})" if autres else f"[{lettre.lower()}{lettre.upper()}]"
+    choix = [debut + _mot_sans_casse(mot[1:])]
+    for pli, signes in _PLIAGES.items():
+        if len(pli) > 1 and mot.lower().startswith(pli):
+            choix += [signe + _mot_sans_casse(mot[len(pli):]) for signe in signes]
+    return choix[0] if len(choix) == 1 else f"({'|'.join(choix)})"
+
+
 def _sans_casse(motif: str) -> str:
-    """« \\.app$ » → « \\.[aA][pP][pP]$ » : APFS ne distingue pas Evil.APP d'Evil.app, la cage non plus (on ne compte
-    pas sur la façon dont macOS compare ses regex)."""
-    sortie, echappe, classe = [], False, False
+    """« \\.app$ » → « \\.[aA][pP][pP]$ » : APFS ne distingue pas Evil.APP d'Evil.app, ni hooKs (kelvin) de hooks,
+    la cage non plus (on ne compte pas sur la façon dont macOS compare ses regex)."""
+    sortie, mot, echappe, classe = [], "", False, False
     for c in motif:
+        if c.isascii() and c.isalpha() and not echappe and not classe:
+            mot += c
+            continue
+        sortie.append(_mot_sans_casse(mot))
+        mot = ""
+        sortie.append(c)
         if echappe:
-            sortie.append(c)
             echappe = False
         elif c == "\\":
-            sortie.append(c)
             echappe = True
         elif c == "[":
-            sortie.append(c)
             classe = True
         elif c == "]":
-            sortie.append(c)
             classe = False
-        elif c.isalpha() and not classe:
-            sortie.append(f"[{c.lower()}{c.upper()}]")
-        else:
-            sortie.append(c)
+    sortie.append(_mot_sans_casse(mot))
     return "".join(sortie)
+
+
+def _plie(chemin: str) -> str:
+    """Le chemin comme APFS le compare : sans casse ni ligatures (ﬁ → fi, K → k, ſ → s)."""
+    return chemin.casefold()
 
 
 def _cage_profil(permis: Path | None = None) -> str:
@@ -1193,7 +1218,7 @@ def ecrit_ce_qui_se_lance(outil: str, entree: dict[str, Any]) -> bool:
         chemin = str(Path(chemin).expanduser().resolve())
     except (OSError, RuntimeError, ValueError):
         pass
-    return bool(SE_LANCE_PLUS_TARD.search(chemin))
+    return bool(SE_LANCE_PLUS_TARD.search(chemin) or SE_LANCE_PLUS_TARD.search(_plie(chemin)))
 
 
 # Ce que ses outils ont reçu ces 15 dernières minutes (tous les agents) : un iMessage « de toi » qui reprend l'un de

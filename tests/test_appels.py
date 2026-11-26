@@ -315,8 +315,12 @@ verifier("cage : « open -a Calculator » s'ouvre par son chemin, pas par son no
           permissions.app_du_systeme("calculator")),
          ("open -a /System/Applications/Calculator.app", "open -a /System/Applications/Calculator.app", None, None,
           permissions.Path("/System/Applications/Calculator.app")))
-verifier("cage : ses motifs ignorent la casse (APFS), lettre par lettre",
-         permissions._sans_casse(r"/\.git/(.*/)?(hooks)/[^/]*\.app$"), r"/\.[gG][iI][tT]/(.*/)?([hH][oO][oO][kK][sS])/[^/]*\.[aA][pP][pP]$")
+verifier("cage : ses motifs confondent ce qu'APFS confond (casse, K kelvin, ſ, ligature ﬁ)",
+         permissions._sans_casse(r"/\.git/(.*/)?(hooks|fi)/[^/]*\.app$"),
+         "/\\.[gG][iI][tT]/(.*/)?([hH][oO][oO](k|K|\u212a)(s|S|\u017f)|([fF][iI]|\ufb01))/[^/]*\\.[aA][pP][pP]$")
+verifier("après une page : écrire dans .git/hooKs (kelvin) ou .git/conﬁg (ligature) → demandé",
+         [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c}) for c in (
+             "/Volumes/D/depot/.git/hoo\u212as/pre-commit", "/Volumes/D/depot/.git/con\ufb01g")], [True, True])
 verifier("après une page : écrire dans une app (~/Applications, ~/Downloads, /Applications) → demandé",
          [permissions.ecrit_ce_qui_se_lance("Write", {"file_path": c}) for c in (
              "~/Applications/Evil.app/Contents/MacOS/Evil", "~/Downloads/Spotify.app/Contents/Info.plist",
@@ -398,11 +402,16 @@ if nue:
         verifier("cage réelle : un dossier parent protégé ne se renomme pas, on peut y écrire",
                  (parent.exists(), (parent / "x").exists()), (True, True))
         (Path(t) / "maj/.GIT/hooks").mkdir(parents=True)
+        (Path(t) / "pli/.git").mkdir(parents=True)
+        kelvin, fi = "hoo\u212as", "con\ufb01g"
         en_cage(f"mkdir -p {t}/Evil.app/Contents {t}/Evil2.APP/Contents; mkdir {t}/pret; mv {t}/pret {t}/Pret.aPp;"
-                f" touch {t}/a.application {t}/maj/.GIT/hooks/pre-commit")
-        verifier("cage réelle : aucune app ne se pose (.app, .APP, ni renommée), un .application oui ; .GIT/hooks non",
+                f" touch {t}/a.application {t}/maj/.GIT/hooks/pre-commit; mkdir {t}/pli/.git/{kelvin};"
+                f" touch {t}/pli/.git/{kelvin}/pre-commit {t}/pli/.git/{fi}")
+        verifier("cage réelle : aucune app ne se pose (.app, .APP, ni renommée), un .application oui ; .GIT/hooks, "
+                 "hooKs (kelvin) et conﬁg (ligature) non",
                  [(Path(t) / c).exists() for c in ("Evil.app", "Evil2.APP", "Pret.aPp", "a.application",
-                                                   "maj/.GIT/hooks/pre-commit")], [False, False, False, True, False])
+                                                   "maj/.GIT/hooks/pre-commit", f"pli/.git/{kelvin}/pre-commit",
+                                                   f"pli/.git/{fi}")], [False, False, False, True, False, False, False])
         sp = Path(t).resolve() / "site-packages"
         sp.mkdir()
         en_cage(f"touch {sp}/evil.pth {t}/modele.pth")
