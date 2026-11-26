@@ -238,6 +238,10 @@ def _base(url: str) -> str:
 
 def noter_succes(url: str, params: dict[str, Any] | None, pour: str, cle: dict[str, str] | None,
                  graphql: bool = False) -> None:
+    """Seulement une API du catalogue (son site de doc ou un sous-domaine) : une adresse soufflée par une page ou un
+    mail ne devient jamais une « API qui marche » qu'il rappellerait plus tard."""
+    if not du_catalogue(url):
+        return
     c, base, maintenant = carnet(), _base(url), datetime.now().isoformat(timespec="minutes")
     site = c.pop(base, {})   # remis à la fin : le plus récent en dernier
     chemins = site.get("chemins") if isinstance(site.get("chemins"), dict) else {}
@@ -284,6 +288,10 @@ def _couvre(domaine: str, hote: str) -> bool:
     return hote == domaine or hote.endswith("." + domaine)
 
 
+def du_catalogue(url: str) -> bool:
+    return bool(site_de_la_cle((urlsplit(url).hostname or "").casefold()))
+
+
 def _jour(date: str) -> str:
     try:
         return f"{datetime.fromisoformat(date):%d/%m}"
@@ -296,7 +304,7 @@ def deja_connues(recherche: str, n: int = 5) -> list[str]:
     mots = _mots(recherche) - _BRUIT
     lignes = []
     for base, site in carnet().items():
-        if en_panne(site):
+        if en_panne(site) or not du_catalogue(base):   # un vieux carnet d'avant la règle : trié ici aussi
             continue
         for chemin, fiche in (site.get("chemins") or {}).items():
             if not isinstance(fiche, dict):
@@ -341,7 +349,7 @@ def _ce_quil_en_sait(a: dict[str, Any], connus: dict[str, dict[str, Any]],
       "couvre. `recherche` = plusieurs mots-clés EN ANGLAIS (« iss space astronaut », « dog breed », « bible verse », "
       "« train france ») ; vide = la liste des catégories et celles que tu as déjà utilisées. `avec_cle` = true pour "
       "voir aussi celles qui demandent une clé gratuite. Montre d'abord celles que tu as déjà appelées avec succès "
-      "(l'adresse exacte et ses paramètres : appelle-la directement). Sinon : lis la doc avec WebFetch pour trouver "
+      "(l'adresse exacte et ses paramètres : tu peux la rappeler). Sinon : lis la doc avec WebFetch pour trouver "
       "l'adresse exacte, puis appelle-la avec appeler_api.",
       {"type": "object",
        "properties": {"recherche": {"type": "string"}, "n": {"type": "integer"}, "avec_cle": {"type": "boolean"}}})
@@ -353,7 +361,8 @@ async def chercher_api(args: dict[str, Any]) -> dict[str, Any]:
     recherche = " ".join(str(args.get("recherche") or "").split())
     avec_cle = args.get("avec_cle") in (True, "true", "oui", 1)
     connues = deja_connues(recherche)
-    deja = ("Déjà utilisées et qui marchent (appelle-les directement) :\n" + "\n".join(connues) + "\n") if connues else ""
+    deja = ("Déjà utilisées avec succès (tu peux les rappeler) :\n" + "\n".join(connues) + "\n") if connues else ""
+    fin = f"\n{DU_DEHORS}" if connues else ""
     if not recherche:
         categories: dict[str, int] = {}
         for a in tout:
@@ -361,12 +370,12 @@ async def chercher_api(args: dict[str, Any]) -> dict[str, Any]:
                 categories[a["categorie"]] = categories.get(a["categorie"], 0) + 1
         return _texte(deja + f"{sum(categories.values())} API sans clé, par catégorie : "
                       + ", ".join(f"{c} ({k})" for c, k in categories.items())
-                      + ". Cherche avec des mots-clés en anglais.")
+                      + ". Cherche avec des mots-clés en anglais." + fin)
     trouvees = chercher(recherche, _entier(args.get("n"), 8, 1, 20), avec_cle)
     if not trouvees:
         return _texte(deja + f"Rien dans le catalogue pour « {recherche} »"
                       + ("" if avec_cle else " sans clé (essaie avec_cle=true)")
-                      + ". Essaie d'autres mots en anglais, ou WebSearch « free API " + recherche + " ».")
+                      + ". Essaie d'autres mots en anglais, ou WebSearch « free API " + recherche + " »." + fin)
     connus, cles = carnet(), set(cles_rangees())
     lignes = [(a, *_ce_quil_en_sait(a, connus, cles)) for a in trouvees]
     lignes.sort(key=lambda t: bool(t[1] and en_panne(t[1])))   # celles en panne à la fin (tri stable)
@@ -416,13 +425,15 @@ def cles_rangees() -> dict[str, Any]:
 
 
 def site_de_la_cle(d: str) -> str | None:
-    """Le domaine auquel lier une clé : celui de la doc d'une API du catalogue, ou son site parent (« api.x.org »
-    ou « x.org » pour une doc sur « home.x.org »), jamais un hébergeur où n'importe qui a son site."""
+    """Le domaine auquel lier une clé : celui de la doc d'une API du catalogue, ou un de ses sous-domaines
+    (« api.x.org » pour une doc sur « x.org »). Jamais plus large que la doc (un parent pourrait couvrir les sites
+    d'autres gens), et jamais une doc posée chez un hébergeur (github.com, rapidapi.com…) : la clé y couvrirait les
+    projets de n'importe qui."""
     if d in HEBERGEURS:
         return None
     for a in catalogue():
         doc = comptes.domaine(a["lien"])
-        if doc and (_couvre(doc, d) or _couvre(d, doc) and (len(d.split(".")) > 2 or len(d.split(".")[0]) > 3)):
+        if doc and doc not in HEBERGEURS and _couvre(doc, d):
             return d
     return None
 
@@ -612,6 +623,9 @@ def _garder(cle_memoire: str, texte: str) -> None:
 
 
 _MODIFIE = re.compile(r"\b(?:mutation|subscription)\b")
+# Le POST de GraphQL ne part que vers une adresse qui le dit (« /graphql », « gql.x.org »…) : jamais un POST vers
+# une API ordinaire, où il pourrait créer ou changer quelque chose.
+_ADRESSE_GQL = re.compile(r"graphql|gql", re.IGNORECASE)
 
 
 def _facon_de_donner(cle: Any) -> dict[str, str] | str:
@@ -656,6 +670,10 @@ async def appeler_api(args: dict[str, Any]) -> dict[str, Any]:
         variables = args.get("variables") or {}
         if not isinstance(variables, dict):
             return _erreur("`variables` est un objet ({\"nom\": \"valeur\"}).")
+        m = urlsplit(url)
+        if not _ADRESSE_GQL.search(f"{m.hostname or ''}{m.path}"):
+            return _erreur("Refusé : GraphQL seulement vers une adresse GraphQL (« …/graphql », « …/gql ») ; "
+                           "regarde dans sa doc l'adresse exacte.")
         if _MODIFIE.search(requete_gql):
             return _erreur("Refusé : seulement des lectures en GraphQL (query), pas de mutation ni d'abonnement.")
         if len(requete_gql) > 10_000:

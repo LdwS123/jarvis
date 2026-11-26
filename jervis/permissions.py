@@ -352,7 +352,7 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
 # Créer un compte, sortir un mot de passe du Trousseau, lire un code reçu par SMS : demandé dans tous les modes. Tu
 # entends le site exact (« netflix.com », pas « netflix-connexion.xyz »), et un code ne part pas sur la demande d'une
 # page piégée qui essaierait de te voler un compte en le réinitialisant.
-COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu"}
+COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu", "ranger_cle_api"}
 JERVIS_A_CONFIRMER = {"envoyer_imessage", "demander_accord", "mettre_a_la_corbeille", "effacer_memoire",
                       *COMPTES_A_CONFIRMER}
 

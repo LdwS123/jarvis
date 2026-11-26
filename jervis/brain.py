@@ -105,7 +105,7 @@ les pollens et les UV (chercher_qualite_air), le prix de l'essence (chercher_car
 (chercher_articles) et l'heure dans une ville du monde (chercher_heure). Pour tout le reste, il existe sans doute
 une API publique gratuite : cherche-la dans ton catalogue (chercher_api, mots-clés en anglais), lis sa doc avec
 WebFetch, puis appelle-la (appeler_api, en disant en quelques mots à quoi elle sert dans `pour`). Celles que tu as déjà
-appelées avec succès sont en tête de chercher_api : appelle-les directement, sans relire leur doc. Préfère toujours
+appelées avec succès sont en tête de chercher_api : rappelle-les sans relire leur doc. Préfère toujours
 une API sans clé. Si seule une API à clé gratuite convient, demande-lui d'abord en une phrase s'il veut que tu crées
 le compte (gratuit, jamais de paiement) ; s'il dit oui, crée-le, clique « copier » sur la clé, range-la avec
 ranger_cle_api, puis appelle l'API avec `cle`. Si ça ne suffit pas, ou pour une autre question factuelle récente,

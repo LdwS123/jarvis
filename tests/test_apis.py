@@ -340,6 +340,12 @@ verifier("pour : quelques mots, sans lien ni mail ni guillemets", [apis.pour_pro
     ["position de l'ISS", "", "", "ordre suite", "x" * 60])
 
 apis.CARNET.unlink(missing_ok=True)
+# api.exemple.org devient une API du catalogue (sa doc est sur lui) : seules celles-là entrent dans le carnet.
+apis._cache, apis._index = apis.catalogue() + [dict(lues[0], nom="Exemple", description="Essai", categorie="Essai",
+                                                    lien="https://api.exemple.org/doc")], None
+REPONSES[("cdn.exemple.org", "/souffle")] = (200, {"ok": 1})
+appeler(apis.appeler_api, url="https://cdn.exemple.org/souffle", pour="à rappeler")
+verifier("carnet : une API hors du catalogue (soufflée par une page ?) n'y entre jamais", apis.carnet(), {})
 REPONSES[("api.exemple.org", "/v1/races")] = (200, {"races": ["berger"]})
 appeler(apis.appeler_api, url="https://api.exemple.org/v1/races", params={"q": "berger allemand", "page": 2},
         pour="races de chien")
@@ -366,7 +372,7 @@ DNS["api.dog.ceo"] = ["93.184.216.35"]
 appeler(apis.appeler_api, url="https://api.dog.ceo/breeds/list", pour="liste des races")
 r = texte(appeler(apis.chercher_api, recherche="dog breeds"))
 contient("chercher_api : celles qui ont marché d'abord, avec l'adresse et les paramètres", r,
-         "Déjà utilisées et qui marchent (appelle-les directement) :\n- https://api.dog.ceo/breeds/list (pour « liste "
+         "Déjà utilisées avec succès (tu peux les rappeler) :\n- https://api.dog.ceo/breeds/list (pour « liste "
          "des races », 1 fois")
 contient("chercher_api : retrouvée par son « pour »", texte(appeler(apis.chercher_api, recherche="chien race")),
          "- https://api.exemple.org/v1/races (pour « races de chien », paramètres : page, q, 2 fois, la dernière le ")
@@ -375,7 +381,12 @@ contient("… Dog CEO : déjà utilisée", r, "- Dog CEO (Animals, sans clé, d�
 verifier("chercher_api : rien de connu sur l'ISS", "Déjà utilisées" in texte(appeler(apis.chercher_api, recherche="iss")),
          False)
 contient("chercher_api vide : aussi ce qu'il a déjà utilisé", texte(appeler(apis.chercher_api)),
-         "Déjà utilisées et qui marchent", "- https://api.dog.ceo/breeds/list", "API sans clé, par catégorie")
+         "Déjà utilisées avec succès", "- https://api.dog.ceo/breeds/list", "API sans clé, par catégorie", DEHORS)
+vieux = apis.carnet()
+vieux["https://ailleurs.piege.org"] = {"chemins": {"/x": {"fois": 99, "pour": "chien race"}}, "ok": "2026-01-01T10:00"}
+apis._ecrire_json(apis.CARNET, vieux)
+verifier("un vieux carnet avec un site hors du catalogue : jamais montré",
+         "piege" in texte(appeler(apis.chercher_api, recherche="chien race")), False)
 
 # Une panne : l'API passe à la fin et sort des « déjà utilisées » ; un succès l'efface.
 REPONSES[("api.dog.ceo", "/breeds/list")] = (503, "maintenance")
@@ -440,6 +451,10 @@ for q in ("mutation { supprimer(id: 1) }", "subscription { nouveaux { id } }", "
     r = appeler(apis.appeler_api, url="https://api.exemple.org/graphql", graphql=q)
     verifier(f"GraphQL : refusé « {q[:20]} »", (r.get("is_error"), "pas de mutation" in texte(r)), (True, True))
 verifier("GraphQL : rien n'est parti", VUES, [])
+VUES.clear()
+r = appeler(apis.appeler_api, url="https://api.exemple.org/v1/chiens", graphql="{ a }")
+verifier("GraphQL : jamais un POST vers une adresse qui n'est pas GraphQL", (r.get("is_error"), "adresse GraphQL" in texte(r),
+                                                                          VUES), (True, True, []))
 r = appeler(apis.appeler_api, url="https://api.exemple.org/graphql", graphql="{ a }", variables="c=FR")
 verifier("GraphQL : des variables qui ne sont pas un objet, refusées", r.get("is_error"), True)
 REPONSES[("api.exemple.org", "/gql-vieux")] = httpx.Response(307, headers={"location": "https://api.exemple.org/graphql"})
@@ -472,10 +487,14 @@ async def faux_vider(secret):
 apis._trousseau_ranger, apis._trousseau_retrouver = faux_ranger, faux_retrouver
 apis._presse_papiers, apis._vider_presse_papiers = faux_presse_papiers, faux_vider
 
-verifier("clé : liée au site de la doc, ou à son parent, jamais à un hébergeur",
-         [apis.site_de_la_cle(d) for d in ("thedogapi.com", "api.thedogapi.com", "nasa.gov", "api.nasa.gov",
-                                           "github.io", "piege.org", "com")],
-         ["thedogapi.com", "api.thedogapi.com", "nasa.gov", "api.nasa.gov", None, None, None])
+apis._cache = apis.catalogue() + [dict(lues[0], lien="https://github.com/quelquun/api")]
+verifier("clé : liée au site de la doc ou à un sous-domaine, jamais plus large, jamais chez un hébergeur",
+         [apis.site_de_la_cle(d) for d in ("thedogapi.com", "api.thedogapi.com", "api.nasa.gov", "v2.api.nasa.gov",
+                                           "nasa.gov", "gov", "github.com", "piege.github.com", "github.io",
+                                           "piege.org", "com")],
+         ["thedogapi.com", "api.thedogapi.com", "api.nasa.gov", "v2.api.nasa.gov", None, None, None, None, None, None,
+          None])
+apis._cache = apis._index = None
 PRESSE["texte"] = SECRET
 r = appeler(apis.ranger_cle_api, site="https://piege.org/")
 verifier("clé : un site hors du catalogue, refusé, presse-papiers pas lu", (r.get("is_error"), TROUSSEAU), (True, {}))
@@ -623,8 +642,9 @@ for nom in (cherche, appelle):
              permissions.Decision.OUI)
 range = f"mcp__{outils.NOM_SERVEUR}__ranger_cle_api"
 verifier("ranger_cle_api : il ne lit que « c'est rangé » (pas un texte du dehors)", permissions.lit_dehors(range), False)
-verifier("ranger_cle_api : il le fait sans demander", permissions.politique(range, {"site": "thedogapi.com"}),
-         permissions.Decision.OUI)
+verifier("ranger_cle_api : seul en autonome, demandé dans les autres modes (comme copier un mot de passe)",
+         [permissions.politique(range, {"site": "thedogapi.com"}, mode=m).value
+          for m in ("autonome", "confiance", "essentielles", "toutes")], ["oui", "demander", "demander", "demander"])
 verifier("ranger_cle_api : fermé tant qu'un mot de passe est dans le presse-papiers",
          permissions.lit_le_presse_papiers(range, {"site": "thedogapi.com"}), True)
 verifier("ranger_cle_api : hors de sa ronde", fond.outil_de_lecture(range), False)

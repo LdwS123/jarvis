@@ -310,9 +310,9 @@ Le catalogue se remet à jour tout seul : quand il a plus de 30 jours, il est re
 `espace/apis_publiques.json` (le dépôt n'est pas touché), sans faire attendre la recherche. À la main :
 `cd ~/Jervis && .venv/bin/python -m jervis.apis`.
 
-Il apprend aussi : chaque API qui lui a répondu entre dans son carnet (`espace/apis_connues.json`) avec son adresse
+Il apprend aussi : chaque API du catalogue qui lui a répondu entre dans son carnet (`espace/apis_connues.json`) avec son adresse
 exacte, le nom de ses paramètres (jamais leurs valeurs), à quoi elle sert et combien de fois elle a marché.
-`chercher_api` les montre en premier : il la rappelle sans relire sa doc. Une API en panne (erreur 5xx, délai
+Une adresse hors du catalogue (soufflée par une page ou un mail) n'y entre jamais. `chercher_api` les montre en premier : il la rappelle sans relire sa doc. Une API en panne (erreur 5xx, délai
 dépassé) passe à la fin de la liste pendant une semaine, ou jusqu'à ce qu'elle remarche. Une même demande faite deux
 fois en deux minutes est resservie sans repartir.
 
@@ -320,10 +320,12 @@ Il prend toujours une API sans clé quand il y en a une. Si seule une API à **c
 d'abord en une phrase s'il peut créer le compte (gratuit, jamais de paiement). Ensuite il clique « copier » sur la
 clé et `ranger_cle_api` la range dans ton Trousseau (service `jervis-api:<site>`, étiquette « (Steve) »), puis la
 retire du presse-papiers. Il ne la tape jamais et ne l'écrit nulle part ; `espace/cles_api.json` ne garde que le nom
-du site. La clé ne se lie qu'au site d'une API du catalogue, jamais à un hébergeur partagé (github.io, herokuapp…).
+du site. La clé ne se lie qu'au site de la doc d'une API du catalogue (ou à un de ses sous-domaines), jamais à un domaine plus large ni à un hébergeur partagé (github.com, github.io, herokuapp…).
+En mode autonome il la range seul ; dans les autres modes (`JERVIS_CONFIRMATIONS=confiance`…), il te demande d'abord,
+comme pour copier un mot de passe.
 
 `appeler_api` ne fait que lire : une requête GET (ou une requête GraphQL, les `mutation` et `subscription`
-refusées), sans cookie, sous un nom générique. Une clé rangée n'est ajoutée que vers son site et ses sous-domaines, en
+refusées, et seulement vers une adresse GraphQL comme `…/graphql` : jamais un POST vers une API ordinaire), sans cookie, sous un nom générique. Une clé rangée n'est ajoutée que vers son site et ses sous-domaines, en
 https. Elle ne suit pas une redirection vers un autre site et n'apparaît jamais dans ce qu'il lit : elle est remplacée
 par « ••• », même quand l'API la recopie. Il refuse le Mac et
 ton réseau (127.0.0.1 et le tableau de bord, ta box, 192.168…, 10…, les `.local`, l'adresse des métadonnées des
