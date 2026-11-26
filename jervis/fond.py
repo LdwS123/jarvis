@@ -19,13 +19,14 @@ import threading
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Callable
 
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, TextBlock,
                               ToolUseBlock, tool)
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import apis, compteur, config, infos, infos2, outils
+from . import apis, compteur, config, infos, infos2, outils, permissions
 from .brain import EXPERT, _maintenant, carnet, documents, preparer_connecteurs
 from .permissions import Gardien, est_lecture, noter_outil
 
@@ -352,6 +353,11 @@ def outil_de_lecture(outil: str) -> bool:
 async def lecture_seule(outil: str, entree: dict[str, Any], _ctx: Any):
     """Le gardien de sa ronde : une lecture passe, tout le reste est refusé d'office (sans te poser de question)."""
     if outil_de_lecture(outil):
+        if outil.startswith("mcp__jervis__") and outil.split("__")[-1] in permissions.DEV_EN_CAGE:
+            # sa ronde lit tes mails et tes pages : gh (lister_activite_github) tourne dans la cage
+            if not Path(permissions.CAGE_EXEC).exists():
+                return PermissionResultDeny(message="Pas de GitHub pendant la ronde sur ce Mac (pas de cage).")
+            return PermissionResultAllow(updated_input={**entree, "cage": True})
         return PermissionResultAllow(updated_input=entree)
     return PermissionResultDeny(message="Ta ronde est en lecture seule : tu ne peux que regarder. Note ce que tu "
                                         "proposerais de faire dans ton compte rendu, et continue.")

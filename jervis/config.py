@@ -464,6 +464,16 @@ VOCAL_WHATSAPP_MAX_S = float(_env("VOCAL_WHATSAPP_MAX_S", "60"))
 # même appareil comme micro dans WhatsApp (menu Appel → Micro).
 VOCAL_WHATSAPP_SORTIE = _env("VOCAL_WHATSAPP_SORTIE", "")
 
+# --- L'atelier de code (dev.py) ------------------------------------------------
+# Où il cherche tes projets (les dossiers qui ont un .git), séparés par « : », et jusqu'à quelle profondeur.
+PROJETS = [Path(p.strip()).expanduser() for p in _env("PROJETS", "~").split(":") if p.strip()]
+PROJETS_PROFONDEUR = int(_env("PROJETS_PROFONDEUR", "4"))
+EDITEUR = _env("EDITEUR", "Cursor")                     # « ouvre Jervis » : dans cette app
+TESTS_MAX_MIN = float(_env("TESTS_MAX_MIN", "20"))      # des tests plus longs sont arrêtés
+TESTS_ATTENTE_S = float(_env("TESTS_ATTENTE_S", "40"))  # au-delà, il te rend la main et te dit la fin plus tard
+CI_MAX_MIN = float(_env("CI_MAX_MIN", "60"))            # il surveille une CI au plus une heure
+DOSSIER_DEV = DOSSIER / "espace" / "dev"                # la sortie des tests et des serveurs de dev
+
 # --- Le bureau (bureau.py) ---------------------------------------------------
 FICHIER_MODES = DOSSIER / "modes.json"            # tes modes (« mode travail ») : apps, liens, volume, raccourci
 FICHIER_RANGEMENT = DOSSIER / "rangement.json"    # tes règles de rangement (« les factures vont dans… »)

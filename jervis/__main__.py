@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 
-from . import bureau, chat, compteur, config, oral, reunion, tts, vocal, voix_locale
+from . import bureau, chat, compteur, config, dev, oral, reunion, tts, vocal, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
 from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond
@@ -357,6 +357,7 @@ async def mode_texte(muet: bool) -> None:
     await cerveau.demarrer()
     # Un compte rendu (avec son propre micro ici) qui finit seul : Claude en fait le résumé.
     reunion.REUNIONS.annoncer = lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("faire", texte))
+    dev.ANNONCER = lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("annonce", texte))
     horloge = asyncio.create_task(programmateur.tourner())
     threading.Thread(target=lire_clavier, daemon=True).start()
     print(f"{config.PRENOM} est prêt. Tape ta demande (Ctrl+D pour quitter).")
@@ -1126,6 +1127,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     # La santé du Mac : un souci (disque plein, batterie, une app qui s'emballe) est dit une fois par jour.
     bureau.surveiller_sante(lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("annonce", texte)),
                             sante)
+    # La fin de tests longs ou d'une CI surveillée (dev.py) : une phrase écrite par le code, dite telle quelle.
+    dev.ANNONCER = lambda texte: boucle.call_soon_threadsafe(standard.poster, Evenement("annonce", texte))
     print(f"👂 Parle-moi en disant « {n} » : « Hey {n} », « Salut {n} », « {n}, ouvre Cursor »… "
           "(Ctrl+C pour quitter)", flush=True)
 

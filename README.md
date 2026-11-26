@@ -54,6 +54,8 @@ Ta mémoire, vos conversations, son journal et ton empreinte vocale restent sur 
 Ton assistant vocal sur le Mac. Il réagit à son nom, « Steve », comprend le français et te répond à voix haute.
 Il lit ton agenda Google et tes mails Gmail, ouvre tes apps, se souvient de toi et voit ton écran.
 Il envoie des iMessages et des vocaux WhatsApp avec sa voix, crée des rappels et des notes, et pilote la maison via Raccourcis.
+Pour ton code, il connaît tes projets git : il lance leurs tests et te dit le résultat, fait ton standup, suit tes PR
+et ta CI GitHub, libère un port, lance ton serveur de dev et ouvre un projet dans Cursor.
 Il lit ton Google Drive, agit dans des milliers d'apps via Zapier, et clique ou tape dans n'importe quelle app du Mac.
 Il fait les grosses tâches en arrière-plan pendant que tu continues à lui parler, te fait un point le matin,
 te prévient à l'heure dite, et se souvient de vos conversations (et, avec screenpipe, de ce qui est passé sur ton écran).
@@ -791,6 +793,37 @@ Ranger ne touche qu'à ton dossier perso, et jamais à `~/Library`, aux dossiers
 défait dans `espace/rangements/`. La recherche ne lit que ce que Spotlight a déjà indexé (sur le Mac) : rien ne
 part ailleurs que le nom des fichiers trouvés, vers Claude, pour te répondre.
 
+### Ton atelier de code
+
+Il connaît tes projets : tous les dossiers qui ont un `.git` sous ton dossier perso (ou sous `JERVIS_PROJETS`), du
+plus récemment touché au plus ancien. Tu les nommes comme à l'oral : « oko », « mon site perso » pour
+`Mon-Site_Perso`, ou rien du tout pour celui sur lequel tu as travaillé en dernier.
+
+| Tu dis… | Il fait |
+|---|---|
+| « Où j'en suis dans mes projets ? », « qu'est-ce que j'ai pas commité ? » | pour chaque projet : la branche, les fichiers modifiés, les commits à pousser, une branche jamais poussée, le dernier commit (`lister_projets`) |
+| « Ouvre Jervis », « ouvre oko dans le terminal », « ouvre sa page GitHub » | Cursor par défaut (`JERVIS_EDITEUR`), ou VS Code, Zed, Xcode, Terminal, iTerm, Finder, GitHub (`ouvrir_projet`) |
+| « Lance les tests de Jervis », « relance juste test_dev » | il trouve tout seul comment : pytest (avec le Python du `.venv`), npm, pnpm, yarn, bun, cargo, go ou `make test`. Vite finis, il te répond tout de suite ; s'ils durent plus de 40 s, il te rend la main et te **dit le résultat à voix haute** quand c'est fini (`lancer_tests`) |
+| « Corrige » (après des tests rouges) | il relit la sortie (`lister_resultats_tests`), corrige le code, puis relance les tests |
+| « Fais mon standup », « qu'est-ce que j'ai fait cette semaine ? » | tes commits de tous tes projets (depuis hier, depuis vendredi le lundi), sans doublon entre un dépôt et ses worktrees, et ce qui n'est pas encore commité (`lister_commits`) |
+| « Mes PR », « qu'est-ce que je dois relire ? », « pourquoi la CI a planté ? » | par `gh` : tes PR ouvertes avec leur CI (✅ ❌ ⏳) et leurs relectures, celles qu'on te demande de relire, et avec un projet ses dernières CI et la fin du journal de celle qui a échoué (`lister_activite_github`) |
+| « Préviens-moi quand la CI est finie » | il surveille la CI de ton dernier commit poussé et te dit à voix haute si elle est passée ou ce qui a échoué (`surveiller_ci`) |
+| « Qu'est-ce qui tourne sur le 3000 ? », « mes serveurs » | ce qui écoute sur tes ports, et à quel projet ça appartient (`lister_ports`) |
+| « Libère le 3000 » | il arrête proprement le programme (SIGTERM) ; s'il résiste, « force-le » le coupe net. Jamais une app, macOS ni lui-même ; pour le récepteur AirPlay (ports 5000 et 7000), il te dit où le couper (`liberer_port`) |
+| « Lance le serveur de oko et ouvre-le », « arrête le serveur » | `npm run dev`, Django, `make dev`, Rails… : il trouve l'adresse (`http://localhost:5173/`), l'ouvre dans ton navigateur, et l'arrête en entier plus tard (`serveur_de_dev`) |
+
+Pour `gh`, installe-le et connecte-le une fois dans ton terminal : `brew install gh`, puis `gh auth login`. Il
+utilise le git, le `lsof` et le `open` du système, pas ceux de Homebrew (qui se remplacent depuis ton compte).
+
+**La sécurité.** Lancer des tests ou un serveur, c'est exécuter le code du projet. Juste après un texte venu
+d'ailleurs (une page, un mail, un message de commit, la sortie d'une commande), ses tests, son serveur et `gh`
+tournent dans **la cage de macOS** : ils ne peuvent écrire ni dans `.git/config` ni dans les hooks, ni dans ton
+shell, ni dans le code de Steve, et ne pilotent aucune app. C'est le Gardien qui ajoute la cage, le modèle ne peut
+pas l'enlever. Après un tel texte, **arrêter un programme** ou **ouvrir un projet dans une app** te demande ton
+oui, même en mode autonome. Sa ronde peut regarder tes PR (dans la cage) mais ne lance ni tests ni serveur. En mode
+« toutes », lancer des tests ou un serveur et libérer un port te sont toujours demandés. La sortie des tests et des
+serveurs reste dans `espace/dev/`.
+
 ### Ce qu'il te demande encore
 
 **Presque rien : par défaut (`JERVIS_CONFIRMATIONS=autonome`), il fait tout seul et en prend la responsabilité.**
@@ -1082,6 +1115,12 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_SANTE_BATTERIE_MIN` | 10 | … sous ce pourcentage de batterie (pas en charge) |
 | `JERVIS_SANTE_CPU_MAX` | 90 | … quand une app dépasse ce pourcentage du processeur pendant 10 min |
 | `JERVIS_RECHERCHE_MAX` | 15 | le nombre de fichiers que rend `chercher_fichiers` |
+| `JERVIS_PROJETS` | `~` | où il cherche tes projets git (plusieurs dossiers séparés par `:`, comme `~/code:~/work`) |
+| `JERVIS_PROJETS_PROFONDEUR` | 4 | jusqu'à combien de dossiers sous ceux-là il descend |
+| `JERVIS_EDITEUR` | Cursor | où « ouvre Jervis » ouvre un projet (`VS Code`, `Zed`, `Xcode`, `Terminal`…) |
+| `JERVIS_TESTS_ATTENTE_S` | 40 | au-delà, il te rend la main et te dit le résultat des tests à voix haute plus tard |
+| `JERVIS_TESTS_MAX_MIN` | 20 | des tests plus longs sont arrêtés |
+| `JERVIS_CI_MAX_MIN` | 60 | il surveille une CI au plus ce temps-là |
 | `JERVIS_VOCAL_MAX_S` | 300 | un message vocal de l'iPhone plus long est coupé |
 | `JERVIS_LECONS_PERMANENTES_MAX` | 40 | le nombre de règles 📌 qu'il garde pour toujours |
 

@@ -109,7 +109,7 @@ def nom_action(outil: str) -> str:
 def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> Decision:
     action = nom_action(outil)
     if outil.startswith("mcp__jervis__"):  # iMessage : envoyé direct ; demander_accord : c'est lui qui veut demander
-        return _maison(action, entree, {"demander_accord", *COMPTES_A_CONFIRMER})
+        return _maison(action, entree, {"demander_accord", "liberer_port", *COMPTES_A_CONFIRMER})
     if outil.startswith(CHROME_PERSO):  # du code dans ton Chrome connecté (banque, mails…) : toujours demandé
         return _chrome_perso(action, entree)
     if outil.startswith("mcp__navigateur__"):
@@ -330,7 +330,7 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
     if outil in {"WebSearch", "WebFetch"}:
         return Decision.OUI
     if outil.startswith("mcp__jervis__"):  # ses outils maison (outils.py)
-        return _maison(outil.split("__")[-1], entree, JERVIS_A_CONFIRMER)
+        return _maison(outil.split("__")[-1], entree, JERVIS_A_CONFIRMER | DEV_A_CONFIRMER_PRUDENT)
     if outil.startswith(CHROME_PERSO):  # ton Chrome à toi, via l'extension Claude
         return _chrome_perso(outil.split("__")[-1], entree)
     if outil.startswith("mcp__navigateur__"):  # son Chrome : naviguer, lire, cliquer, taper → seul
@@ -363,7 +363,13 @@ def politique_prudente(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
 # page piégée qui essaierait de te voler un compte en le réinitialisant.
 COMPTES_A_CONFIRMER = {"creer_mot_de_passe", "copier_mot_de_passe", "chercher_code_recu", "ranger_cle_api"}
 JERVIS_A_CONFIRMER = {"envoyer_imessage", "envoyer_vocal_whatsapp", "appeler", "demander_accord",
-                      "mettre_a_la_corbeille", "effacer_memoire", *COMPTES_A_CONFIRMER}
+                      "mettre_a_la_corbeille", "effacer_memoire", "liberer_port", *COMPTES_A_CONFIRMER}
+# L'atelier de code (dev.py). Ce qui lance le code d'un projet ou un programme de Homebrew (gh) : après un texte venu
+# d'ailleurs, toujours dans la cage (le Gardien ajoute `cage` à l'appel), même après ton oui, puisque la question ne
+# te montre pas ce code. Arrêter un programme, ouvrir un projet dans une app : après un tel texte, c'est toi qui dis oui.
+DEV_EN_CAGE = {"lancer_tests", "serveur_de_dev", "lister_activite_github", "surveiller_ci"}
+DEV_DEMANDE_APRES_DEHORS = {"liberer_port", "ouvrir_projet"}
+DEV_A_CONFIRMER_PRUDENT = {"lancer_tests", "serveur_de_dev"}  # (en mode « toutes » seulement)
 
 
 def chemins_a_jeter(entree: dict[str, Any]) -> list[str]:
@@ -624,6 +630,19 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     if outil in LECTURE_FICHIERS:
         return f"Je vais lire {Path(chemin_fichier(entree).split()[0]).name}, qui peut contenir des secrets. Je peux ?"
     action = nom_action(outil)
+    if action == "liberer_port":
+        force = " de force" if entree.get("forcer") else ""
+        return f"Je vais arrêter{force} le programme qui occupe le port {entree.get('port')}. Je peux ?"
+    if action in DEV_EN_CAGE or action == "ouvrir_projet":
+        projet = _projet_vise(entree) or str(entree.get("projet") or "ton dernier projet")
+        if action == "lancer_tests":
+            return f"Je vais lancer les tests de {projet}. Je peux ?"
+        if action == "serveur_de_dev":
+            verbe = {"arreter": "arrêter", "etat": "regarder"}.get(str(entree.get("action") or ""), "lancer")
+            return f"Je vais {verbe} le serveur de dev de {projet}. Je peux ?"
+        if action == "ouvrir_projet":
+            return f"Je vais ouvrir {projet} dans {entree.get('app') or config.EDITEUR}. Je peux ?"
+        return f"Je vais demander à GitHub l'état de {projet}. Je peux ?"
     if action == "noter_lecon":
         return f"Je note dans mon carnet : « {str(entree.get('lecon', '')).strip()} »{_a_la_place(entree)}. Je peux ?"
     if action == "noter_mot":
@@ -886,6 +905,8 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        # d'un raccourci.)
                        r"commencer_compte_rendu|finir_compte_rendu|definir_mode|ranger_fenetres|"
                        r"noter_regle_rangement|annuler_rangement|ouvrir_fichier|"
+                       # « C'est ouvert dans Cursor » : ouvrir_projet ne rend que l'app, ou le nom de tes dossiers.
+                       r"ouvrir_projet|"
                        # Ses blocages et tes règles 📌 : ce qu'il a noté lui-même (plus bas).
                        r"lister_blocages|autoriser_desormais|retirer_autorisation)"
                        # Gmail, Agenda, Drive : un envoi ou une création ne lui rend que ce qu'il vient d'écrire.
@@ -1359,6 +1380,15 @@ def _dossier(chemin: str) -> str | None:
         return None
 
 
+def _projet_vise(entree: dict[str, Any]) -> str | None:
+    """Le dossier du projet dont parle un outil de dev.py (~/code/oko), None s'il ne se trouve pas."""
+    from . import dev
+    try:
+        return dev.montrer(dev.trouver_projet(entree.get("projet")))
+    except (dev.Introuvable, OSError):
+        return None
+
+
 def cible_de(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> str | None:
     """Ce sur quoi porterait une règle 📌 : « git push », un dossier, un destinataire, une app… ("" : l'outil entier).
     None : on ne peut pas en faire une règle sûre (une commande composée, un secret, une fenêtre inconnue…)."""
@@ -1400,6 +1430,13 @@ def cible_de(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) 
         if not chemins or len(dossiers) != 1 or None in dossiers or any(FICHIERS_SECRETS.search(c) for c in chemins):
             return None
         return dossiers.pop()
+    if action == "liberer_port":
+        try:
+            return f"le port {int(entree.get('port') or 0)}" + (" (de force)" if entree.get("forcer") else "")
+        except (TypeError, ValueError):
+            return None
+    if action in DEV_EN_CAGE or action == "ouvrir_projet":
+        return _projet_vise(entree)
     if action == "appeler":
         numero = appels.numero_appelable(entree.get("numero"))
         return None if not numero or appels.numero_urgence(numero) else numero
@@ -1704,6 +1741,14 @@ class Gardien:
             autorisable, pourquoi = False, ("après un texte venu d'ailleurs (une page, un mail, un agent), des gestes "
                                             "sur tes apps, un fichier qui se lance tout seul ou un nouveau dépôt "
                                             "passent par toi : ce texte pourrait me les avoir dictés")
+        action_dev = outil.split("__")[-1] if outil.startswith("mcp__jervis__") else ""
+        if decision is Decision.OUI and deja_dehors and action_dev in DEV_DEMANDE_APRES_DEHORS:
+            decision = Decision.DEMANDER  # arrêter un programme, ouvrir un projet dans une app : pas sous la dictée
+            autorisable, pourquoi = False, ("arrêter un programme ou ouvrir un projet juste après un texte venu "
+                                            "d'ailleurs")
+        if decision is Decision.OUI and deja_dehors and action_dev in DEV_EN_CAGE and not Path(CAGE_EXEC).exists():
+            decision = Decision.DEMANDER
+            autorisable, pourquoi = False, "le code d'un projet après un texte venu d'ailleurs, et pas de cage sur ce Mac"
         if decision is Decision.OUI and outil == "mcp__jervis__commencer_compte_rendu" and deja_dehors:
             decision = Decision.DEMANDER  # écouter une réunion : jamais sous la dictée d'une page ou d'un mail
             autorisable, pourquoi = False, "écouter une réunion juste après un texte venu d'ailleurs"
@@ -1786,6 +1831,8 @@ class Gardien:
                 # ton oui à un git clone / init : dans la cage quand même, son seul dossier ouvert
                 return PermissionResultAllow(updated_input={**entree, "command": encager(str(entree["command"]),
                                                                                          permis=depot)})
+            if action_dev in DEV_EN_CAGE:  # ses tests, son serveur, gh : dans la cage après un texte venu d'ailleurs
+                return PermissionResultAllow(updated_input={**entree, "cage": deja_dehors and Path(CAGE_EXEC).exists()})
             return PermissionResultAllow(updated_input=entree)
         return PermissionResultDeny(
             message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "
