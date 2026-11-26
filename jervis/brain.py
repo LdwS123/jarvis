@@ -701,7 +701,12 @@ class Cerveau:
                 if time.monotonic() - reprise["quand"] < config.REPRISE_MIN * 60:
                     self._journal("   \033[2m(il reprend sa réponse coupée)\033[0m")
                     texte, reprise_de = message_de_reprise(reprise), reprise
-        self._gardien.nouvelle_demande(mefiance=bool(_RAPPORT.match(texte)), en_appel=self._en_appel)
+        # Reprendre une réponse coupée garde la méfiance de la demande d'origine (le compte rendu d'un agent, un
+        # texte lu ailleurs) : « (reprends) … » ne ressemble plus à un rapport, mais il en répète des morceaux.
+        self._gardien.nouvelle_demande(mefiance=bool(_RAPPORT.match(texte) or (reprise_de and reprise_de.get("mefiance"))),
+                                       en_appel=self._en_appel)
+        if reprise_de and reprise_de.get("dehors"):
+            self._gardien.a_lu_dehors()
         self._interrompu = False
         self._au_travail, self._glisses, self._muet, self._non_dit = False, [], False, False
         await couper_intrus(self._client)  # au cas où un connecteur serait arrivé en retard
@@ -892,7 +897,9 @@ class Cerveau:
                 avant = reprise_de or {"demande": texte, "entendu": ""}  # coupé deux fois : la même réponse
                 self._reprise = {"demande": avant["demande"],
                                  "entendu": " ".join(filter(None, [avant["entendu"], *entendues])),
-                                 "coupee": coupee or "", "reste": " ".join(dit[apres:]), "quand": time.monotonic()}
+                                 "coupee": coupee or "", "reste": " ".join(dit[apres:]), "quand": time.monotonic(),
+                                 "mefiance": self._gardien.mefiance or bool(avant.get("mefiance")),
+                                 "dehors": self._gardien.contenu_externe or bool(avant.get("dehors"))}
         if outils.a_oublier:  # il vient d'effacer sa mémoire : cet échange-là ne doit pas y retourner
             await self._tout_oublier()
             return reponse

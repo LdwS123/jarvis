@@ -602,6 +602,17 @@ def _decrire_zapier(entree: dict[str, Any]) -> str:
 DETAILS_ZAPIER = {"text", "message", "body", "subject", "title", "name", "channel", "to", "email", "content"}
 
 
+def _destinataire(nom: Any, adresse: Any) -> str:
+    """À qui ça part, dans la question : le prénom choisi par Claude ne suffit pas (« Maman » pour le numéro d'un
+    autre), alors l'adresse réelle est dite à côté dès qu'elle n'est pas ce prénom-là."""
+    nom, adresse = str(nom or "").strip(), str(adresse or "").strip()
+    if not adresse:
+        return nom or "ce contact"
+    if not nom or nom.casefold() == adresse.casefold():
+        return adresse
+    return f"{nom} ({adresse})"
+
+
 def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str:
     """Formule la question de confirmation, à l'oral."""
     if outil == "Bash":
@@ -668,10 +679,10 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
             str(entree.get("quoi") or ""), "ce que je sais de toi et nos conversations")
         return f"Je vais effacer {quoi}. Je peux ?"
     if action == "envoyer_imessage":
-        qui = entree.get("nom") or entree.get("destinataire", "ce contact")
+        qui = _destinataire(entree.get("nom"), entree.get("destinataire"))
         return f"J'envoie à {qui} : « {entree.get('texte', '')} ». Je peux ?"
     if action == "envoyer_vocal_whatsapp":
-        qui = entree.get("nom") or entree.get("contact", "ce contact")
+        qui = _destinataire(entree.get("nom"), entree.get("contact"))
         return f"J'envoie un vocal WhatsApp à {qui} : « {entree.get('texte', '')} ». Je peux ?"
     if action == "appeler":
         numero = appels.numero_appelable(entree.get("numero")) or str(entree.get("numero", ""))
@@ -1325,7 +1336,9 @@ _CIBLE_DOSSIER = {"Write", "Edit", "mcp__jervis__mettre_a_la_corbeille"}  # la r
 _BASH_SIMPLE = re.compile(r"[^;&|`$<>()\n\\]+")  # une seule commande, sans rien que le shell réinterprète
 _CHAMPS_CIBLE = ("destinataire", "numero", "to", "recipient", "recipients", "email", "contact", "cc", "bcc")
 # Une règle « git push » ne vaut que pour le vrai git du Mac : pas pour un ./git, ni un git glissé plus tôt dans PATH.
-_BINAIRES_SURS = ("/usr/bin/", "/bin/", "/usr/sbin/", "/sbin/", "/opt/homebrew/bin/", "/usr/local/bin/")
+# Les dossiers du système seulement (à root, hors d'atteinte de ton compte) : un binaire de Homebrew peut être
+# remplacé par n'importe quel programme lancé sous ton nom, une règle à son nom vaudrait alors pour l'imposteur.
+_BINAIRES_SURS = ("/usr/bin/", "/bin/", "/usr/sbin/", "/sbin/")
 # Ce qui lance n'importe quel code donné en argument : « python » permis, ce serait tout permis.
 _LANCEURS = re.compile(r"(?:ba|z|da|k|c|tc|fi)?sh|python[\d.]*|pypy\d?|node|nodejs|deno|bun|bunx|npx|perl[\d.]*|"
                        r"ruby|php|lua|osascript|swift|env|xargs|find|sudo|su|doas|exec|eval|command|builtin|nohup|"

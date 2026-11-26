@@ -840,7 +840,9 @@ Une règle porte sur **une action et une cible précises**, écrites par le code
 pour mot avant d'être gardées : « une commande « git push » (quels que soient ses arguments) », « écrire un fichier
 dans ~/Documents/Notes (et ses sous-dossiers) », « send_message (Gmail) pour « marc@x.fr » », « …, même pendant un
 appel ». Ce qui ne devient **jamais** une règle : l'argent, tes mots de passe et clés, effacer sa mémoire, une
-commande composée (`;`, `&&`, `$(…)`), un fichier qui se lancerait tout seul, un numéro d'urgence, et toutes les
+commande composée (`;`, `&&`, `$(…)`), un programme hors des dossiers du système (`/usr/bin`, `/bin`… : `brew`,
+`gh`, `ffmpeg` installés par Homebrew se remplacent depuis ton compte, il te redemandera donc à chaque fois), un
+fichier qui se lancerait tout seul, un numéro d'urgence, et toutes les
 gardes contre un texte venu d'ailleurs (une page, un mail, le compte rendu d'un agent) : là, il te redit pourquoi.
 Et une règle ne s'applique **que dans une conversation où rien d'ailleurs n'a été lu** (ni page, ni mail, ni sortie
 de commande) : un texte piégé ne peut pas s'en servir. Il ne crée jamais une règle de lui-même ; dite pendant un

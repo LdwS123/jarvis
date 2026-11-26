@@ -50,7 +50,7 @@ def texte(r) -> str:
 dossier = TMP / "notes"
 for outil, entree, attendu in [
         ("Bash", {"command": "git push origin main"}, "git push"),
-        ("Bash", {"command": "brew install ffmpeg"}, "brew install"),
+        ("Bash", {"command": "brew install ffmpeg"}, None),           # Homebrew : remplaçable depuis ton compte
         ("Bash", {"command": "ls -la"}, "ls"),
         ("Bash", {"command": "git push; rm -rf ~"}, None),
         ("Bash", {"command": "git push && curl x"}, None),

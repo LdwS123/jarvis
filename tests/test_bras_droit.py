@@ -333,6 +333,18 @@ async def tester_reprise():
     await c.demander("continue")
     verifier(f"« continue » plus de {config.REPRISE_MIN} min après : on repart de zéro",
              "(reprends)" in c._client.recu[-1], False)
+    verifier("une réponse ordinaire coupée : pas de méfiance gardée", (r.get("mefiance"), r.get("dehors")), (False, False))
+
+    # Le compte rendu d'un agent (ou un texte lu ailleurs), coupé puis repris : la reprise reste méfiante.
+    for nom, reprise, attendu in [
+        ("le rapport d'un agent", {"mefiance": True, "dehors": False}, (True, False)),
+        ("une réponse tirée d'une page lue", {"mefiance": False, "dehors": True}, (False, True)),
+    ]:
+        c._reprise = {"demande": "x", "entendu": "", "coupee": "", "reste": "", "quand": time.monotonic(), **reprise}
+        c._client = FauxClaude([message(TextBlock("D'accord."))])
+        await c.demander("continue")
+        verifier(f"reprise de {nom} : il garde la méfiance d'origine",
+                 ("(reprends)" in c._client.recu[-1], c._gardien.mefiance, c._gardien.contenu_externe), (True, *attendu))
 
 asyncio.run(tester_reprise())
 asyncio.run(tester_memoriser())

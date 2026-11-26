@@ -129,6 +129,14 @@ def choisir_numero(fiches: str, nom: str) -> str:
             gens.append((champs[0], tels))
     if not gens:
         raise Echec(f"pas de numéro de téléphone pour « {nom} » dans Contacts")
+    # Contacts trouve « Ma » dans « Mamad Diallo » : chaque mot dit doit être un mot entier de la fiche, sinon la
+    # question (« un vocal à Ma ») et la règle 📌 viseraient quelqu'un d'autre que la personne envoyée.
+    mots = _simple(nom).split()
+    entiers = [g for g in gens if mots and all(m in re.findall(r"\w+", _simple(g[0])) for m in mots)]
+    if not entiers:
+        raise Echec(f"« {nom} » ne correspond exactement à aucun contact ({', '.join(g[0] for g in gens[:3])} ?) : "
+                    "redis-moi son nom tel qu'il est dans Contacts")
+    gens = entiers
     if len(gens) > 1:  # « Mamad » et « Mamadou » : le nom exact (ou le prénom exact) départage
         exacts = [g for g in gens if _simple(g[0]) == _simple(nom) or _simple(g[0]).split()[0] == _simple(nom)]
         if len(exacts) != 1:

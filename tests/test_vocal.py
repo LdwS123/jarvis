@@ -330,10 +330,13 @@ for nom, fiches, qui, attendu in [
     ("le prénom exact départage Mamad et Mamadou", FICHES, "Mamad", "+33 6 12 34 56 78"),
     ("le portable d'abord", FICHES, "Mamadou", "+33 7 00 00 00 01"),
     ("une seule fiche, un seul numéro", "Léa | tél 06 11 22 33 44 (Domicile)", "Léa", "06 11 22 33 44"),
+    ("le nom de famille seul suffit", FICHES, "Diallo", "+33 6 12 34 56 78"),
     ("sans accent ni casse", "Zoé Martin | tél +33 6 00 00 00 02 (portable)", "zoe", "+33 6 00 00 00 02"),
 ]:
     verifier(f"numéro : {nom}", vocal.choisir_numero(fiches, qui), attendu)
 for nom, fiches, qui in [("personne", "", "Mamad"), ("une fiche sans téléphone", "Mamad | mail m@x.fr", "Mamad"),
+                         ("« Ma » n'est pas « Mamad Diallo » (un bout de nom ne suffit pas)",
+                          "Mamad Diallo | tél +33 6 1 (Mobile)", "Ma"),
                          ("deux Mamad : il ne choisit pas au hasard",
                           "Mamad A | tél +33 6 1 (Mobile)\nMamad B | tél +33 6 2 (Mobile)", "Mamad")]:
     try:
@@ -355,6 +358,17 @@ ENTREE = {"contact": "Mamad", "texte": "Bonjour Mamad", "nom": "Mamad"}
 verifier("gardien : un vocal se confirme", "envoyer_vocal_whatsapp" in permissions.JERVIS_A_CONFIRMER, True)
 verifier("gardien : la question dit à qui et quoi", permissions.decrire(OUTIL, ENTREE),
          "J'envoie un vocal WhatsApp à Mamad : « Bonjour Mamad ». Je peux ?")
+for nom, entree, attendu in [
+    ("le prénom choisi ne cache pas le numéro", {"contact": "+33 6 66 66 66 66", "texte": "Salut", "nom": "Maman"},
+     "J'envoie un vocal WhatsApp à Maman (+33 6 66 66 66 66) : « Salut ». Je peux ?"),
+    ("un prénom qui n'est pas le contact cherché", {"contact": "Mamadou", "texte": "Salut", "nom": "Mamad"},
+     "J'envoie un vocal WhatsApp à Mamad (Mamadou) : « Salut ». Je peux ?"),
+    ("sans prénom : le contact", {"contact": "+33 6 12", "texte": "Salut"},
+     "J'envoie un vocal WhatsApp à +33 6 12 : « Salut ». Je peux ?")]:
+    verifier(f"gardien : {nom}", permissions.decrire(OUTIL, entree), attendu)
+verifier("gardien : pareil pour un iMessage",
+         permissions.decrire("mcp__jervis__envoyer_imessage", {"destinataire": "+33 7 00", "texte": "Ok", "nom": "Léa"}),
+         "J'envoie à Léa (+33 7 00) : « Ok ». Je peux ?")
 verifier("gardien : son résultat est écrit par le code (pas une lecture du dehors)", permissions.lit_dehors(OUTIL), False)
 verifier("gardien : « autorise ça désormais » vise le contact", permissions.cible_de(OUTIL, ENTREE), "Mamad")
 verifier("consignes : « envoie-lui un vocal » → l'outil, jamais de texte à la place",
