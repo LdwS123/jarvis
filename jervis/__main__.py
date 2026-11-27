@@ -652,6 +652,19 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                             cerveau.couper()
                             coupure["suite"], coupure["encore"] = entendu, bool(getattr(phrase, "coupee", False))
                             return
+                        if not par_dessus and tu_lui_parles(entendu, toi):
+                            # Il travaillait en silence (ou entre deux phrases) : avant, ta phrase attendait la fin
+                            # de tout son travail. Maintenant il t'écoute tout de suite, comme quelqu'un à qui on parle.
+                            if cerveau.glisser(entendu):
+                                print(f"✋ Toi (pendant son travail, il t'écoute) : {entendu}")
+                                tts.taire()
+                                baisser(False)
+                                continue
+                            print(f"✋ Toi (il s'arrête et te répond) : {entendu}")
+                            tts.taire()
+                            cerveau.couper()
+                            coupure["texte"] = entendu
+                            return
                         pour_lui = True
                         guet["ajout"].append(entendu)  # tu continuais à parler : il le traitera juste après
                         print(f"   \033[2m(noté pour juste après : {entendu})\033[0m", flush=True)
@@ -689,6 +702,12 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         mots = config.MOTS_POUR_COUPER_ARRETE if arretee else config.MOTS_POUR_COUPER
         return (config.COUPER_SI_TU_PARLES and not sur_un_voyons(guet["recents"], debut)
                 and len(re.findall(r"\w+", entendu)) >= mots)
+
+    def tu_lui_parles(entendu: str, toi: bool | None) -> bool:
+        """Ce que tu dis pendant qu'il travaille sans parler est pour lui, tout de suite (pas « juste après ») :
+        une vraie phrase (MOTS_POUR_COUPER mots), ta voix (ou pas encore apprise), pas un bout en l'air."""
+        return (config.ECOUTE_PENDANT_TRAVAIL and toi is not False
+                and len(re.findall(r"\w+", entendu)) >= config.MOTS_POUR_COUPER and not bout_en_l_air(entendu))
 
     def prendre_ajout() -> str:
         """Ce que tu as dit pendant qu'il travaillait ou répondait (« » si rien)."""

@@ -26,7 +26,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ToolUseBlock, tool)
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import apis, compteur, config, extras, infos, infos2, outils, permissions, savoir_faire
+from . import apis, compteur, config, extras, infos, infos2, outils, permissions, processus, savoir_faire
 from .brain import EXPERT, _maintenant, avec_extras, carnet, documents, env_outils, preparer_connecteurs
 from .permissions import Gardien, est_lecture, noter_outil
 
@@ -491,9 +491,17 @@ class Programmateur:
                 await self._briefing()
                 await self._avant_reunion()
                 await self._initiative()
+                await self._processus()
             except Exception as e:  # un fichier abîmé ne doit pas tuer Steve
                 self._journal(f"   ⏰ Programmateur : {e!r}")
             await asyncio.sleep(20)
+
+    async def _processus(self) -> None:
+        """Ses programmes de fond (processus.py) : relance ceux qui doivent l'être, et te dit ceux qui ont fini ou
+        qui plantent en boucle (une phrase écrite par le code)."""
+        for texte in await asyncio.to_thread(processus.veiller):
+            self._standard.poster(Evenement("annonce", texte))
+            await notifier(config.PRENOM, texte)
 
     async def _echeances(self) -> None:
         maintenant = datetime.now()

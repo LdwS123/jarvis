@@ -23,7 +23,7 @@ from urllib.parse import quote
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import (apis, appels, bureau, comptes, compteur, config, dev, distance, graphe, gratuit, infos, infos2, lecons,
-               lexique, objectifs, permissions, reponses, reunion, savoir_faire, vocal)
+               lexique, objectifs, permissions, processus, reponses, reunion, savoir_faire, vocal)
 
 MEMOIRE = config.DOSSIER / "memoire.md"
 _TEMP = Path(tempfile.mkdtemp(prefix="jervis-outils-"))
@@ -1056,6 +1056,7 @@ OUTILS.extend(reunion.OUTILS_REUNION)  # le compte rendu de réunion, transcrit 
 OUTILS.extend(bureau.OUTILS_BUREAU)  # fenêtres, modes, musique, sélection, rangement, santé, fichiers
 OUTILS.extend(vocal.OUTILS_VOCAL)  # le vrai vocal WhatsApp, dit avec sa voix (vocal.py)
 OUTILS.extend(dev.OUTILS_DEV)  # tes projets, leurs tests, ton standup, tes PR et ta CI, les ports, les serveurs (dev.py)
+OUTILS.extend(processus.OUTILS_PROCESSUS)  # ses programmes qui tournent en continu, sans lui (processus.py)
 OUTILS.extend(permissions.OUTILS_BLOCAGES)  # pourquoi il a bloqué, et tes règles 📌 (permissions.py)
 if graphe.ACTIF:
     OUTILS.append(graphe.chercher_liens)  # le graphe de ce qu'il sait (graphe.py)

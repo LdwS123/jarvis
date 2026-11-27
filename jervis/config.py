@@ -214,6 +214,14 @@ INITIATIVE_FIN = _env("INITIATIVE_FIN", "20:00")
 FICHIER_INITIATIVE = DOSSIER / "initiative.md"
 MODELE_INITIATIVE = _env("MODELE_INITIATIVE", "sonnet")   # un modèle léger : la ronde ne fait que lire
 
+# --- Ses processus de fond (« runners ») -------------------------------------------
+# Un programme qu'il lance et qui tourne en continu, même quand il redémarre : un bot, un script qui surveille un
+# dossier, un scraper, une file de travail. Sa sortie va dans un journal (espace/processus/). Avec « relancer », il
+# le relance s'il s'arrête, au plus PROCESSUS_RELANCES_MAX fois par heure (au-delà, il te prévient). PROCESSUS_MAX
+# en même temps au plus.
+PROCESSUS_MAX = int(_env("PROCESSUS_MAX", "8"))
+PROCESSUS_RELANCES_MAX = int(_env("PROCESSUS_RELANCES_MAX", "5"))
+
 # --- Son carnet de leçons ----------------------------------------------------------
 # Ce qu'il apprend en travaillant (une correction, une façon de faire qui a marché) va dans lecons.md, relu à
 # chaque session par lui et ses agents. Au-delà de LECONS_MAX lignes, les plus anciennes s'en vont.
@@ -460,6 +468,11 @@ RETENUE_MAX_S = float(_env("RETENUE_MAX_S", "6"))
 # Tu parles par-dessus sa réponse (au moins ce nombre de mots, pas juste « hm ») : il se tait et te répond.
 COUPER_SI_TU_PARLES = _env("COUPER_SI_TU_PARLES", "oui").lower() not in {"non", "off", "0"}
 MOTS_POUR_COUPER = int(_env("MOTS_POUR_COUPER", "3"))
+# Tu lui parles pendant qu'il travaille sans rien dire (mails, navigateur, entre deux phrases) : il t'écoute tout
+# de suite. En plein travail, ta phrase est lue à la fin du geste en cours et il change de cap s'il faut ; sinon il
+# s'arrête et te répond. (Avant, elle attendait la fin de tout son travail.) ECOUTE_PENDANT_TRAVAIL=non pour revenir
+# à l'ancien comportement.
+ECOUTE_PENDANT_TRAVAIL = _env("ECOUTE_PENDANT_TRAVAIL", "oui").lower() not in {"non", "off", "0"}
 # … et quand sa voix s'est déjà arrêtée pour t'écouter (COUPURE_S), ta phrase entendue sans elle : moins de mots.
 MOTS_POUR_COUPER_ARRETE = int(_env("MOTS_POUR_COUPER_ARRETE", "2"))
 # Un « stop » entendu n'est pris pour l'écho de sa voix que s'il a dit ce mot dans les ECHO_MARGE_S secondes

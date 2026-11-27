@@ -212,6 +212,13 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
     il lâchait la tâche et répondait « OK, j'arrête ». Pour vraiment l'arrêter : « stop » ou son nom.
     Si plus aucun outil ne vient après ta phrase, elle devient ta demande suivante (il sait que tu n'as pas
     entendu la fin de sa réponse).
+  - **Il t'écoute aussi quand il travaille en silence** : « Steve, trie mes mails », il dit « je trie » puis se
+    tait pendant des minutes ; avant, ce que tu disais pendant ce temps (« et efface aussi les promos ») était
+    « noté pour juste après » et n'arrivait qu'à la fin de tout le travail. Maintenant, dès 3 mots qui te
+    ressemblent (`JERVIS_MOTS_POUR_COUPER`), ta phrase lui est glissée tout de suite : Claude la lit après l'outil
+    en cours et change de cap si c'est une correction. S'il ne travaille pas (il réfléchit, il va répondre), il
+    s'arrête et répond à ta nouvelle phrase. Un « ouais », un bout de phrase en l'air ou une voix qui n'est pas
+    la tienne ne comptent pas. `JERVIS_ECOUTE_PENDANT_TRAVAIL=non` remet l'ancien « noté pour juste après ».
   - Parler juste après un « Voyons… » ou un « Je regarde. » ne le coupe plus : avant, le temps que ta phrase
     soit transcrite, son « Je regarde. » était fini, et il recommençait sa réponse (« Je regarde. » deux fois).
     Il ne dit d'ailleurs plus deux fois de suite la même phrase d'attente.
@@ -1058,6 +1065,7 @@ plus récemment touché au plus ancien. Tu les nommes comme à l'oral : « oko �
 | « Qu'est-ce qui tourne sur le 3000 ? », « mes serveurs » | ce qui écoute sur tes ports, et à quel projet ça appartient (`lister_ports`) |
 | « Libère le 3000 » | il arrête proprement le programme (SIGTERM) ; s'il résiste, « force-le » le coupe net. Jamais une app, macOS ni lui-même ; pour le récepteur AirPlay (ports 5000 et 7000), il te dit où le couper (`liberer_port`) |
 | « Lance le serveur de oko et ouvre-le », « arrête le serveur » | `npm run dev`, Django, `make dev`, Rails… : il trouve l'adresse (`http://localhost:5173/`), l'ouvre dans ton navigateur, et l'arrête en entier plus tard (`serveur_de_dev`) |
+| « Lance ce bot et laisse-le tourner », « relance-le s'il plante », « il en est où ? », « arrête-le » | un programme qui tourne en continu, sans lui : un bot, un script qui surveille un dossier, un scraper, une file de travail (`processus`, voir plus bas) |
 
 Pour `gh`, installe-le et connecte-le une fois dans ton terminal : `brew install gh`, puis `gh auth login`. Il
 utilise le git, le `lsof` et le `open` du système, pas ceux de Homebrew (qui se remplacent depuis ton compte).
@@ -1084,6 +1092,34 @@ son texte où elle écrit : un `cd` relatif, une variable ou un `$(…)` y écha
 ton oui l'efface, projet par projet.) Son git désactive ce qu'un dépôt piégé pourrait lancer
 (`core.fsmonitor`, les hooks, les filtres `clean`/`smudge`, `diff.external`, le pager), et le nom d'une CI qu'il te
 lit n'a plus que des lettres, des chiffres et des espaces (30 caractères au plus).
+
+### Ses processus de fond (« runners »)
+
+Un agent de fond travaille puis s'arrête ; un serveur de dev appartient à un projet. Un **processus de fond**, lui,
+tourne tout seul, longtemps : « écris un script qui relève le prix toutes les heures et laisse-le tourner », « lance
+mon bot Discord et relance-le s'il plante ». Il écrit d'abord le script, le lance avec l'outil `processus`, puis
+regarde son journal une fois pour vérifier qu'il démarre.
+
+| Tu dis | Il fait |
+|---|---|
+| « Lance `python bot.py` dans ~/code/bot, relance-le s'il plante » | un nom court (`bot`), la commande, le dossier, `relancer` |
+| « Mes processus ? », « il en est où ? » | lesquels tournent, depuis quand, combien de relances, lesquels ont fini |
+| « Montre-moi son journal » | la fin de sa sortie (`espace/processus/bot.log`) |
+| « Arrête le bot » | il arrête le programme et tout ce qu'il a lancé (SIGTERM, puis SIGKILL s'il résiste) |
+
+- Chacun tourne dans sa propre session : il **survit au redémarrage de Steve**, qui le retrouve
+  (`espace/processus.json`).
+- Avec `relancer`, il le relance s'il s'arrête, au plus `JERVIS_PROCESSUS_RELANCES_MAX` fois par heure ; au-delà,
+  il plante en boucle : Steve le laisse arrêté et **te prévient** (à voix haute ou sur ton iPhone). Un programme
+  sans `relancer` qui finit : il te le dit aussi. Ces phrases sont écrites par le code, jamais la sortie du
+  programme lue à voix haute (elle peut venir d'une page). Il y regarde toutes les 20 secondes.
+- Au plus `JERVIS_PROCESSUS_MAX` en même temps. Un journal qui dépasse 2 Mo ne garde que sa fin à la relance ; un
+  programme fini reste dans la liste un jour.
+- **La sécurité** : la commande passe par le même Gardien qu'une commande du terminal (les interdits, tes
+  questions selon ton mode, la cage de macOS juste après un texte venu d'ailleurs, et c'est la commande encagée
+  qui tourne). Juste après une page ou un mail lus, un programme **qui se relance tout seul** ou en **arrêter**
+  un te demande ton oui, la commande en entier sous les yeux : « Je vais lancer « bot » en continu, relancé s'il
+  s'arrête : « python3 bot.py ». Je peux ? ». Lire son journal compte comme un texte venu d'ailleurs.
 
 ### La doc de tes outils, Wikipédia, arXiv (serveurs MCP gratuits)
 
@@ -1378,6 +1414,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_COUPER_SI_TU_PARLES` | oui | `non` = parler par-dessus lui ne le coupe plus (seulement son nom ou « stop ») |
 | `JERVIS_MOTS_POUR_COUPER` | 3 | nombre de mots qu'il te faut dire par-dessus lui pour qu'il se taise |
 | `JERVIS_COUPURE_S` | 0.5 | secondes de ta voix par-dessus la sienne avant que sa voix s'arrête net pour t'écouter (elle repart si ce n'était pas pour lui) ; `0` = il baisse seulement la voix |
+| `JERVIS_ECOUTE_PENDANT_TRAVAIL` | oui | tu lui parles pendant qu'il travaille en silence : ta phrase lui est glissée tout de suite (ou il s'arrête et te répond) ; `non` = elle attend la fin de son travail |
 | `JERVIS_MOTS_POUR_COUPER_ARRETE` | 2 | … et une fois sa voix arrêtée, les mots qu'il te faut pour qu'il se taise pour de bon |
 | `JERVIS_STOP_TOUTE_VOIX` | oui | `non` = seul un « stop » de ta voix reconnue le fait taire (une télé ne pourra plus) |
 | `JERVIS_ECHO_MARGE_S` | 1.5 | un « stop » n'est pris pour l'écho de sa voix que s'il l'a dit dans ces secondes-là |
@@ -1456,6 +1493,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_BRIEFING_HEURE` | 07:30 | à partir de quelle heure il fait le briefing |
 | `JERVIS_INITIATIVE` | oui | `non` = pas de ronde : il ne te dit plus rien de lui-même (hors briefing et rappels) |
 | `JERVIS_INITIATIVE_MIN` | 60 | minutes entre deux rondes |
+| `JERVIS_PROCESSUS_MAX` | 8 | processus de fond (runners) en même temps, au plus |
+| `JERVIS_PROCESSUS_RELANCES_MAX` | 5 | relances par heure d'un processus qui s'arrête ; au-delà, il le laisse arrêté et te prévient |
 | `JERVIS_BRIEFING_REUNION` | oui | `non` = pas de briefing avant tes réunions |
 | `JERVIS_BRIEFING_REUNION_MIN` | 5 | combien de minutes avant la réunion il te fait le briefing |
 | `JERVIS_RELEVE_AGENDA_MIN` | 60 | toutes les combien de minutes il relève ton agenda (0 = jamais, donc pas de briefing) |

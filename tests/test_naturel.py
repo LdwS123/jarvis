@@ -410,6 +410,16 @@ class FauxCerveau:
                 TRAVAUX_FINIS.append(texte)
             self.au_travail = False
             return
+        if "trie" in texte:  # il dit ce qu'il fait, puis travaille longtemps sans rien dire
+            await self.parler("Je trie tes mails.")
+            self.au_travail = True
+            for _ in range(4):
+                await asyncio.sleep(0.5)   # un outil, en silence
+            TRAVAUX_FINIS.append(texte)
+            self.au_travail = False
+            if not GLISSES:
+                await self.parler("C'est trié.")
+            return
         await asyncio.sleep(1.0 if "logs" in texte else 0.1)   # « logs » : une demande qui le fait travailler
         phrases = (["Il était une fois un dragon.", "Il vivait dans une grotte.", "Un jour il sortit.",
                     "Il vit un chevalier.", "Fin de l'histoire."] if "histoire" in texte else ["C'est fait."])
@@ -592,6 +602,31 @@ verifier("par-dessus pendant le travail : ta phrase lui est glissée", GLISSES, 
 verifier("par-dessus pendant le travail : pas de « (interrompu) » qui le ferait tout lâcher",
          [r for r in recu if "interrompu" in r], [])
 verifier("par-dessus pendant le travail : il ne raconte plus rien après", "Je remplis le formulaire." in dit_par_steve, False)
+
+print("\n👂 Tu lui parles pendant qu'il travaille en silence : il t'écoute tout de suite, pas à la fin de tout")
+GLISSES.clear(); TRAVAUX_FINIS.clear()
+jouer([
+    (0.2, "Steve, trie mes mails."),
+    (1.6, "et efface aussi les promos"),               # il ne parle pas à ce moment-là : il travaille
+    (4.4, "merci"),
+], 6)
+verifier("pendant son travail silencieux : ta phrase lui est glissée tout de suite", GLISSES,
+         ["et efface aussi les promos"])
+verifier("pendant son travail silencieux : pas gardée pour « juste après » tout le travail",
+         [r for r in recu if "Pendant que tu répondais" in r], [])
+verifier("pendant son travail silencieux : le travail va au bout", TRAVAUX_FINIS, ["trie mes mails"])
+
+config.ECOUTE_PENDANT_TRAVAIL = False
+GLISSES.clear(); TRAVAUX_FINIS.clear()
+jouer([
+    (0.2, "Steve, trie mes mails."),
+    (1.6, "et efface aussi les promos"),
+    (4.4, "merci"),
+], 6)
+verifier("ECOUTE_PENDANT_TRAVAIL=non : comme avant, ta phrase attend la fin du travail",
+         (GLISSES, [r for r in recu if "Pendant que tu répondais" in r]),
+         ([], ["(Pendant que tu répondais, il a ajouté :) et efface aussi les promos"]))
+config.ECOUTE_PENDANT_TRAVAIL = True
 
 print("\n🎙  Pendant un vocal WhatsApp, sa propre voix dans les enceintes ne le coupe pas")
 from jervis import vocal  # noqa: E402

@@ -1864,7 +1864,54 @@ class Gardien:
                           en_appel=self.en_appel)
         return resultat
 
+    async def _processus(self, entree: dict[str, Any], ctx: ToolPermissionContext):
+        """Ses processus de fond (processus.py). Lancer = une commande Bash comme les autres (interdits, cage après
+        un texte venu d'ailleurs, questions selon ton mode), la commande telle qu'elle a été permise (encagée s'il
+        faut) devenant celle qui tourne. Un programme qui se relance tout seul, ou en arrêter un, juste après un
+        texte venu d'ailleurs : toi d'abord, avec une question écrite par le code."""
+        from . import processus
+        action = str(entree.get("action") or "etat")
+        if action in ("etat", "journal"):
+            if action == "journal":
+                self.a_lu_dehors()  # sa sortie peut venir d'une page qu'il a relevée
+            return PermissionResultAllow(updated_input=entree)
+        nom = processus.nom_valide(entree.get("nom")) or "?"
+        mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
+        question = None
+        if action == "arreter" and mefiant:
+            question = f"Je vais arrêter le processus de fond « {nom} ». Je peux ?"
+        elif action == "lancer" and mefiant and entree.get("relancer") is True:
+            commande = " ".join(str(entree.get("commande") or "").split())
+            if len(commande) > COMMANDE_MONTREE_MAX:
+                return PermissionResultDeny(
+                    message=f"Cette commande est trop longue pour que je la lui montre en entier avant de dire oui : "
+                            f"mets-la dans un script de {COMMANDE_MONTREE_MAX} caractères au plus, puis réessaie.")
+            question = (f"Je vais lancer « {nom} » en continu, relancé s'il s'arrête : "
+                        f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?")
+        if question:
+            cle = f"processus:{action}:{nom}:{entree.get('commande')}"
+            async with self._verrou:
+                if cle not in self._reponses:
+                    self._reponses[cle] = await self._confirmer(question)
+                    noter_blocage("mcp__jervis__processus", entree, pourquoi="un processus de fond juste après un "
+                                  "texte venu d'ailleurs", cible=None, autorisable=False, en_appel=self.en_appel,
+                                  question=question, accorde=self._reponses[cle])
+            if not self._reponses[cle]:
+                return PermissionResultDeny(message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre "
+                                                    "moyen : dis-lui simplement que tu n'as rien fait.")
+        if action != "lancer":
+            return PermissionResultAllow(updated_input=entree)
+        resultat = await self._decider("Bash", {"command": str(entree.get("commande") or ""),
+                                                "description": f"lancer en continu le processus de fond « {nom} »"},
+                                       ctx)
+        if isinstance(resultat, PermissionResultAllow):
+            permise = (resultat.updated_input or {}).get("command") or entree.get("commande")
+            return PermissionResultAllow(updated_input={**entree, "commande": permise})
+        return resultat
+
     async def _decider(self, outil: str, entree: dict[str, Any], _ctx: ToolPermissionContext):
+        if outil == "mcp__jervis__processus":
+            return await self._processus(entree, _ctx)
         if comptes.secret_au_presse_papiers():
             if lit_le_presse_papiers(outil, entree):
                 return PermissionResultDeny(message="Un mot de passe est dans le presse-papiers : tant qu'il y est, tu "
