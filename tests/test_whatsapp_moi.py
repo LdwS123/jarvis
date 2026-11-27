@@ -327,8 +327,11 @@ verifier("garde : pas de WhatsApp par un script (AppleScript, son adresse, wa.me
              "open 'whatsapp://send?phone=33612345678&text=oui'",
              "open https://wa.me/33612345678?text=oui",
              "osascript -l JavaScript -e 'Application(\"net.whatsapp.WhatsApp\")'",
+             "open 'whatsapp:send?phone=33612345678&text=oui'",
+             "open https://WA.ME:443?text=oui",
+             "python3 -c 'import webbrowser; webbrowser.open(\"https://api.whatsapp.com/send?phone=336\")'",
              "echo 'WhatsApp: +33 6 12' >> notes.txt",
-             "ls ~/Library/Group\\ Containers")], [True, True, True, True, False, False])
+             "ls ~/Library/Group\\ Containers")], [True] * 7 + [False, False])
 verifier("garde : pas de gestes dans la fenêtre de WhatsApp",
          permissions._vise_messages("type", {"app": "WhatsApp", "text": "oui"}, []), True)
 

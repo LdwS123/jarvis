@@ -1030,14 +1030,15 @@ def lu_dehors_depuis() -> float:
 # envoyer_vocal_whatsapp) : refusé. Ce que les outils envoient est noté (distance.noter_envoi) et n'est jamais relu
 # comme un ordre de toi ; un script ou un geste à l'écran, si : c'est la porte par laquelle une page piégée se ferait
 # passer pour toi dans ta conversation (ou ta discussion WhatsApp) avec toi-même. Toute mention de l'app dans un
-# script (AppleScript, JXA, Python/ScriptingBridge), ses identifiants, ses adresses imessage:/sms:/whatsapp://, et
-# un `open` de wa.me.
+# script (AppleScript, JXA, Python/ScriptingBridge), ses identifiants, ses adresses imessage:/sms:/whatsapp:, et
+# un `open` de wa.me ou de *.whatsapp.com (port ou casse compris). Une adresse qui redirige vers WhatsApp n'y
+# arrive pas plus : WhatsApp n'ouvre qu'un brouillon, et la touche Entrée dans sa fenêtre est un geste refusé.
 _MESSAGES_PAR_SCRIPT = re.compile(
     r"""\bcom\.apple\.(?:iChat|MobileSMS|Messages)\b|\bnet\.whatsapp\.WhatsApp\b"""
     r"""|\bapp(?:lication)?\s*(?:id\s+)?\(?\s*["']?(?:Messages|WhatsApp)\b"""
     r"""|\b(?:SBApplication|NSRunningApplication|NSWorkspace)\b[^\n]*\b(?:Messages|WhatsApp)\b"""
-    r"""|\b(?:imessage|sms|messages|whatsapp)://|(?:^|[\s"'(=])(?:imessage|sms):"""
-    r"""|\bopen\b[^\n]*\b(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)/""",
+    r"""|\b(?:imessage|sms|messages|whatsapp)://|(?:^|[\s"'(=])(?:imessage|sms):|(?:^|[\s"'(=])whatsapp:(?=[/\w%])"""
+    r"""|\bopen\b[^\n]*\b(?:wa\.me|(?:[\w-]+\.)*whatsapp\.(?:com|net))\b""",
     re.IGNORECASE)
 # Ce qui pilote d'autres apps (des frappes, des clics, des scripts d'app) : après un texte venu d'ailleurs, toujours
 # demandé, quel que soit le mode. Un « keystroke » dans la fenêtre de Messages enverrait un faux toi.
