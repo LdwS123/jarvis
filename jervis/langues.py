@@ -73,6 +73,17 @@ def annonce(code: str, prenom: str) -> str:
     return _ANNONCES.get(code, _ANNONCES["fr"]).format(p=prenom)
 
 
+# Au démarrage, sans compte Claude connecté : il ne pourrait pas répondre, il le dit et ouvre la page Réglages.
+_SANS_CLAUDE = {"fr": "Connecte ton compte Claude pour que je puisse te répondre : je t'ouvre la page.",
+                "en": "Sign in to your Claude account so I can answer you: I'm opening the page.",
+                "zh": "请登录你的 Claude 账户，我才能回答你：我帮你打开页面。",
+                "ka": "შედი შენს Claude ანგარიშზე, რომ გიპასუხო: გვერდს გიხსნი."}
+
+
+def sans_claude(code: str) -> str:
+    return _SANS_CLAUDE.get(code, _SANS_CLAUDE["en"])
+
+
 def patiences(code: str) -> str:
     return _PATIENCES.get(code, _PATIENCES["fr"])
 

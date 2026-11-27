@@ -22,10 +22,19 @@ You need an Apple Silicon Mac, Python 3.12, and a Claude Pro or Max subscription
 
     git clone https://github.com/LdwS123/jarvis.git ~/Jervis && cd ~/Jervis
     python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
-    curl -fsSL https://claude.ai/install.sh | bash   # Claude Code, if you don't have it yet
-    claude auth login                                # your own Claude account
-    ./reglages.command                               # settings page: name, languages, voice, model
-    ./installer.command                              # menu-bar app, starts at login
+    ./installer.command                              # setup page, then the menu-bar app (starts at login)
+
+On first run, `installer.command` opens a **setup page** in your browser and waits:
+
+1. **Connect your Claude account**: the button opens Terminal on `claude auth login` (installing Claude Code first
+   with the official installer if it's missing). You log in with Claude; the page only sees that it's done (it
+   checks again by itself every 3 s), never your password or email.
+2. **Choose its settings**: name, languages, voice, model, speed. All optional.
+3. **Finish and launch**: enabled once your account is connected; the page closes and the install carries on.
+
+Once connected and saved, the page doesn't come back (`./installer.command --sans-page` skips it). If the app ever
+starts without a connected Claude account, its icon turns 🔑, it tells you, opens the settings page on *Connect*,
+and starts by itself as soon as you're logged in.
 
 Its models (voice, speech recognition) download themselves on first launch, into `modeles/`. Your memory,
 conversations, logs and voice print stay on your Mac and are never part of the repository.
@@ -38,7 +47,8 @@ first launch). The page itself can be shown in English, 中文 or ქართ�
 - **Your Claude account**: shows whether Claude Code is logged in and which plan. *Connect* opens Terminal on
   `claude auth login`; you log in with Claude directly, the page never sees your password or email.
 - **Its name** (the wake word too), **your main language**, **the languages you speak to it**, **its local voice**,
-  **its Microsoft voice**, **its Claude model** (sonnet, opus, haiku).
+  **its Microsoft voice**, **its Claude model** (sonnet, opus, haiku), **its response speed** (`low`, the default,
+  answers fastest; `medium` or `high` think more before speaking).
 - *Save* writes `reglages.json` at the root of the repo (readable by you only, git-ignored). Restart it afterwards:
 
       pkill -f "Jervis.app/Contents"; pkill -f "python -m jervis"; sleep 2; open -a ~/Jervis/Jervis.app
@@ -53,6 +63,8 @@ Every setting can also be set with an environment variable, which always wins ov
 | `JERVIS_VOIX_ZH`, `JERVIS_VOIX_KA`… | one per language | its Microsoft voice in that language (`zh-CN-XiaoxiaoNeural`, `ka-GE-EkaNeural`…) |
 | `JERVIS_VOIX_NEURONALE` | depends on the main language | its Microsoft voice in your main language; `non` = Mac voices only, nothing sent to Microsoft |
 | `JERVIS_MODELE` | sonnet | the Claude model it thinks with |
+| `JERVIS_EFFORT` | low | how much it thinks before answering: `low` is fastest out loud, `medium`, `high` think more |
+| `JERVIS_COUPURE_S` | 0.5 | seconds of your voice over its own before it stops dead to listen (it resumes if you weren't talking to it) |
 | `JERVIS_REGLAGES` | `reglages.json` | the settings file; `non` ignores it |
 
 ## Languages: what to expect

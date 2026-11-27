@@ -1,8 +1,10 @@
 """La page Réglages : qui clone le dépôt y choisit son assistant (son nom, ses langues, sa voix, son modèle
 Claude) et le branche sur son propre abonnement Claude, sans toucher au code.
 
-Deux façons de l'ouvrir :
-- avant le premier lancement : `.venv/bin/python -m jervis.reglages` (installer.command le propose) ;
+Trois façons de l'ouvrir :
+- à l'installation : installer.command l'ouvre en mode installation (`--installation`) tant que ton compte Claude
+  n'est pas connecté ; le bouton « Terminer et lancer » n'est possible qu'une fois connecté, et il démarre ensuite ;
+- avant le premier lancement : `.venv/bin/python -m jervis.reglages` (ou reglages.command) ;
 - quand il tourne : menu de la barre → Réglages…, ou le lien « Réglages » du tableau de bord.
 
 Les choix vont dans reglages.json, à côté du code (jamais dans le dépôt : il est dans .gitignore). Une
@@ -30,6 +32,8 @@ from . import config, langues
 
 PAGE = Path(__file__).with_name("reglages.html")
 MODELES = ("sonnet", "opus", "haiku")
+EFFORTS = ("low", "medium", "high")
+INSTALLER_CLAUDE = "curl -fsSL https://claude.ai/install.sh | bash"  # l'installeur officiel de Claude Code
 MICROSOFT = re.compile(r"[a-z]{2,3}-[A-Z]{2,4}(?:-[A-Za-z]+)?-\w+Neural")
 
 
@@ -53,6 +57,9 @@ CHAMPS = (
           "Quand la voix du Mac n'a pas ta langue. Seul le texte de ses réponses part chez Microsoft, jamais ta voix. "
           "« non » : 100 % local avec la voix macOS."),
     Champ("MODELE", "Son modèle Claude", "sonnet : rapide ; opus : le plus fort ; haiku : le plus léger."),
+    Champ("EFFORT", "Sa vitesse de réponse",
+          "low : il répond le plus vite (conseillé à l'oral) ; medium, high : il réfléchit plus avant de parler. "
+          "Les grosses tâches partent de toute façon chez son expert, en fond."),
 )
 NOMS = {c.nom for c in CHAMPS}
 
@@ -128,6 +135,11 @@ def valider(donnees: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
                 erreurs.append(f"Modèle inconnu : {valeur} ({', '.join(MODELES)}).")
             else:
                 propres[nom] = valeur
+        elif nom == "EFFORT":
+            if valeur not in EFFORTS:
+                erreurs.append(f"Vitesse inconnue : {valeur} ({', '.join(EFFORTS)}).")
+            else:
+                propres[nom] = valeur
     if (principale := propres.get("LANGUE")) and propres.get("LANGUES") not in (None, "", "toutes"):
         if principale not in propres["LANGUES"].split(","):
             propres["LANGUES"] = f"{principale},{propres['LANGUES']}"  # la principale en fait toujours partie
@@ -167,13 +179,14 @@ def _claude() -> str | None:
 
 
 def lire_statut(sortie: str) -> dict[str, Any]:
-    """`claude auth status --json` → ce que la page montre. Ni ton adresse, ni ton organisation : pas besoin."""
+    """`claude auth status --json` → ce que la page montre. Ni ton adresse, ni ton organisation : pas besoin.
+    `illisible` : ce Claude Code ne sait pas le dire (trop vieux ?) : on ne sait pas, ce qui n'est pas « non »."""
     try:
         d = json.loads(sortie)
     except ValueError:
-        return {"installe": True, "connecte": False}
-    if not isinstance(d, dict):
-        return {"installe": True, "connecte": False}
+        return {"installe": True, "connecte": False, "illisible": True}
+    if not isinstance(d, dict) or "loggedIn" not in d:
+        return {"installe": True, "connecte": False, "illisible": True}
     return {"installe": True, "connecte": bool(d.get("loggedIn")),
             "methode": {"claude.ai": "abonnement Claude", "console": "clé de la console"}.get(
                 str(d.get("authMethod", "")), str(d.get("authMethod", "")) or None),
@@ -187,16 +200,17 @@ def statut_claude() -> dict[str, Any]:
     try:
         sortie = subprocess.run([claude, "auth", "status", "--json"], capture_output=True, text=True, timeout=15).stdout
     except (OSError, subprocess.TimeoutExpired):
-        return {"installe": True, "connecte": False}
+        return {"installe": True, "connecte": False, "illisible": True}
     return lire_statut(sortie)
 
 
 def connecter_claude() -> bool:
     """Ouvre le Terminal sur `claude auth login` : tu te connectes à TON compte, dans le navigateur, sans que
-    ton mot de passe passe par ici. (Pas de Claude Code : le Terminal dit comment l'installer.)"""
+    ton mot de passe passe par ici. Pas encore de Claude Code : le même Terminal l'installe d'abord (l'installeur
+    officiel, sous tes yeux), puis te connecte."""
     claude = _claude()
     commande = (f"{shlex.quote(claude)} auth login" if claude else
-                "echo 'Installe d’abord Claude Code : curl -fsSL https://claude.ai/install.sh | bash'")
+                f"{INSTALLER_CLAUDE} && $HOME/.local/bin/claude auth login")
     script = f'tell application "Terminal"\nactivate\ndo script "{commande}"\nend tell'
     try:
         subprocess.Popen(["osascript", "-e", script])
@@ -215,7 +229,7 @@ def etat() -> dict[str, Any]:
         "choisis": {c.nom: choisis.get(c.nom, "") for c in CHAMPS},
         "en_service": {"PRENOM": config.PRENOM, "LANGUE": config.LANGUE, "LANGUES": config.LANGUES,
                        "VOIX_LOCALE": config.VOIX_LOCALE, "VOIX_NEURONALE": config.VOIX_NEURONALE,
-                       "MODELE": config.MODELE_CLAUDE},
+                       "MODELE": config.MODELE_CLAUDE, "EFFORT": config.EFFORT},
         "variables": sorted(c.nom for c in CHAMPS if os.environ.get(f"JERVIS_{c.nom}") is not None),
         "champs": [{"nom": c.nom, "titre": c.titre, "aide": c.aide} for c in CHAMPS],
         "langues": [{"code": l.code, "nom": l.nom, "natif": l.natif, "voix": l.neuronale,
@@ -223,6 +237,7 @@ def etat() -> dict[str, Any]:
                      "locale": bool(langues.modele_local(l.code))} for l in langues.LANGUES.values()],
         "voix_locales": _voix_locales(),
         "modeles": list(MODELES),
+        "efforts": list(EFFORTS),
     }
 
 
@@ -238,12 +253,22 @@ def regles(nonce: str) -> str:
             "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
-def traiter(methode: str, chemin: str, corps: bytes = b"") -> tuple[int, bytes, str]:
-    """Les routes /reglages/… (le jeton est vérifié avant, par le serveur qui appelle)."""
+def traiter(methode: str, chemin: str, corps: bytes = b"", installation: bool = False) -> tuple[int, bytes, str]:
+    """Les routes /reglages/… (le jeton est vérifié avant, par le serveur qui appelle).
+    `installation` : la page sert le premier lancement (servir(installation=True)) ; « Terminer » n'y passe
+    (/reglages/fini, 200) que si ton compte Claude est connecté, sinon 409 : il ne démarrerait qu'à moitié."""
     if methode == "GET" and chemin == "/reglages/etat":
         donnees = etat()
         donnees["claude"] = statut_claude()
+        donnees["installation"] = installation
         return 200, json.dumps(donnees, ensure_ascii=False).encode(), "application/json"
+    if methode == "GET" and chemin == "/reglages/claude":  # juste le statut : la page le revérifie toutes les 3 s
+        return 200, json.dumps(statut_claude(), ensure_ascii=False).encode(), "application/json"
+    if methode == "POST" and chemin == "/reglages/fini" and installation:
+        statut = statut_claude()
+        if statut.get("connecte") or statut.get("illisible"):  # (illisible : on ne bloque pas sur un « je ne sais pas »)
+            return 200, b"{}", "application/json"
+        return 409, "Connecte d'abord ton compte Claude.".encode(), "text/plain"
     if methode == "POST" and chemin == "/reglages":
         try:
             recu = json.loads(corps.decode("utf-8"))
@@ -264,10 +289,15 @@ def traiter(methode: str, chemin: str, corps: bytes = b"") -> tuple[int, bytes, 
     return 404, b"", "text/plain"
 
 
-def servir(port: int = 8766, ouvrir_page: bool = True) -> None:
-    """La page seule, sans lui : pour régler ton assistant avant son premier lancement."""
+def servir(port: int = 8766, ouvrir_page: bool = True, installation: bool = False) -> bool:
+    """La page seule, sans lui : pour régler ton assistant avant son premier lancement.
+    En mode installation, elle se ferme toute seule quand tu cliques « Terminer et lancer » (compte Claude connecté) :
+    renvoie True dans ce cas, False si on l'a fermée avant (ctrl-C)."""
     import hmac
+    import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    fini = threading.Event()
 
     jeton = secrets.token_urlsafe(24)
     hotes = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -298,7 +328,7 @@ def servir(port: int = 8766, ouvrir_page: bool = True) -> None:
             elif not self._jeton_ok():
                 self._repondre(403)
             else:
-                self._repondre(*traiter("GET", chemin))
+                self._repondre(*traiter("GET", chemin, installation=installation))
 
         def do_POST(self) -> None:
             try:
@@ -313,17 +343,29 @@ def servir(port: int = 8766, ouvrir_page: bool = True) -> None:
             if not self._jeton_ok():
                 self._repondre(403)
             else:
-                self._repondre(*traiter("POST", self.path.partition("?")[0], corps))
+                chemin = self.path.partition("?")[0]
+                reponse = traiter("POST", chemin, corps, installation=installation)
+                self._repondre(*reponse)
+                if chemin == "/reglages/fini" and reponse[0] == 200:
+                    fini.set()
+                    threading.Thread(target=serveur.shutdown, daemon=True).start()
 
     serveur = ThreadingHTTPServer(("127.0.0.1", port), Requete)
     adresse = f"http://127.0.0.1:{port}/"
-    print(f"Réglages : {adresse}  (ctrl-C pour fermer ; tes choix comptent au prochain lancement)", flush=True)
+    if installation:
+        print(f"Installation : {adresse}  connecte ton compte Claude, choisis ses réglages, puis « Terminer et lancer ».",
+              flush=True)
+    else:
+        print(f"Réglages : {adresse}  (ctrl-C pour fermer ; tes choix comptent au prochain lancement)", flush=True)
     if ouvrir_page:
         subprocess.Popen(["open", adresse])
     try:
         serveur.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        serveur.server_close()
+    return fini.is_set()
 
 
 if __name__ == "__main__":
@@ -332,5 +374,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="La page Réglages de ton assistant (nom, langues, voix, Claude).")
     p.add_argument("--port", type=int, default=8766)
     p.add_argument("--sans-ouvrir", action="store_true", help="ne pas ouvrir le navigateur")
+    p.add_argument("--installation", action="store_true",
+                   help="premier lancement : attend que ton compte Claude soit connecté (code de sortie 0), sinon 1")
     a = p.parse_args()
-    servir(a.port, not a.sans_ouvrir)
+    raise SystemExit(0 if servir(a.port, not a.sans_ouvrir, a.installation) or not a.installation else 1)

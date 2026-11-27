@@ -62,6 +62,10 @@ button:disabled { opacity: .5; cursor: default; }
 code { font: 12.5px/1.4 ui-monospace, Menlo, monospace; background: var(--nuit); padding: 2px 6px; border-radius: 5px; word-break: break-all; }
 .note { color: var(--brume); font-size: 13px; }
 .note[data-espace] { margin-top: 10px; }
+[hidden] { display: none !important; }
+section.bienvenue { border-color: var(--cyan); }
+.bienvenue ol { margin: 4px 0 14px 20px; display: grid; gap: 4px; }
+.bienvenue li.fait { color: var(--brume); text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -73,6 +77,20 @@ code { font: 12.5px/1.4 ui-monospace, Menlo, monospace; background: var(--nuit);
       <button type="button" data-ui="zh">中文</button><button type="button" data-ui="ka">ქარ</button>
     </div>
   </header>
+
+  <section class="bienvenue" id="bienvenue" hidden>
+    <h2 id="t-bienvenue">Bienvenue</h2>
+    <p id="t-bienvenue-texte"></p>
+    <ol>
+      <li id="etape-claude"></li>
+      <li id="etape-reglages"></li>
+      <li id="etape-lancer"></li>
+    </ol>
+    <div class="actions">
+      <button type="button" class="principal" id="terminer" disabled>Terminer et lancer</button>
+      <span class="message" id="message-fin" role="status"></span>
+    </div>
+  </section>
 
   <section>
     <h2 id="t-claude">Ton compte Claude</h2>
@@ -100,6 +118,8 @@ code { font: 12.5px/1.4 ui-monospace, Menlo, monospace; background: var(--nuit);
         <span class="aide" data-a="VOIX_NEURONALE"></span></div>
       <div class="champ"><span class="titre" data-t="MODELE"></span>
         <div class="modeles" id="MODELE"></div><span class="aide" data-a="MODELE"></span></div>
+      <div class="champ"><span class="titre" data-t="EFFORT"></span>
+        <div class="modeles" id="EFFORT"></div><span class="aide" data-a="EFFORT"></span></div>
     </form>
   </section>
 
@@ -122,47 +142,74 @@ const MOTS = {
         non: "non (voix Microsoft)", connecte: "Connecté", pas: "Pas connecté", absent: "Claude Code n'est pas installé",
         claudeAide: "Il réfléchit avec TON abonnement Claude (Pro ou Max), par Claude Code. La connexion s'ouvre dans le Terminal puis dans ton navigateur : ton mot de passe ne passe jamais par cette page.",
         relance: "Tes choix comptent au prochain lancement. Pour le relancer :", ok: "Enregistré.", variables: "Une variable JERVIS_ l'emporte sur la page :",
-        terminal: "Le Terminal s'est ouvert : suis les étapes, puis « Revérifier »." },
+        terminal: "Le Terminal s'est ouvert : suis les étapes, la page voit toute seule quand c'est fait.",
+        installer: "Installer Claude Code et me connecter", bienvenue: "Bienvenue",
+        bienvenueTexte: "Avant son premier lancement, deux minutes de réglages. Il ne démarre qu'une fois ton compte Claude connecté : sans lui, il entendrait sans pouvoir répondre.",
+        etapeClaude: "Connecte ton compte Claude (Pro ou Max) avec le bouton ci-dessous.", etapeReglages: "Choisis son nom, tes langues, sa voix (tout a un défaut).",
+        etapeLancer: "Clique « Terminer et lancer » : il apparaît en haut à droite de l'écran.", terminer: "Terminer et lancer",
+        attendre: "Connecte d'abord ton compte Claude : le bouton s'allume tout seul.", lance: "C'est fini : il démarre. Tu peux fermer cette page.",
+        vite: { low: "rapide", medium: "équilibré", high: "réfléchi" } },
   en: { titre: "Settings", claude: "Your Claude account", assistant: "Your assistant", connecter: "Sign in to my Claude account",
         reverifier: "Check again", enregistrer: "Save", toutes: "All languages", defaut: "default",
         non: "no (Microsoft voice)", connecte: "Signed in", pas: "Not signed in", absent: "Claude Code is not installed",
         claudeAide: "It thinks with YOUR Claude subscription (Pro or Max), through Claude Code. Sign-in opens in Terminal, then in your browser: your password never goes through this page.",
         relance: "Your choices apply at the next launch. To restart it:", ok: "Saved.", variables: "A JERVIS_ variable overrides the page:",
-        terminal: "Terminal opened: follow the steps, then “Check again”.",
+        terminal: "Terminal opened: follow the steps; this page notices by itself when you're done.",
+        installer: "Install Claude Code and sign in", bienvenue: "Welcome",
+        bienvenueTexte: "Two minutes of setup before its first launch. It only starts once your Claude account is connected: without it, it would hear you but could not answer.",
+        etapeClaude: "Sign in to your Claude account (Pro or Max) with the button below.", etapeReglages: "Pick its name, your languages, its voice (everything has a default).",
+        etapeLancer: "Click “Finish and launch”: it appears at the top right of the screen.", terminer: "Finish and launch",
+        attendre: "Sign in to Claude first: the button lights up by itself.", lance: "Done: it is starting. You can close this page.",
+        vite: { low: "fast", medium: "balanced", high: "thoughtful" },
         t: { PRENOM: "Its name", LANGUE: "Your main language", LANGUES: "Languages you speak to it", VOIX_LOCALE: "Its voice on the Mac",
-             VOIX_NEURONALE: "Its Microsoft voice (main language)", MODELE: "Its Claude model" },
+             VOIX_NEURONALE: "Its Microsoft voice (main language)", MODELE: "Its Claude model", EFFORT: "How fast it answers" },
         a: { PRENOM: "The word that wakes it up (“Steve, …”). Short and easy to say.",
              LANGUE: "Used for its instructions, default voice and little “Let's see…”.",
              LANGUES: "It recognises which one at every sentence and answers in the same one, with that language's voice.",
              VOIX_LOCALE: "Pocket TTS: offline, in French, English, German, Spanish, Italian, Portuguese or Dutch.",
              VOIX_NEURONALE: "Only the text of its answers goes to Microsoft, never your voice. “non”: 100% local with the macOS voice.",
-             MODELE: "sonnet: fast; opus: strongest; haiku: lightest." } },
+             MODELE: "sonnet: fast; opus: strongest; haiku: lightest.",
+             EFFORT: "low: answers fastest (best for talking); medium, high: thinks more before speaking. Big tasks go to its background expert anyway." } },
   zh: { titre: "设置", claude: "你的 Claude 账户", assistant: "你的助手", connecter: "登录我的 Claude 账户",
         reverifier: "重新检查", enregistrer: "保存", toutes: "所有语言", defaut: "默认",
         non: "不用（微软语音）", connecte: "已登录", pas: "未登录", absent: "未安装 Claude Code",
         claudeAide: "它用你自己的 Claude 订阅（Pro 或 Max）通过 Claude Code 思考。登录在终端和浏览器中进行：你的密码不会经过此页面。",
         relance: "设置在下次启动时生效。重新启动：", ok: "已保存。", variables: "JERVIS_ 环境变量优先于此页面：",
-        terminal: "终端已打开：按步骤操作，然后点“重新检查”。",
+        terminal: "终端已打开：按步骤操作，完成后此页面会自动发现。",
+        installer: "安装 Claude Code 并登录", bienvenue: "欢迎",
+        bienvenueTexte: "第一次启动前，花两分钟设置一下。只有连接了你的 Claude 账户它才会启动：否则它能听见，却无法回答。",
+        etapeClaude: "用下面的按钮登录你的 Claude 账户（Pro 或 Max）。", etapeReglages: "选择它的名字、你的语言和它的声音（都有默认值）。",
+        etapeLancer: "点“完成并启动”：它会出现在屏幕右上角。", terminer: "完成并启动",
+        attendre: "请先登录 Claude：按钮会自动亮起。", lance: "完成：它正在启动。你可以关闭此页面。",
+        vite: { low: "快速", medium: "均衡", high: "深思" },
         t: { PRENOM: "它的名字", LANGUE: "你的主要语言", LANGUES: "你对它说的语言", VOIX_LOCALE: "Mac 上的本地语音",
-             VOIX_NEURONALE: "微软语音（主要语言）", MODELE: "Claude 模型" },
+             VOIX_NEURONALE: "微软语音（主要语言）", MODELE: "Claude 模型", EFFORT: "回答速度" },
         a: { PRENOM: "唤醒它的词（“Steve，……”）。简短、好念。", LANGUE: "用于它的指令、默认语音和“我看看”。",
              LANGUES: "它会识别每句话的语言，并用同一种语言和对应的声音回答。",
              VOIX_LOCALE: "Pocket TTS：离线，支持法语、英语、德语、西班牙语、意大利语、葡萄牙语、荷兰语。",
              VOIX_NEURONALE: "只有回答的文字会发给微软，绝不会发送你的声音。“non”：完全本地，使用 macOS 语音。",
-             MODELE: "sonnet：快；opus：最强；haiku：最轻。" } },
+             MODELE: "sonnet：快；opus：最强；haiku：最轻。",
+             EFFORT: "low：回答最快（适合说话）；medium、high：说话前想得更多。大任务无论如何都交给后台专家。" } },
   ka: { titre: "პარამეტრები", claude: "შენი Claude ანგარიში", assistant: "შენი ასისტენტი", connecter: "შესვლა ჩემს Claude ანგარიშზე",
         reverifier: "ხელახლა შემოწმება", enregistrer: "შენახვა", toutes: "ყველა ენა", defaut: "ნაგულისხმევი",
         non: "არა (Microsoft-ის ხმა)", connecte: "შესულია", pas: "არ არის შესული", absent: "Claude Code არ არის დაყენებული",
         claudeAide: "ის ფიქრობს შენი Claude გამოწერით (Pro ან Max), Claude Code-ის მეშვეობით. შესვლა იხსნება ტერმინალში და ბრაუზერში: შენი პაროლი ამ გვერდზე არ გადის.",
         relance: "არჩევანი ამოქმედდება შემდეგ გაშვებაზე. ხელახლა გასაშვებად:", ok: "შენახულია.", variables: "JERVIS_ ცვლადი გვერდზე უპირატესია:",
-        terminal: "ტერმინალი გაიხსნა: მიჰყევი ნაბიჯებს, შემდეგ „ხელახლა შემოწმება“.",
+        terminal: "ტერმინალი გაიხსნა: მიჰყევი ნაბიჯებს; გვერდი თავად შეამჩნევს, როცა დაასრულებ.",
+        installer: "Claude Code-ის დაყენება და შესვლა", bienvenue: "მოგესალმებით",
+        bienvenueTexte: "პირველ გაშვებამდე ორი წუთი პარამეტრებისთვის. ის მხოლოდ მაშინ ჩაირთვება, როცა შენი Claude ანგარიში დაკავშირებულია: მის გარეშე გაიგონებდა, მაგრამ ვერ გიპასუხებდა.",
+        etapeClaude: "შედი შენს Claude ანგარიშზე (Pro ან Max) ქვემოთ მოცემული ღილაკით.", etapeReglages: "აირჩიე მისი სახელი, შენი ენები, მისი ხმა (ყველაფერს აქვს ნაგულისხმევი).",
+        etapeLancer: "დააჭირე „დასრულება და გაშვება“: ის ეკრანის ზედა მარჯვენა კუთხეში გამოჩნდება.", terminer: "დასრულება და გაშვება",
+        attendre: "ჯერ Claude-ში შედი: ღილაკი თავად აინთება.", lance: "მზადაა: ის ირთვება. შეგიძლია დახურო ეს გვერდი.",
+        vite: { low: "სწრაფი", medium: "დაბალანსებული", high: "ჩაფიქრებული" },
         t: { PRENOM: "მისი სახელი", LANGUE: "შენი მთავარი ენა", LANGUES: "ენები, რომლებზეც ელაპარაკები", VOIX_LOCALE: "მისი ხმა Mac-ზე",
-             VOIX_NEURONALE: "Microsoft-ის ხმა (მთავარი ენა)", MODELE: "Claude მოდელი" },
+             VOIX_NEURONALE: "Microsoft-ის ხმა (მთავარი ენა)", MODELE: "Claude მოდელი", EFFORT: "პასუხის სიჩქარე" },
         a: { PRENOM: "სიტყვა, რომელიც აღვიძებს („Steve, …“). მოკლე და ადვილად სათქმელი.", LANGUE: "მისი ინსტრუქციების, ნაგულისხმევი ხმისა და „ვნახოთ…“-სთვის.",
              LANGUES: "ყოველ წინადადებაში ცნობს ენას და იმავე ენაზე, იმ ენის ხმით პასუხობს.",
              VOIX_LOCALE: "Pocket TTS: ინტერნეტის გარეშე, ფრანგულად, ინგლისურად, გერმანულად, ესპანურად, იტალიურად, პორტუგალიურად ან ჰოლანდიურად.",
              VOIX_NEURONALE: "Microsoft-ს მხოლოდ პასუხის ტექსტი მიდის, შენი ხმა — არასდროს. „non“: სრულად ლოკალური, macOS-ის ხმით.",
-             MODELE: "sonnet: სწრაფი; opus: ყველაზე ძლიერი; haiku: ყველაზე მსუბუქი." } },
+             MODELE: "sonnet: სწრაფი; opus: ყველაზე ძლიერი; haiku: ყველაზე მსუბუქი.",
+             EFFORT: "low: ყველაზე სწრაფად პასუხობს (საუბრისთვის საუკეთესო); medium, high: ლაპარაკამდე მეტს ფიქრობს. დიდი ამოცანები ისედაც ფონურ ექსპერტთან მიდის." } },
 };
 let ui = "fr", etat = null;
 const $ = (id) => document.getElementById(id);
@@ -182,6 +229,9 @@ function traduire() {
   $("t-assistant").textContent = mot("assistant"); $("connecter").textContent = mot("connecter");
   $("reverifier").textContent = mot("reverifier"); $("enregistrer").textContent = mot("enregistrer");
   $("t-claude-aide").textContent = mot("claudeAide"); $("t-relance").textContent = mot("relance");
+  $("t-bienvenue").textContent = mot("bienvenue"); $("t-bienvenue-texte").textContent = mot("bienvenueTexte");
+  $("etape-claude").textContent = mot("etapeClaude"); $("etape-reglages").textContent = mot("etapeReglages");
+  $("etape-lancer").textContent = mot("etapeLancer"); $("terminer").textContent = mot("terminer");
   if (!etat) return;
   const t = (MOTS[ui] || {}).t || {}, a = (MOTS[ui] || {}).a || {};
   for (const c of etat.champs) {
@@ -189,7 +239,7 @@ function traduire() {
     document.querySelector(`[data-a="${c.nom}"]`).textContent = a[c.nom] || c.aide;
   }
   $("toutes-texte").textContent = mot("toutes");
-  remplirVoixLocales(); montrerClaude();
+  remplirVoixLocales(); remplirChoix(); montrerClaude();
 }
 
 function langueChoisie() { return $("LANGUE").value || etat.en_service.LANGUE; }
@@ -230,14 +280,26 @@ function remplir() {
   $("VOIX_NEURONALE").value = c.VOIX_NEURONALE;
   const liste = $("voix-connues"); liste.replaceChildren();
   for (const v of new Set(etat.langues.map((l) => l.voix).filter(Boolean))) liste.append(element("option", { value: v }));
-  const modeles = $("MODELE"); modeles.replaceChildren();
-  for (const m of ["", ...etat.modeles]) {
-    const l = element("label"), r = element("input", { type: "radio", name: "modele", value: m });
-    r.checked = (c.MODELE || "") === m;
-    l.append(r, element("span", {}, m || `${mot("defaut")} (${etat.en_service.MODELE})`));
-    modeles.append(l);
+  remplirChoix(true); remplirVoixLocales(); voixParDefaut();
+}
+
+// Les boutons radio (son modèle, sa vitesse) : « par défaut » d'abord, puis chaque valeur, avec son nom traduit.
+function radios(nom, valeurs, depart, nomme = (v) => v) {
+  const boite = $(nom), garde = (boite.querySelector("input:checked") || {}).value;
+  boite.replaceChildren();
+  for (const v of ["", ...valeurs]) {
+    const l = element("label"), r = element("input", { type: "radio", name: nom, value: v });
+    r.checked = (garde ?? depart ?? "") === v;
+    l.append(r, element("span", {}, v ? nomme(v) : `${mot("defaut")} (${nomme(etat.en_service[nom])})`));
+    boite.append(l);
   }
-  remplirVoixLocales(); voixParDefaut();
+}
+
+function remplirChoix(depuisFichier = false) {
+  const c = depuisFichier ? etat.choisis : {};
+  if (depuisFichier) { $("MODELE").replaceChildren(); $("EFFORT").replaceChildren(); }
+  radios("MODELE", etat.modeles, c.MODELE);
+  radios("EFFORT", etat.efforts, c.EFFORT, (v) => `${v} · ${(mot("vite") || {})[v] || ""}`.replace(/ · $/, ""));
 }
 
 function montrerClaude() {
@@ -245,6 +307,32 @@ function montrerClaude() {
   p.className = "pastille " + (s.connecte ? "ok" : "non");
   p.textContent = !s.installe ? mot("absent")
     : s.connecte ? `${mot("connecte")} · ${s.methode || ""}${s.abonnement ? " · " + s.abonnement : ""}` : mot("pas");
+  $("connecter").textContent = s.installe ? mot("connecter") : mot("installer");
+  // À l'installation : il ne démarre qu'une fois ton compte connecté (sinon il entendrait sans pouvoir répondre).
+  $("bienvenue").hidden = !etat.installation;
+  $("etape-claude").className = s.connecte ? "fait" : "";
+  const pret = s.connecte || s.illisible;  // (illisible : son Claude Code ne sait pas le dire, on ne bloque pas)
+  $("terminer").disabled = !pret;
+  $("message-fin").textContent = etat.installation && !pret ? mot("attendre") : "";
+}
+
+// Le statut seul, sans toucher à ce que tu as déjà choisi plus bas.
+async function verifierClaude() {
+  try {
+    const r = await fetch("/reglages/claude", { cache: "no-store", headers: { "X-Jeton": JETON } });
+    if (r.ok) { etat.claude = await r.json(); montrerClaude(); }
+  } catch { }
+}
+
+// Après « Se connecter » (et toujours à l'installation), la page regarde toute seule toutes les 3 s.
+let veille = 0;
+function guetterClaude(fois = 60) {
+  clearInterval(veille);
+  let reste = fois;
+  veille = setInterval(async () => {
+    await verifierClaude();
+    if ((etat.claude || {}).connecte || --reste <= 0) clearInterval(veille);
+  }, 3000);
 }
 
 async function charger() {
@@ -254,6 +342,7 @@ async function charger() {
   if (ui === "fr" && MOTS[preferee] && !charger.fait) ui = preferee;
   charger.fait = true;
   remplir(); traduire();
+  if (etat.installation && !(etat.claude || {}).connecte) guetterClaude(600);
   if (etat.variables.length) $("message").textContent = `${mot("variables")} ${etat.variables.map((v) => "JERVIS_" + v).join(", ")}`;
 }
 
@@ -264,24 +353,38 @@ function lire() {
     PRENOM: $("PRENOM").value, LANGUE: $("LANGUE").value,
     LANGUES: toutes ? "toutes" : codes.join(","), VOIX_LOCALE: $("VOIX_LOCALE").value,
     VOIX_NEURONALE: $("VOIX_NEURONALE").value,
-    MODELE: (document.querySelector("input[name=modele]:checked") || {}).value || "",
+    MODELE: (document.querySelector("input[name=MODELE]:checked") || {}).value || "",
+    EFFORT: (document.querySelector("input[name=EFFORT]:checked") || {}).value || "",
   };
 }
 
-$("enregistrer").addEventListener("click", async () => {
-  const m = $("message"); m.className = "message"; m.textContent = "…";
+async function enregistrer(m) {
+  m.className = "message"; m.textContent = "…";
   try {
     const r = await fetch("/reglages", { method: "POST", headers: { "X-Jeton": JETON, "Content-Type": "application/json" },
                                           body: JSON.stringify(lire()) });
-    if (r.ok) { const d = await r.json(); m.textContent = `${mot("ok")} ${d.fichier}`; $("titre-nom").textContent = $("PRENOM").value || etat.en_service.PRENOM; }
-    else if (r.status === 422) { m.className = "message erreur"; m.textContent = (await r.json()).erreurs.join(" "); }
-    else { m.className = "message erreur"; m.textContent = await r.text() || r.status; }
+    if (r.ok) { const d = await r.json(); m.textContent = `${mot("ok")} ${d.fichier}`; $("titre-nom").textContent = $("PRENOM").value || etat.en_service.PRENOM; return true; }
+    m.className = "message erreur";
+    m.textContent = r.status === 422 ? (await r.json()).erreurs.join(" ") : (await r.text() || r.status);
+  } catch (e) { m.className = "message erreur"; m.textContent = String(e); }
+  return false;
+}
+
+$("enregistrer").addEventListener("click", () => enregistrer($("message")));
+$("terminer").addEventListener("click", async () => {
+  const m = $("message-fin");
+  if (!(await enregistrer(m))) return;
+  try {
+    const r = await fetch("/reglages/fini", { method: "POST", headers: { "X-Jeton": JETON } });
+    m.className = r.ok ? "message" : "message erreur";
+    m.textContent = r.ok ? mot("lance") : (await r.text() || r.status);
+    if (r.ok) { $("terminer").disabled = true; clearInterval(veille); }
   } catch (e) { m.className = "message erreur"; m.textContent = String(e); }
 });
 $("connecter").addEventListener("click", async () => {
-  try { await fetch("/reglages/claude", { method: "POST", headers: { "X-Jeton": JETON } }); $("message").textContent = mot("terminal"); } catch { }
+  try { await fetch("/reglages/claude", { method: "POST", headers: { "X-Jeton": JETON } }); $("message").textContent = mot("terminal"); guetterClaude(); } catch { }
 });
-$("reverifier").addEventListener("click", () => charger());
+$("reverifier").addEventListener("click", () => verifierClaude());
 $("LANGUE").addEventListener("change", voixParDefaut);
 for (const b of document.querySelectorAll("[data-ui]")) b.addEventListener("click", () => { ui = b.dataset.ui; traduire(); });
 document.addEventListener("change", (e) => {  // « toutes » et la liste ne vont pas ensemble

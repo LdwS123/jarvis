@@ -47,14 +47,21 @@ chacun qui clone le dépôt branche son propre compte, et son assistant à lui.
 
     git clone https://github.com/LdwS123/jarvis.git ~/Jervis && cd ~/Jervis
     python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
-    curl -fsSL https://claude.ai/install.sh | bash   # Claude Code, s'il n'est pas déjà là
-    claude auth login                                # ton compte Claude (ou le bouton de la page Réglages)
-    ./reglages.command                               # son nom, tes langues, sa voix, son modèle
     ./installer.command
 
-`reglages.command` ouvre la page Réglages dans ton navigateur (voir [La page Réglages](#la-page-réglages)) : tu
-peux l'appeler Max au lieu de Steve, lui parler chinois et anglais, choisir sa voix. Rien n'est obligatoire : sans
-réglage, il s'appelle Steve et parle français.
+Au premier lancement, `installer.command` ouvre la **page d'installation** dans ton navigateur, et attend :
+
+1. **Connecte ton compte Claude** : le bouton ouvre le Terminal sur `claude auth login` (et installe d'abord
+   Claude Code s'il n'est pas là, avec l'installeur officiel). Tu te connectes chez Claude ; la page voit seulement
+   que c'est fait (elle revérifie toute seule toutes les 3 s), jamais ton mot de passe ni ton adresse.
+2. **Choisis ses réglages** : son nom (Max au lieu de Steve), tes langues, sa voix, son modèle, sa vitesse. Rien
+   n'est obligatoire : sans réglage, il s'appelle Steve et parle français.
+3. **Terminer et lancer** : le bouton ne s'allume qu'une fois ton compte connecté ; la page se ferme et
+   l'installation continue (l'app dans la barre des menus).
+
+Fermer la page avant (ctrl-C) arrête l'installation, sans rien casser : relance `./installer.command`. Une fois le
+compte connecté et `reglages.json` écrit, la page ne revient plus ; `./installer.command --sans-page` la saute.
+Les réglages se changent ensuite par la page Réglages (voir [La page Réglages](#la-page-réglages)).
 
 Ses modèles (voix, oreilles) se téléchargent tout seuls au premier lancement, dans `modeles/`.
 Ta mémoire, vos conversations, son journal et ton empreinte vocale restent sur ton Mac : ils ne sont jamais dans le dépôt.
@@ -84,6 +91,9 @@ Double-clique `installer.command` (ou lance `./installer.command` dans le Termin
   d'ouvrir sa mémoire, vos conversations, ton briefing du matin, le journal technique (`jervis.log`), et de quitter.
 - Après une mise à jour du code, relance `installer.command`.
 - Pour qu'il ne démarre plus tout seul : `./installer.command --retirer`.
+- S'il démarre sans compte Claude connecté (déconnecté entre-temps, autre session du Mac), il ne démarre plus à
+  moitié (il t'entendait sans pouvoir répondre) : l'icône passe à 🔑, il te le dit, ouvre la page Réglages sur
+  *Se connecter*, et démarre tout seul dès que c'est fait.
 
 ## Ou le lancer dans le Terminal
 
@@ -184,6 +194,11 @@ Son nom se change avec `JERVIS_PRENOM` (voir les réglages) ; `JERVIS_PRENOM=Jar
     « stop » seul s'arrête là ; avec une suite, la suite lui est envoyée.
   Tu peux aussi simplement parler par-dessus lui (« en fait mets plutôt du jazz ») : à partir de 3 mots, il se tait
   et répond à ta nouvelle phrase, sans s'excuser. Un « ouais » ou « hmm » ne le coupe pas.
+  - **Il s'arrête net pour t'écouter** : dès une demi-seconde de ta voix par-dessus la sienne (`JERVIS_COUPURE_S`),
+    sa voix se tait (un fondu de quelques millisecondes, sans clic), comme quelqu'un qui t'entend, au lieu de
+    seulement baisser en attendant que ta phrase soit transcrite. Ta phrase est alors entendue sans sa voix
+    mêlée : il la reconnaît mieux, et 2 mots suffisent pour le couper (`JERVIS_MOTS_POUR_COUPER_ARRETE`).
+    Si ce n'était pas pour lui (la télé, son propre écho), sa voix repart du mot exact où elle s'était arrêtée.
   - **Il reprend là où il en était** : coupé en pleine phrase, dis « continue », « vas-y, continue », « tu
     disais ? » ou « finis ta phrase » : il redit la phrase coupée en entier, puis finit sa réponse, sans répéter
     ce que tu as déjà entendu ni dire « comme je disais ». Ça marche pendant 10 minutes
@@ -239,6 +254,18 @@ Tout tourne en local sur le Mac, avec de petits modèles open source (téléchar
 | Sa voix | fabrique chaque phrase sur le Mac, sans Internet (voir « Sa voix » plus bas) | Pocket TTS (Kyutai) |
 
 Au démarrage, une ligne indique ce qui est actif (`✓`) ou pas (`·`). Si une brique ne se charge pas, il marche sans elle.
+
+**Ce qui le rend rapide.** Après chaque réponse, la ligne grise `⏱ 2,1 s (fin · texte · Claude · voix)` dit où le
+temps est passé ; la plus grosse part est presque toujours Claude (sa première phrase). Ce qui la raccourcit :
+
+- il réfléchit peu par défaut (`JERVIS_EFFORT=low`) : à l'oral, sa première phrase arrive 0,2 à 0,3 s plus tôt ;
+  les grosses tâches partent chez l'expert, qui garde son effort ;
+- une longue première phrase part à la voix dès sa première virgule (`JERVIS_DEBUT_TOT_CARACTERES`), le reste
+  suit pendant qu'il parle ;
+- le ménage se fait entre deux demandes, en fond : couper les connecteurs arrivés en retard, et après une longue
+  pause (`JERVIS_OUBLI_MIN`) remettre la conversation à zéro, qui prenait 2 s au début de ta phrase suivante.
+
+Pour aller encore plus vite : `JERVIS_MODELE=haiku` (moins malin), ou `JERVIS_REFLEXION=non`.
 
 **Tu peux lui chuchoter** (quand les autres dorment). Trois choses, toutes sur le Mac :
 
@@ -1164,7 +1191,8 @@ avant son premier lancement). La page est en français, English, 中文 ou ქ�
 - **Ton compte Claude** : connecté ou non, et quel abonnement. *Se connecter* ouvre le Terminal sur
   `claude auth login` : tu te connectes chez Claude, la page ne voit jamais ton mot de passe ni ton adresse.
 - **Son nom** (Steve, Max, Léa…), **ta langue principale**, **les langues que tu lui parles**, **sa voix locale**,
-  **sa voix Microsoft**, **son modèle** (sonnet, opus, haiku).
+  **sa voix Microsoft**, **son modèle** (sonnet, opus, haiku), **sa vitesse de réponse** (`low`, le défaut, répond
+  le plus vite ; `medium` ou `high` réfléchissent plus avant de parler).
 - *Enregistrer* écrit `reglages.json` (à la racine, lisible par toi seul, jamais dans le dépôt). Relance-le ensuite.
 
 Une variable `JERVIS_…` l'emporte toujours sur la page (la page te dit lesquelles sont en place).
@@ -1214,6 +1242,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_RETENUE_MAX_S` | 6 | et jamais plus que ça en tout (une télé allumée ne doit pas le rendre muet) |
 | `JERVIS_COUPER_SI_TU_PARLES` | oui | `non` = parler par-dessus lui ne le coupe plus (seulement son nom ou « stop ») |
 | `JERVIS_MOTS_POUR_COUPER` | 3 | nombre de mots qu'il te faut dire par-dessus lui pour qu'il se taise |
+| `JERVIS_COUPURE_S` | 0.5 | secondes de ta voix par-dessus la sienne avant que sa voix s'arrête net pour t'écouter (elle repart si ce n'était pas pour lui) ; `0` = il baisse seulement la voix |
+| `JERVIS_MOTS_POUR_COUPER_ARRETE` | 2 | … et une fois sa voix arrêtée, les mots qu'il te faut pour qu'il se taise pour de bon |
 | `JERVIS_STOP_TOUTE_VOIX` | oui | `non` = seul un « stop » de ta voix reconnue le fait taire (une télé ne pourra plus) |
 | `JERVIS_ECHO_MARGE_S` | 1.5 | un « stop » n'est pris pour l'écho de sa voix que s'il l'a dit dans ces secondes-là |
 | `JERVIS_STT` | parakeet | `whisper` pour l'ancien moteur de transcription |
@@ -1244,7 +1274,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_CONFIRMATION_VOIX` | oui | un « oui » sensible doit être de ta voix (si elle est apprise) ; `non` pour couper |
 | `JERVIS_MODELE` | sonnet | modèle Claude (`haiku` pour encore plus rapide) |
 | `JERVIS_REFLEXION` | oui | `non` = il ne réfléchit plus avant de répondre (un peu plus rapide, moins malin) |
-| `JERVIS_EFFORT` | medium | `low` = plus rapide (surtout pour bavarder), `high` = réfléchit plus |
+| `JERVIS_EFFORT` | low | `low` = le plus rapide à l'oral (sa première phrase arrive 0,2 à 0,3 s plus tôt) ; `medium`, `high` = réfléchit plus. Les grosses tâches partent chez l'expert, qui garde son effort |
+| `JERVIS_DEBUT_TOT_CARACTERES` | 35 | une longue première phrase part à la voix dès sa première virgule (après au moins ce nombre de caractères et 6 mots) au lieu d'attendre le point ; `0` = il attend toujours le point |
 | `JERVIS_FOLLOW_UP_S` | 30 | secondes pour commencer ta phrase suivante sans redire son nom (repart à chaque échange) |
 | `JERVIS_FOLLOW_UP_QUESTION_S` | 45 | pareil, quand il vient de te poser une question |
 | `JERVIS_DISCUSSION_S` | 600 | en mode « on discute » : combien de silence avant qu'il repasse en veille |
@@ -1264,7 +1295,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_RECHERCHE_OUTILS` | (vide) | passé à Claude Code (`ENABLE_TOOL_SEARCH`) : `true` = les extras toujours derrière ToolSearch, `false` = tout chargé, `auto:10` = le seuil ; vide = son réglage |
 | `JERVIS_MEFIANCE` | oui | `non` = plus de questions ni de cage juste après un texte venu d'ailleurs : seul l'argent (et un numéro d'urgence) passe encore par toi. À tes risques (voir « Ce qu'il te demande encore ») |
 | `JERVIS_CONFIRMATIONS` | autonome | `autonome` = il fait tout seul, il ne demande que pour l'argent ; `confiance` = il confirme ce qui détruit, les secrets, le Terminal et ce qui ne vient pas de toi ; `essentielles` = en plus, chaque message envoyé ; `toutes` = avant chaque création ou modification |
-| `JERVIS_OUBLI_MIN` | 15 | après cette pause, conversation neuve (il garde sa mémoire et vos 3 derniers échanges) : moins cher et plus rapide |
+| `JERVIS_OUBLI_MIN` | 15 | après cette pause, conversation neuve (il garde sa mémoire et vos 3 derniers échanges) : moins cher et plus rapide. Elle est préparée en fond pendant la pause : ta phrase suivante n'attend plus les 2 s du /clear |
 | `JERVIS_COUT` | oui | `non` = ne plus afficher « 💰 … » après chaque réponse |
 | `JERVIS_TACHES_MAX` | 5 | nombre d'agents de fond en même temps |
 | `JERVIS_ANNONCE_CALME_S` | 1.2 | le blanc qu'il attend (personne ne parle) pour te dire ce qu'il a à te dire : tâche finie, annonce, question |

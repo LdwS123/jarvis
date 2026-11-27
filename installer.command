@@ -20,12 +20,17 @@ fi
 
 [[ -x .venv/bin/python ]] || { echo "❌ Pas de .venv ici : installe d'abord Jervis (voir README)."; exit 1; }
 # Il pense avec TON abonnement Claude (Pro ou Max), par Claude Code : sans lui, il entend mais ne répond pas.
-CLAUDE="$(command -v claude || ls "$HOME/.local/bin/claude" /opt/homebrew/bin/claude 2>/dev/null | head -1 || true)"
-if [[ -z "$CLAUDE" ]]; then
-  echo "⚠️  Claude Code n'est pas installé. Installe-le, puis connecte ton abonnement :"
-  echo "     curl -fsSL https://claude.ai/install.sh | bash && claude auth login"
-elif ! "$CLAUDE" auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; then
-  echo "⚠️  Claude Code n'est connecté à aucun compte : lance « claude auth login » (ou le bouton de la page Réglages)."
+# Premier lancement (pas encore de reglages.json) ou compte pas connecté : la page d'installation s'ouvre dans ton
+# navigateur (se connecter à Claude, son nom, tes langues, sa voix), et l'installation attend « Terminer et lancer ».
+#   ./installer.command --sans-page  → saute la page (tout est réglé par variables JERVIS_…)
+CONNECTE="$(.venv/bin/python -c 'from jervis import reglages; s = reglages.statut_claude(); print("oui" if s.get("connecte") or s.get("illisible") else "non")' 2>/dev/null || echo oui)"
+if [[ "${1:-}" != "--sans-page" && ( "$CONNECTE" != "oui" || ! -f reglages.json ) ]]; then
+  echo "🔑 La page d'installation s'ouvre dans ton navigateur : connecte ton compte Claude, choisis ses réglages,"
+  echo "   puis clique « Terminer et lancer ». (ctrl-C pour abandonner.)"
+  if ! .venv/bin/python -m jervis.reglages --installation; then
+    echo "❌ Installation pas terminée : relance ./installer.command quand tu veux."
+    exit 1
+  fi
 fi
 
 zsh outils/construire_app.sh

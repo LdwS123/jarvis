@@ -96,9 +96,14 @@ WHISPER_MODEL = _env("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
 # --- Cerveau (Claude Code, sur ton abonnement) -----------------------------
 MODELE_CLAUDE = _env("MODELE", "sonnet")
 # Réflexion : il pense avant de répondre, autant que la question le demande (presque rien pour « mets de la
-# musique », beaucoup plus pour « organise ma semaine »). Effort : low = plus rapide, high = plus réfléchi.
+# musique », beaucoup plus pour « organise ma semaine »). Effort : low = plus rapide (le défaut : à l'oral, sa
+# première phrase arrive 0,2 à 0,3 s plus tôt), medium ou high = plus réfléchi. Les grosses tâches, elles, partent
+# chez l'expert (plus bas), qui garde son propre effort.
 REFLEXION = _env("REFLEXION", "oui").lower() not in {"non", "off", "0"}
-EFFORT = _env("EFFORT", "medium")
+EFFORT = _env("EFFORT", "low")
+# Il commence à parler sans attendre la fin de sa première phrase : dès qu'une virgule (ou « ; », « : ») tombe après
+# au moins DEBUT_TOT_CARACTERES caractères, ce premier morceau part à la voix. 0 = il attend toujours le point.
+DEBUT_TOT_CARACTERES = int(_env("DEBUT_TOT_CARACTERES", "35"))
 # Son « expert » : un second agent, plus puissant, à qui il confie les grosses tâches en plusieurs étapes
 # (coder, comparer, rédiger un long document…). Il travaille EN ARRIÈRE-PLAN : Steve reste à l'écoute pendant
 # ce temps, et te prévient quand c'est fini. Mêmes outils, mêmes confirmations.
@@ -291,6 +296,10 @@ PHRASES_PATIENCE = [p.strip() for p in _env("PHRASES_PATIENCE", _langues.patienc
 # Quand tu commences à lui parler pendant qu'il parle, il baisse la voix (à ce volume, de 0 à 1) le temps
 # de comprendre si tu lui coupes la parole. 1 = ne baisse pas.
 VOLUME_SI_TU_PARLES = float(_env("VOLUME_SI_TU_PARLES", "0.35"))
+# Tu continues de parler par-dessus lui (COUPURE_S secondes de voix, pas un « hm » ni une toux) : sa voix
+# s'arrête net, comme quelqu'un qui t'écoute. Ta phrase comprise, il se tait pour de bon et te répond, ou, si ce
+# n'était pas pour lui (son écho, la télé), il reprend au mot où il s'était arrêté. 0 = il baisse seulement la voix.
+COUPURE_S = float(_env("COUPURE_S", "0.5"))
 # Chrono : après chaque réponse, une ligne grise dit combien de temps il a mis entre la fin de ta phrase et
 # le premier son de sa voix, et où ce temps est passé. JERVIS_CHRONO=non pour la masquer.
 CHRONO = _env("CHRONO", "oui").lower() not in {"non", "off", "0"}
@@ -431,6 +440,8 @@ RETENUE_MAX_S = float(_env("RETENUE_MAX_S", "6"))
 # Tu parles par-dessus sa réponse (au moins ce nombre de mots, pas juste « hm ») : il se tait et te répond.
 COUPER_SI_TU_PARLES = _env("COUPER_SI_TU_PARLES", "oui").lower() not in {"non", "off", "0"}
 MOTS_POUR_COUPER = int(_env("MOTS_POUR_COUPER", "3"))
+# … et quand sa voix s'est déjà arrêtée pour t'écouter (COUPURE_S), ta phrase entendue sans elle : moins de mots.
+MOTS_POUR_COUPER_ARRETE = int(_env("MOTS_POUR_COUPER_ARRETE", "2"))
 # Un « stop » entendu n'est pris pour l'écho de sa voix que s'il a dit ce mot dans les ECHO_MARGE_S secondes
 # d'avant (pas trois phrases plus tôt). Un « stop » net passe même quand ta voix est mal reconnue
 # (STOP_TOUTE_VOIX=non pour l'interdire : seule ta voix pourra alors le faire taire).

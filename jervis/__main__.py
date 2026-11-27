@@ -308,7 +308,7 @@ def est_interruption(entendu: str, dit: str) -> bool:
 class Etat:
     """Ce qu'il fait, pour l'icône de la barre des menus."""
     ICONES = {"demarre": "⏳", "veille": "🎙", "ecoute": "👂", "reflechit": "💭", "parle": "🗣",
-              "pause": "⏸", "reunion": "📞", "erreur": "⚠️"}
+              "pause": "⏸", "reunion": "📞", "erreur": "⚠️", "compte": "🔑"}
 
     def __init__(self) -> None:
         self.nom = "demarre"
@@ -322,6 +322,39 @@ class Etat:
     def __call__(self, nom: str) -> None:
         if not (self.oreilles and self.oreilles.en_pause):
             self.nom = nom
+
+
+async def attendre_claude(etat: Etat | None = None, dire=None) -> None:
+    """Sans compte Claude connecté, il entendrait sans pouvoir répondre : au lieu de démarrer à moitié, il le dit,
+    ouvre la page Réglages (son bouton « Se connecter » lance `claude auth login`) et attend que ce soit fait."""
+    from . import reglages, tableau
+
+    def connecte() -> bool:  # « je ne sais pas » (vieux Claude Code, Mac lent au démarrage) ne bloque jamais
+        statut = reglages.statut_claude()
+        return bool(statut.get("connecte") or statut.get("illisible"))
+
+    if await asyncio.to_thread(connecte):
+        return
+    await asyncio.sleep(2)  # un démarrage de session encore lent : on regarde une seconde fois avant d'alerter
+    if await asyncio.to_thread(connecte):
+        return
+    if etat is not None:
+        etat.nom = "compte"
+    print("🔑 Aucun compte Claude connecté : j'ouvre la page Réglages (bouton « Se connecter »). J'attends.", flush=True)
+    if not (tableau._actif and tableau._actif.ouvrir("reglages")):
+        threading.Thread(target=reglages.servir, daemon=True, name="reglages").start()  # sans tableau de bord
+    phrase = langues.sans_claude(config.LANGUE)
+    await notifier(config.PRENOM, phrase)
+    if dire is not None:
+        try:
+            await dire(phrase)
+        except Exception:
+            pass
+    while not await asyncio.to_thread(connecte):
+        await asyncio.sleep(4)
+    if etat is not None:
+        etat.nom = "demarre"
+    print("✅ Compte Claude connecté : je démarre.", flush=True)
 
 
 def _equipe(journal=print) -> tuple[Standard, Taches, Programmateur, list]:
@@ -356,6 +389,7 @@ async def mode_texte(muet: bool) -> None:
         reponse = await entrees.get()
         return lire_accord(reponse) is True
 
+    await attendre_claude()
     standard, taches, programmateur, outils_en_plus = _equipe()
     cerveau = Cerveau(parler, confirmer, outils_en_plus=outils_en_plus, anticiper=None if muet else tts.anticiper)
     await cerveau.demarrer()
@@ -522,6 +556,17 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 guet["retiens"] = 0.0
             if hp is not None:
                 hp.volume = config.VOLUME_SI_TU_PARLES if tu_parles else 1.0
+                if not tu_parles:
+                    hp.en_pause = False  # pas pour lui : sa voix repart du mot où elle s'était arrêtée
+
+        def arreter_sa_voix() -> bool:
+            """Tu parles par-dessus lui depuis COUPURE_S (une vraie voix qui dure, pas un « hm ») : sa voix s'arrête
+            net, comme quelqu'un qui t'écoute, sans rien jeter. Ta phrase comprise, il se tait pour de bon et te
+            répond, ou reprend. (Appelé par le fil d'écoute.)"""
+            if hp is None or not config.COUPURE_S or not guet["parle"] or vocal.en_cours():
+                return False
+            hp.en_pause = True
+            return True
 
         def a_toi(phrase) -> bool | None:
             """Ta voix reconnue (vrai), pas encore apprise (None), ou phrase trop courte pour le dire (faux)."""
@@ -543,7 +588,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             try:
                 while not arret.is_set():
                     phrase = await asyncio.to_thread(oreilles.ecouter_phrase, None, arret, 2.5, premier,
-                                                     quand_tu_parles=baisser,
+                                                     quand_tu_parles=baisser, quand_tu_coupes=arreter_sa_voix,
                                                      garder_inconnue=config.STOP_TOUTE_VOIX)
                     premier = False
                     if phrase is None:
@@ -554,8 +599,11 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                         baisser(False)
                         continue
                     debut = time.monotonic() - len(phrase.audio) / config.SAMPLE_RATE
+                    arretee = getattr(phrase, "coupure", None) is not None  # sa voix s'est arrêtée pour t'écouter
+                    if arretee:
+                        print("   \033[2m(tu parles : il s'arrête et t'écoute)\033[0m", flush=True)
                     par_dessus = (guet.pop("coupe_sa_voix", False) or bool(guet["parle"])
-                                  or debut < guet["fin_voix"] + 0.3)
+                                  or debut < guet["fin_voix"] + 0.3 or arretee)
                     entendu = corriger_transcription(
                         await asyncio.to_thread(stt.transcrire, phrase.audio, oreilles.anti_echo) or "")
                     if hors_alphabet(entendu):
@@ -581,7 +629,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                         return
                     if entendu and not arret.is_set() and ajout_probable(entendu, guet["dit"]):
                         toi = a_toi(phrase)
-                        if par_dessus and coupe_la_parole(entendu, debut) and toi is not False:
+                        if par_dessus and coupe_la_parole(entendu, debut, arretee) and toi is not False:
                             if cerveau.glisser(entendu):
                                 # Il était en plein travail (navigateur, mails…) : il se tait, mais ne jette pas
                                 # tout. Claude lit ta phrase à la fin de l'outil en cours et change de cap s'il faut.
@@ -630,12 +678,15 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         guet["recents"] = [*guet["recents"][-5:], recente]
         return recente
 
-    def coupe_la_parole(entendu: str, debut: float) -> bool:
+    def coupe_la_parole(entendu: str, debut: float, arretee: bool = False) -> bool:
         """Ce que tu dis par-dessus sa voix le fait taire ? Pas un « hm », ni par-dessus un « Voyons… »
         (là il travaille encore : ce que tu ajoutes sera traité juste après). On regarde ce qu'il disait quand tu
-        as commencé à parler : le temps que ta phrase soit transcrite, son « Je regarde. » est souvent fini."""
+        as commencé à parler : le temps que ta phrase soit transcrite, son « Je regarde. » est souvent fini.
+        `arretee` : sa voix s'était déjà arrêtée pour t'écouter ; ta phrase, entendue sans elle, est sûre plus tôt
+        (MOTS_POUR_COUPER_ARRETE mots suffisent)."""
+        mots = config.MOTS_POUR_COUPER_ARRETE if arretee else config.MOTS_POUR_COUPER
         return (config.COUPER_SI_TU_PARLES and not sur_un_voyons(guet["recents"], debut)
-                and len(re.findall(r"\w+", entendu)) >= config.MOTS_POUR_COUPER)
+                and len(re.findall(r"\w+", entendu)) >= mots)
 
     def prendre_ajout() -> str:
         """Ce que tu as dit pendant qu'il travaillait ou répondait (« » si rien)."""
@@ -1108,6 +1159,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     sante = threading.Event()  # (posé à l'arrêt : la surveillance de la santé du Mac s'arrête)
     surveillance = reunion.Surveillance(appel_commence, appel_fini)
 
+    await attendre_claude(etat, tts.parler)
     standard, taches, programmateur, outils_en_plus = _equipe()
     etat.taches = taches
     cerveau = Cerveau(parler, confirmer, outils_en_plus=outils_en_plus,

@@ -20,10 +20,17 @@
 
     git clone https://github.com/LdwS123/jarvis.git ~/Jervis && cd ~/Jervis
     python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
-    curl -fsSL https://claude.ai/install.sh | bash   # 安装 Claude Code（如果还没有）
-    claude auth login                                # 登录你自己的 Claude 账号
-    ./reglages.command                               # 设置页面：名字、语言、声音、模型
-    ./installer.command                              # 菜单栏应用，登录时自动启动
+    ./installer.command                              # 安装页面，然后是菜单栏应用（登录时自动启动）
+
+第一次运行时，`installer.command` 会在浏览器里打开**安装页面**并等待：
+
+1. **连接你的 Claude 账号**：按钮会在终端里打开 `claude auth login`（如果还没有 Claude Code，会先用官方安装程序安装）。
+   你直接在 Claude 登录；页面只知道登录完成了（每 3 秒自动检查一次），永远看不到你的密码或邮箱。
+2. **选择设置**：名字、语言、声音、模型、速度。都可以不填。
+3. **完成并启动**：账号连接后按钮才可以点；页面关闭，安装继续。
+
+连接并保存之后，页面不会再出现（`./installer.command --sans-page` 可以跳过）。如果应用启动时 Claude 账号没有连接，
+图标会变成 🔑，它会告诉你，打开设置页面的「连接」，登录后自动启动。
 
 第一次启动时，它的模型（声音、语音识别）会自动下载到 `modeles/`。你的记忆、对话、日志和声纹
 只保存在你的 Mac 上，永远不会进入代码仓库。
@@ -36,7 +43,7 @@
 - **你的 Claude 账号**：显示 Claude Code 是否已登录，以及订阅类型。点「连接」会在终端里打开
   `claude auth login`，你直接在 Claude 登录，页面永远看不到你的密码或邮箱。
 - **它的名字**（也是唤醒词）、**你的主要语言**、**你对它说的语言**、**本地声音**、**微软声音**、
-  **Claude 模型**（sonnet、opus、haiku）。
+  **Claude 模型**（sonnet、opus、haiku）、**回答速度**（默认 `low` 回答最快；`medium`、`high` 说话前想得更多）。
 - 点「保存」会写入仓库根目录的 `reglages.json`（只有你能读，不会被 git 提交）。然后重启它：
 
       pkill -f "Jervis.app/Contents"; pkill -f "python -m jervis"; sleep 2; open -a ~/Jervis/Jervis.app
@@ -54,6 +61,8 @@
 | `JERVIS_VOIX_ZH` | zh-CN-YunxiNeural | 中文的微软声音（女声：`zh-CN-XiaoxiaoNeural`） |
 | `JERVIS_VOIX_NEURONALE` | 取决于主要语言 | 主要语言的微软声音；`non` = 只用 Mac 自带的声音，什么都不发给微软 |
 | `JERVIS_MODELE` | sonnet | 它用来思考的 Claude 模型 |
+| `JERVIS_EFFORT` | low | 回答前想多少：`low` 说话最快，`medium`、`high` 想得更多 |
+| `JERVIS_COUPURE_S` | 0.5 | 你的声音盖过它多少秒后，它立刻停下来听你说（如果不是对它说的，它会接着说） |
 
 ## 关于语言
 

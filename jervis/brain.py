@@ -484,6 +484,23 @@ def _couper_en_phrases(tampon: str) -> tuple[list[str], str]:
     return phrases, tampon[debut:]
 
 
+_VIRGULE = re.compile(r"[,;:](?:\s?[»\"')])*\s+")
+
+
+def _premier_morceau(tampon: str) -> tuple[str, str] | None:
+    """Le début de sa toute première phrase, coupé à une virgule, pour qu'il commence à parler sans attendre le point :
+    « Ton prochain rendez-vous est demain à 10 h, » part pendant que « avec Léa, au bureau. » s'écrit encore.
+    Seulement un morceau assez long (DEBUT_TOT_CARACTERES, six mots au moins) : « Alors, » tout seul sonnerait haché.
+    Renvoie (morceau, reste), ou None s'il vaut mieux attendre."""
+    if config.DEBUT_TOT_CARACTERES <= 0:
+        return None
+    for virgule in _VIRGULE.finditer(tampon):
+        morceau = tampon[:virgule.end()].strip()
+        if len(morceau) >= config.DEBUT_TOT_CARACTERES and len(morceau.split()) >= 6:
+            return morceau, tampon[virgule.end():]
+    return None
+
+
 async def couper_intrus(client: ClaudeSDKClient) -> tuple[bool, set[str]]:
     """Coupe chaque serveur MCP non voulu. Un serveur coupé pendant qu'il se connecte peut se
     rallumer, donc on repasse jusqu'à ce que tout soit propre. Renvoie (tout coupé, voulus pas prêts)."""
@@ -686,6 +703,9 @@ class Cerveau:
         self._dit_en_ce_moment: str | None = None   # la phrase que sa voix prononce là, tout de suite
         self._coupee: str | None = None             # … celle qu'il disait quand tu lui as coupé la parole
         self._reprise: dict | None = None           # de quoi reprendre sa réponse coupée (« continue »)
+        self._menage_en_cours: asyncio.Task | None = None  # le ménage entre deux demandes (_menage)
+        self._neuf: str | None = None               # le fil à lui redonner : la conversation a été remise à zéro en fond
+        self._neuf_fait = False                     # … et elle l'a été depuis ta dernière demande
 
     async def demarrer(self, attente_max: float = 15.0) -> None:
         config.ESPACE.mkdir(exist_ok=True)
@@ -709,11 +729,34 @@ class Cerveau:
             self._confirmer_ecrit = confirmer_ecrit if ecrit is not None else None
             self._gardien.a_distance = ecrit is not None and origine == "iMessage"
             self._en_appel = en_appel
+            if self._menage_en_cours:
+                self._menage_en_cours.cancel()
             try:
                 return await self._demander(f"({origine}) {texte}" if ecrit is not None else texte, ecrit)
             finally:
                 self._par_ecrit, self._confirmer_ecrit = False, None
                 self._gardien.a_distance = self._en_appel = False
+                self._menage_en_cours = asyncio.get_running_loop().create_task(self._menage())
+
+    async def _menage(self) -> None:
+        """Entre deux demandes, ce qui ralentissait chacune : couper les connecteurs arrivés en retard (quelques
+        dixièmes de seconde) et, après OUBLI_MIN de pause, remettre la conversation à zéro (/clear, 2 s la première
+        fois). Ta prochaine phrase part donc tout de suite. Annulé dès qu'une demande arrive."""
+        try:
+            await asyncio.sleep(2)
+            async with self._verrou:
+                if self._client:
+                    await couper_intrus(self._client)
+            await asyncio.sleep(max(0.0, config.OUBLI_MIN * 60 - 2) + 1)
+            async with self._verrou:
+                if (self._client and self._recents and self._derniere_demande is not None
+                        and time.monotonic() - self._derniere_demande > config.OUBLI_MIN * 60):
+                    self._neuf = await self._repartir_a_neuf()
+                    self._neuf_fait = True
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            self._journal(f"   ⚠️  Ménage entre deux demandes : {e!r}")
 
     def lu_dehors(self) -> bool:
         """Vrai s'il travaille sur un texte venu d'ailleurs (une page, un mail), ou vient d'en lire un : un iMessage
@@ -739,9 +782,12 @@ class Cerveau:
             self._gardien.a_lu_dehors()
         self._interrompu = False
         self._au_travail, self._glisses, self._muet, self._non_dit = False, [], False, False
-        await couper_intrus(self._client)  # au cas où un connecteur serait arrivé en retard
-        nouveau = ""
-        if (self._derniere_demande is not None and self._recents
+        # Le ménage (connecteurs arrivés en retard, /clear après une longue pause) se fait entre deux demandes, en
+        # fond (_menage) : ici, il ne reste que ce que ce ménage n'a pas eu le temps de faire.
+        nouveau, self._neuf = (self._neuf or ""), None
+        if self._neuf_fait:
+            self._neuf_fait = False
+        elif (self._derniere_demande is not None and self._recents
                 and time.monotonic() - self._derniere_demande > config.OUBLI_MIN * 60):
             nouveau = await self._repartir_a_neuf()
         elif self._a_rappeler:
@@ -861,6 +907,10 @@ class Cerveau:
                         phrases, tampon = _couper_en_phrases(tampon + delta.get("text", ""))
                         for phrase in phrases:
                             dire(phrase)
+                        if not dit and not phrases and (debut := _premier_morceau(tampon)):
+                            # Sa première phrase est longue : il en dit déjà le début (le chrono le plus visible).
+                            morceau, tampon = debut
+                            dire(morceau)
                 elif isinstance(message, AssistantMessage) and not message.parent_tool_use_id:
                     for bloc in message.content:
                         if isinstance(bloc, TextBlock) and par_ecrit:
@@ -1114,6 +1164,8 @@ class Cerveau:
             asyncio.get_running_loop().create_task(self._client.interrupt())
 
     async def arreter(self) -> None:
+        if self._menage_en_cours:
+            self._menage_en_cours.cancel()
         self.fin_de_conversation()
         if self._memorisations:  # laisse la mémoire finir d'écrire (20 s au plus)
             await asyncio.wait(self._memorisations, timeout=20)

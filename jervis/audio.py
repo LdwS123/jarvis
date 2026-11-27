@@ -50,6 +50,7 @@ class Phrase:
     inconnue: bool = False  # pas ta voix (gardée seulement si on l'a demandé : un « stop » compte quand même)
     chuchotee: bool = False  # dite en chuchotant (sans que la voix vibre)
     par_touche: bool = False  # dite avec la touche fn (enfoncée pendant ta phrase, ou tapée avant sa fin)
+    coupure: int | None = None  # l'échantillon où sa voix s'est arrêtée pour t'écouter (tu lui coupais la parole)
 
 
 class _Decimateur:
@@ -82,6 +83,9 @@ class HautParleur:
         self.niveau = 0.0    # le volume de ce qui sort en ce moment (pour le tableau de bord)
         self.douceur = 1.0   # VOLUME_CHUCHOTE quand tu viens de lui chuchoter : il répond plus bas
         self.dernier_son = 0.0  # quand il a joué un son pour la dernière fois (time.monotonic)
+        # Tu lui coupes la parole : sa voix s'arrête net (un fondu de quelques ms, sans clic) là où elle en est,
+        # sans rien jeter. S'il comprend que ce n'était pas pour lui, elle repart du même mot.
+        self.en_pause = False
 
     @property
     def actif(self) -> bool:
@@ -106,12 +110,17 @@ class HautParleur:
         """Coupe tout ce qui est en cours et en attente."""
         with self._verrou:
             items, self._file = list(self._file), collections.deque()
+            self.en_pause = False  # plus rien à reprendre : la phrase suivante part normalement
         for _, _, fini in items:
             fini()
 
     def remplir(self, n: int) -> np.ndarray:
         """Appelé par le flux audio : les `n` prochains échantillons à jouer (du silence s'il n'y a rien)."""
+        pause = self.en_pause
         sortie = np.zeros(n, dtype=np.float32)
+        if pause and self._gain == 0.0:  # en pause, déjà éteint : silence, et le son attend sans avancer
+            self.niveau = 0.0
+            return sortie
         rempli = 0
         termines = []
         with self._verrou:
@@ -128,7 +137,7 @@ class HautParleur:
             fini()
         if rempli:
             self.dernier_son = time.monotonic()
-        cible = self.volume * self.douceur
+        cible = 0.0 if pause else self.volume * self.douceur  # (la pause : ce dernier bloc s'éteint en fondu)
         if self._gain != cible or cible != 1.0:
             sortie *= np.linspace(self._gain, cible, n, dtype=np.float32)
             self._gain = cible
@@ -512,8 +521,13 @@ class Oreilles:
         """Calcule une seule fois la signature de la voix : elle sert à vérifier ET à apprendre."""
         if self._empreinte is None or phrase.duree_parole < config.MIN_VERIF_VOIX_S:
             return
+        audio = phrase.audio
+        if phrase.coupure and len(audio) - phrase.coupure >= config.MIN_VERIF_VOIX_S * config.SAMPLE_RATE:
+            # Sa voix s'est tue pour t'écouter : la fin de ta phrase est ta voix seule, bien plus facile à reconnaître
+            # que le début, où la sienne se mêlait encore (et faisait baisser ton score).
+            audio = audio[phrase.coupure:]
         try:
-            phrase.empreinte = self._empreinte.vecteur(phrase.audio)
+            phrase.empreinte = self._empreinte.vecteur(audio)
         except Exception:
             return
         if self._empreinte.reference is not None:
@@ -535,6 +549,7 @@ class Oreilles:
         quand_tu_parles=None,
         garder_inconnue: bool = False,
         touche=None,
+        quand_tu_coupes=None,
     ) -> Phrase | None:
         """Attend que tu parles, puis enregistre jusqu'à la fin de ta phrase.
         Renvoie None si personne n'a parlé pendant `attente_max` secondes (None = attendre sans fin)
@@ -546,7 +561,10 @@ class Oreilles:
         `garder_inconnue=True` : une voix qui n'est pas la tienne est quand même rendue (marquée `inconnue`) :
         pendant qu'il parle, sa voix mêlée à la tienne fait baisser ton score, et un « stop » doit passer.
         `touche(debut)` : la touche fn a-t-elle servi depuis `debut` (le début de ta phrase) ? Alors elle vaut le
-        mot-clé : ta phrase est pour lui."""
+        mot-clé : ta phrase est pour lui.
+        `quand_tu_coupes()` est appelé une fois, dès COUPURE_S de parole (une voix qui dure, pas un « hm ») ; s'il
+        renvoie vrai (sa voix s'est arrêtée pour t'écouter), la phrase retient où (`coupure`) : ta voix est jugée sur
+        ce qui suit, sans la sienne mêlée."""
         if repartir_a_zero:
             self.vider()
         duree_bloc = config.FRAME / config.SAMPLE_RATE
@@ -576,6 +594,7 @@ class Oreilles:
             morceaux = [*avant, propre]
             parole, silence, demande = duree_bloc, 0.0, -1.0
             signale = False
+            coupure: int | None = None  # le bloc où sa voix s'est tue pour t'écouter
             coupee = True  # sauf si on sort de la boucle parce que ta phrase est finie
             while len(morceaux) * duree_bloc < duree_max:
                 lu = self._lire(None if laisser_finir else arret)
@@ -591,6 +610,8 @@ class Oreilles:
                     if quand_tu_parles and not signale and parole >= config.MIN_PAROLE_S:
                         signale = True
                         quand_tu_parles(True)
+                    if quand_tu_coupes and coupure is None and parole >= max(config.COUPURE_S, config.MIN_PAROLE_S):
+                        coupure = len(morceaux) if quand_tu_coupes() else -1
                 else:
                     silence += duree_bloc
                     finie, demande = self._phrase_finie(morceaux, silence, demande)
@@ -607,6 +628,8 @@ class Oreilles:
                     quand_tu_parles(False)  # pas pour lui : on remet le volume
                 continue  # sans le mot-clé, on ne transcrit même pas
             phrase = Phrase(np.concatenate(morceaux), reveil, parole, silence, coupee=coupee, par_touche=par_touche)
+            if coupure is not None and coupure >= 0:
+                phrase.coupure = sum(len(m) for m in morceaux[:coupure])
             phrase.chuchotee = self._chuchotee is not None and self._chuchotee(phrase.audio)
             self._signer(phrase)
             if verifier_voix and self._voix_inconnue(phrase):
