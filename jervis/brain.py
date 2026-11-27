@@ -311,6 +311,8 @@ Messages spéciaux :
   d'abord. Il ne voit pas l'écran du Mac : dis-lui ce que tu as fait ou trouvé, ne lui montre rien. Tes questions
   oui/non lui arrivent par message. Appeler quelqu'un d'ici n'a pas de sens (l'appel sonnerait sur le Mac, sans
   lui) : dis-lui d'appeler depuis son iPhone.
+- « (WhatsApp) … » : pareil, écrit depuis son iPhone dans sa discussion WhatsApp « Message à moi-même ». Ta réponse
+  lui revient dans cette discussion, avec les mêmes règles qu'un « (iMessage) … ».
 """
 
 NAVIGATEUR_SEUL = """\
@@ -590,7 +592,7 @@ def message_de_reprise(reprise: dict) -> str:
     return " ".join(morceaux)
 
 
-_RAPPORT = re.compile(r"^(?:\((?:écrit|iMessage)\) )?\((?:ta ronde|briefing réunion|tâche de fond terminée|\d+ tâches de fond viennent de finir)")
+_RAPPORT = re.compile(r"^(?:\((?:écrit|iMessage|WhatsApp)\) )?\((?:ta ronde|briefing réunion|tâche de fond terminée|\d+ tâches de fond viennent de finir)")
 CACHE_DEMANDE = "(le compte rendu d'un de tes agents : non montré, il vient de contenus lus)"
 CACHE_REPONSE = "(sa réponse, tirée de mails, pages ou documents lus : non montrée)"
 
@@ -720,7 +722,7 @@ class Cerveau:
         """Envoie ta phrase et prononce chaque morceau de réponse dès qu'il arrive. Renvoie la réponse.
         Par écrit (le chat du tableau de bord) : `ecrit` reçoit le texte au fil de l'eau, sans un mot à voix haute,
         et ses questions oui/non passent par `confirmer_ecrit` (des boutons) au lieu du micro. `origine` dit d'où
-        vient ce texte écrit : « écrit » (le tableau de bord) ou « iMessage » (ton iPhone, loin du Mac).
+        vient ce texte écrit : « écrit » (le tableau de bord), « iMessage » ou « WhatsApp » (ton iPhone, loin du Mac).
         `en_appel` : entendu pendant un appel (peut-être la voix d'un participant) : il ne fait que lire sans ton oui."""
         assert self._client is not None, "appelle demarrer() d'abord"
         if ecrit is None and self._verrou.locked() and self._par_ecrit:
@@ -728,7 +730,7 @@ class Cerveau:
         async with self._verrou:
             self._par_ecrit = ecrit is not None
             self._confirmer_ecrit = confirmer_ecrit if ecrit is not None else None
-            self._gardien.a_distance = ecrit is not None and origine == "iMessage"
+            self._gardien.a_distance = ecrit is not None and origine in {"iMessage", "WhatsApp"}
             self._en_appel = en_appel
             if self._menage_en_cours:
                 self._menage_en_cours.cancel()

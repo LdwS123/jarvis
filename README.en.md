@@ -38,7 +38,7 @@ corrections.
 | 📝 | **Meeting notes**: transcribes each part in its own language, then a summary and action items in Notes | transcription on the Mac, summary by Claude |
 | 🪟 | Windows, **modes** ("work mode"), music, selected text, **folder cleanup** (undoable), **Mac health** | on the Mac |
 | 🔎 | "Find the PDF of the March quote": **searches inside** your files | Spotlight, on the Mac |
-| 📱 | Text or **send a voice note from your iPhone** (iMessage): it does the task on the Mac and **replies with a voice note** | transcribed and spoken on the Mac |
+| 📱 | Text or **send a voice note from your iPhone** (iMessage, or WhatsApp "Message yourself"): it does the task on the Mac and **replies with a voice note** | transcribed and spoken on the Mac |
 | 💬 | **Replies to your messages in your style** (iMessage, WhatsApp), or answers for you while you're busy | Claude, with your confirmation rules |
 | 📌 | **Learns from you**: correct it once and it keeps the rule | its notebook, `lecons.md` |
 | 🤖 | Mail, calendar, Chrome, Mac apps, up to 5 background agents, a live dashboard | Claude (your subscription) |
@@ -46,7 +46,7 @@ corrections.
 ```mermaid
 flowchart LR
     Mic[🎙️ Mic / AirPods] --> Ears[Wake word + echo cancellation<br/>local transcription]
-    iPhone[📱 iMessage<br/>text or voice note] --> Ears
+    iPhone[📱 iMessage · WhatsApp<br/>text or voice note] --> Ears
     Call[📞 Zoom · Meet · FaceTime] -. goes quiet .-> Ears
     Ears --> Brain[Claude Agent SDK<br/>+ instructions, memory, notebook 📌]
     Brain --> Tools[Mac tools<br/>windows · modes · files · Notes · Messages]

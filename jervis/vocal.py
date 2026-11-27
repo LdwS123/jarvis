@@ -29,6 +29,7 @@ import re
 import subprocess
 import time
 import unicodedata
+import weakref
 from collections import Counter
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator
@@ -414,9 +415,23 @@ async def _ouvrir(pilote, contact: str, groupe: str, numero: str | None) -> None
         await asyncio.to_thread(pilote.ouvrir, numero)
 
 
+# Un envoi WhatsApp à la fois : ouvrir une discussion puis y écrire. Sans quoi deux envois en même temps (le
+# répondeur, sa réponse dans « Message à moi-même ») pourraient écrire dans la discussion ouverte par l'autre.
+_tours: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _tour() -> asyncio.Lock:
+    return _tours.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+
+
 async def envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
     """(« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », le détail en clair). `groupe` : le nom exact d'un groupe, à la place
     de `contact`."""
+    async with _tour():
+        return await _envoyer(contact, texte, pilote, groupe)
+
+
+async def _envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
     from . import tts
     try:
         _qui(contact, groupe)
@@ -467,6 +482,11 @@ async def envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> tu
 
 async def envoyer_texte(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
     """Un message écrit WhatsApp, à quelqu'un ou dans un groupe : (« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », détail)."""
+    async with _tour():
+        return await _envoyer_texte(contact, texte, pilote, groupe)
+
+
+async def _envoyer_texte(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
     ecrit = False
     try:
         _qui(contact, groupe)

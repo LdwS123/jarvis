@@ -249,6 +249,10 @@ IMESSAGE_MEFIANCE_S = float(_env("IMESSAGE_MEFIANCE_S", "20"))
 QUESTION_IMESSAGE_S = float(_env("QUESTION_IMESSAGE_S", "600"))  # une question sans réponse en 10 min vaut non
 IMESSAGE_VOCAL = _env("IMESSAGE_VOCAL", "oui")              # un vocal de toi : il te répond par un vocal (non = écrit)
 IMESSAGE_VOCAUX_DOSSIER = _env("IMESSAGE_VOCAUX_DOSSIER", "")  # où ranger ses vocaux avant l'envoi (vide = auto)
+# Par WhatsApp, dans ta discussion « Message à moi-même » (distance.BoiteWhatsApp) : une seule bulle par message.
+# auto = ton numéro est lu dans WhatsApp ; non = coupé ; ou ton numéro : « +33612345678 ». IMESSAGE_RELEVE_S,
+# IMESSAGE_PATIENCE_S, QUESTION_IMESSAGE_S et IMESSAGE_VOCAL valent aussi pour lui.
+WHATSAPP_MOI = _env("WHATSAPP_MOI", "auto")
 
 # --- Répondre à ta place (reponses.py) ------------------------------------------------------------------
 # « Steve, réponds à tous mes messages » : iMessage et WhatsApp, dans ton style avec chaque personne.

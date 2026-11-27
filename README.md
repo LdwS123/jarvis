@@ -27,14 +27,14 @@ Le code vit dans le paquet Python `jervis`.
 | 📝 | **Compte rendu de réunion** : transcrit chaque passage dans sa langue, puis résumé et actions à faire dans Notes | transcription sur le Mac, résumé par Claude |
 | 🪟 | Fenêtres, **modes** (« mode travail »), musique, texte sélectionné, **dossiers rangés** (et annulables), **santé du Mac** | sur le Mac |
 | 🔎 | « Retrouve le PDF du devis de mars » : **cherche dans le contenu** de tes fichiers | Spotlight, sur le Mac |
-| 📱 | Un **message vocal** envoyé de l'iPhone devient une tâche sur le Mac, et il te **répond par un vocal** | transcrit et dit sur le Mac |
+| 📱 | Un **message vocal** envoyé de l'iPhone (iMessage ou WhatsApp) devient une tâche sur le Mac, et il te **répond par un vocal** | transcrit et dit sur le Mac |
 | 📌 | **Il apprend de toi** : quand tu le corriges, il retient la règle pour toujours | son carnet, `lecons.md` |
 | 🤖 | Mails, agenda, navigateur, apps du Mac, agents de fond en parallèle, tableau de bord | Claude (ton abonnement) |
 
 ```mermaid
 flowchart LR
     Micro[🎙️ Micro / AirPods] --> Oreilles[Mot d'éveil + anti-écho<br/>transcription locale]
-    iPhone[📱 iMessage<br/>texte ou vocal] --> Oreilles
+    iPhone[📱 iMessage · WhatsApp<br/>texte ou vocal] --> Oreilles
     Appel[📞 Zoom · Meet · FaceTime] -. il se tait .-> Oreilles
     Oreilles --> Cerveau[Claude Agent SDK<br/>+ ses consignes, sa mémoire, son carnet 📌]
     Cerveau --> Outils[Outils du Mac<br/>fenêtres · modes · fichiers · Notes · Messages]
@@ -563,6 +563,36 @@ nouvelle tout de suite (le journal dit `📱 Nouvelle conversation avec toi-mêm
 - `JERVIS_IMESSAGE=non` coupe tout ; `JERVIS_IMESSAGE=+33612345678,moi@icloud.com` donne tes adresses à la main
   (par défaut, `auto` : il les lit dans la base de Messages).
 
+### Steve depuis ton iPhone (WhatsApp « Message à moi-même »)
+
+Pareil, dans WhatsApp : écris-lui (ou envoie-lui un vocal) dans **ta discussion « Message à moi-même »** (dans
+WhatsApp sur l'iPhone : Nouvelle discussion → ton propre nom, « (vous) »). Steve lit la copie que WhatsApp garde sur
+le Mac, fait la demande et répond **dans la même discussion** : un texte qui commence par 🤖, ou un vocal avec sa
+voix si tu lui as parlé. Les questions ❓, le oui/non, les 10 minutes, « Je m'en occupe… » : tout est comme sur
+iMessage, sans les bulles en double (WhatsApp ne montre chaque message qu'une fois). Au démarrage, le journal dit
+`📱 WhatsApp : je lis ta discussion « Message à moi-même »…` ; s'il ne la trouve pas encore, écris-toi un premier
+message : il la voit dans les 30 s.
+
+- **Le Mac** : l'app WhatsApp du Mac connectée (c'est elle qui reçoit tes messages et qui envoie les siens), Steve
+  avec l'**Accès complet au disque** (pour lire la base de WhatsApp, en lecture seule) et l'**Accessibilité** (il
+  répond en écrivant dans l'app, comme `envoyer_whatsapp`). Ton numéro est lu dans les réglages de WhatsApp ; sinon,
+  donne-le : `JERVIS_WHATSAPP_MOI=+33612345678`.
+- **Tes vocaux** : transcrits sur le Mac, comme sur iMessage. Il faut que WhatsApp du Mac les **télécharge tout
+  seul** (Réglages → Stockage et données → Téléchargement auto → Audio : toujours). Un vocal pas arrivé au bout de
+  45 s : il te le dit (« renvoie-le, ou écris-le-moi »).
+- **Ses vocaux** : faits comme un vocal WhatsApp à quelqu'un (il appuie sur le micro de l'app et dit sa réponse par
+  les enceintes, voir plus bas) : pendant ce temps, le Mac parle tout haut. Ses vocaux revenus dans la discussion ne
+  sont jamais transcrits comme une demande de toi. Un vocal raté : il répond par écrit ; un lien dedans : le texte
+  suit. `JERVIS_IMESSAGE_VOCAL=non` : toujours par écrit, ici aussi.
+- **Qui il écoute** : seulement ta discussion avec toi-même. Tout ce que tu y écris lui est adressé (n'y range plus
+  tes notes perso). Les messages des autres, les groupes, les photos ne sont jamais des ordres ; ses 🤖 et ❓, et tout
+  ce qu'il vient d'envoyer, ne sont jamais relus comme une demande ; les messages déjà là au démarrage sont ignorés.
+  Les mêmes protections que sur iMessage tiennent (page piégée, question en attente : aucun de ses agents n'écrit
+  dans WhatsApp d'ici ta réponse).
+- **Le répondeur** te raconte ses réponses là où tu lui as écrit en dernier (iMessage ou WhatsApp ; WhatsApp si tu
+  ne lui as encore rien écrit).
+- `JERVIS_WHATSAPP_MOI=non` coupe WhatsApp seul ; `JERVIS_IMESSAGE=non` coupe iMessage seul (WhatsApp reste).
+
 ### Écrire dans un groupe (iMessage, WhatsApp)
 
 « Steve, écris dans le groupe Famille que j'arrive », « dis sur WhatsApp au groupe Foot que je suis en retard » :
@@ -609,7 +639,7 @@ m'écrivent que je suis en vol jusqu'à 18 h ». Il te demande d'abord (« J'act
 place à … sur … pendant … Je peux ? »), puis regarde toutes les `JERVIS_REPONDEUR_RELEVE_S` secondes qui t'a écrit
 **depuis**. À chaque nouveau message, il attend `JERVIS_REPONDEUR_DELAI_S` (le temps que la personne finisse et que
 tu répondes toi-même), écrit une réponse dans ton style et te prévient : « 📨 Répondu à Léa : « … » » (à voix
-haute, en notification, et sur ton iPhone dans votre conversation iMessage).
+haute, en notification, et sur ton iPhone, là où tu as écrit à Steve en dernier : iMessage ou WhatsApp).
 
 - **Une réponse par message reçu** : il ne répond pas deux fois de suite à la même personne tant qu'elle n'a pas
   réécrit, et pas du tout si tu as répondu entre-temps. Juste avant d'envoyer, il relit la conversation : si
@@ -1358,7 +1388,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_IMESSAGE_PATIENCE_S` | 20 | une demande plus longue que ça : « Je m'en occupe… » part d'abord (0 = jamais) |
 | `JERVIS_IMESSAGE_MEFIANCE_S` | 20 | un iMessage arrivé pendant une page ou un mail lus, ou ce temps-là après : il te demande si c'est bien toi |
 | `JERVIS_QUESTION_IMESSAGE_S` | 600 | une question ❓ restée sans réponse ce temps-là : c'est non |
-| `JERVIS_IMESSAGE_VOCAL` | oui | un vocal de toi par iMessage : il te répond par un vocal dit avec sa voix ; `non` = toujours par écrit |
+| `JERVIS_IMESSAGE_VOCAL` | oui | un vocal de toi par iMessage ou WhatsApp : il te répond par un vocal dit avec sa voix ; `non` = toujours par écrit |
+| `JERVIS_WHATSAPP_MOI` | auto | Steve depuis ton iPhone par WhatsApp (« Message à moi-même ») : `auto` = ton numéro lu dans WhatsApp ; `+336…` = à la main ; `non` = coupé |
 | `JERVIS_IMESSAGE_VOCAUX_DOSSIER` | (auto) | où il range ses vocaux avant de les envoyer (auto : `~/Library/Messages/Attachments/Jervis`, sinon `~/Pictures/Jervis`) |
 | `JERVIS_REPONSES_HEURES` | 72 | « réponds à mes messages » : il regarde les conversations de ces dernières heures |
 | `JERVIS_REPONSES_MAX` | 15 | conversations en attente montrées au plus à la fois |
@@ -1367,7 +1398,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_REPONDEUR_DUREE_H` | 3 | durée du répondeur quand tu n'en donnes pas (0 = jusqu'à ce que tu l'arrêtes) |
 | `JERVIS_REPONDEUR_MAX_PAR_H` | 4 | réponses au plus par heure et par conversation ; au-delà, il te laisse la suite |
 | `JERVIS_REPONDEUR_RELEVE_S` | 10 | toutes les combien de secondes le répondeur regarde qui t'a écrit |
-| `JERVIS_REPONDEUR_IPHONE` | oui | `non` = ses « 📨 Répondu à … » ne te sont pas envoyés aussi par iMessage |
+| `JERVIS_REPONDEUR_IPHONE` | oui | `non` = ses « 📨 Répondu à … » ne te sont pas envoyés aussi sur ton iPhone (iMessage ou WhatsApp) |
 | `JERVIS_APPELS` | oui | `non` = il n'appelle personne |
 | `JERVIS_APPEL_AUTO` | oui | il clique lui-même sur « Appeler » ; `non` = il compose, tu cliques |
 | `JERVIS_PRESENT_S` | 120 | tu es « devant le Mac » si tu as touché clavier ou souris depuis ce nombre de secondes |
@@ -1453,6 +1484,9 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
 - Tes iMessages à Steve sont lus sur le Mac, dans la base de Messages (en lecture seule) ; seul le texte de ta
   demande part vers Claude, comme une phrase tapée. Ses réponses partent par iMessage, chiffrées par Apple, vers toi
   seul. Les appels passent par ton iPhone ; Steve ne les écoute pas et n'y parle pas.
+- Tes messages à Steve dans WhatsApp (« Message à moi-même ») sont lus sur le Mac, dans la base de WhatsApp (en
+  lecture seule), tes vocaux transcrits sur le Mac ; seul le texte de ta demande part vers Claude. Ses réponses
+  partent par WhatsApp, vers toi seul.
 - Un vocal WhatsApp est fabriqué sur le Mac (voix locale) ; seul le vocal part, par WhatsApp, comme les tiens. Le
   journal ne note ni ce qu'il dit dedans ni la description de la bulle.
 - Ce que tu lui écris sur le tableau de bord suit le même chemin que ce que tu dis : la page et Steve se parlent sur

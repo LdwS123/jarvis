@@ -1393,8 +1393,8 @@ def vu_dans_ses_outils(texte: str) -> bool:
     return len(t) >= 8 and any(t in g for g, quand in _gestes if maintenant - quand < GESTES_S)
 
 
-# Une question ❓ par iMessage attend ta réponse (distance.Boite.demander) : d'ici là, aucun de ses agents ne lance
-# ce qui pourrait écrire dans Messages (commande, fichier, geste à l'écran). Sans quoi un geste lancé en même temps
+# Une question ❓ par iMessage ou WhatsApp attend ta réponse (distance.Boite.demander) : d'ici là, aucun de ses agents
+# ne lance ce qui pourrait écrire dans Messages ou WhatsApp (commande, fichier, geste à l'écran, envoyer_whatsapp). Sans quoi un geste lancé en même temps
 # pourrait répondre « oui » à ta place dans ta conversation avec toi-même.
 _questions_en_cours = 0
 
@@ -1411,7 +1411,8 @@ class QuestionEnCours:
 
 def peut_ecrire_dans_messages(outil: str) -> bool:
     return (outil in _ECRIT_DU_CODE or outil.startswith("mcp__mac__")
-            or outil in {"mcp__jervis__envoyer_imessage", "mcp__jervis__repondre"})
+            or outil in {"mcp__jervis__envoyer_imessage", "mcp__jervis__repondre", "mcp__jervis__envoyer_whatsapp",
+                         "mcp__jervis__envoyer_vocal_whatsapp"})
 
 
 async def attendre_les_questions() -> None:

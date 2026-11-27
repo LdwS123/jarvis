@@ -24,6 +24,11 @@ Il répond dans le fil exact où tu as écrit (son identifiant dans la base, `ch
 ton adresse iCloud ne se mélangent pas en deux conversations.
 
 Il faut l'Accès complet au disque pour « Jervis » (comme pour les codes reçus par SMS).
+
+Par WhatsApp (BoiteWhatsApp) : la même chose dans ta discussion « Message à moi-même ». Une seule bulle par message
+(dans Messages, le Mac envoie et reçoit le même iMessage : chaque bulle s'affiche deux fois). Steve lit la base de
+WhatsApp (ChatStorage.sqlite, en lecture seule) et répond par WhatsApp lui-même, comme envoyer_whatsapp : écrit, ou
+en vrai vocal si tu lui as parlé.
 """
 
 from __future__ import annotations
@@ -206,6 +211,8 @@ class Boite:
     """Ta conversation avec toi-même dans Messages, vue depuis le Mac. `envoyer(adresse, texte)` fait partir
     un iMessage (AppleScript dans Steve, un faux dans les tests)."""
 
+    origine = "iMessage"   # d'où vient la demande, pour Cerveau.demander
+
     def __init__(self, envoyer: Callable[[str, str], Awaitable[tuple[int, str]]], base: Path | None = None,
                  adresses: str | None = None, accord: Callable[[str], bool | None] = accord_simple,
                  journal: Callable[[str], None] = print, suspect: Callable[[], bool] | None = None,
@@ -235,6 +242,8 @@ class Boite:
         # (ton texte, arrivé pendant qu'il lisait une page ou un mail ?) : alors il te demande si c'est bien toi
         self.arrivees: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
         self.erreur = ""                      # pourquoi il ne lit pas (l'accès au disque…) ; "" s'il lit
+        self.vu_a = 0.0                       # quand tu lui as écrit pour la dernière fois (time.monotonic)
+        self._avis: list[str] = []            # ce qu'il doit te dire sans que tu aies rien demandé (un vocal perdu…)
 
     # --- lire la base --------------------------------------------------------------------------------------
 
@@ -312,6 +321,7 @@ class Boite:
                 continue  # la copie « reçue » du message que ton iPhone vient d'envoyer
             self._vus.append((texte, quand))
             self.adresse, self.fil = fil, self._guids.get(rang, "")
+            self.vu_a = time.monotonic()
             textes.append(texte)
         return textes
 
@@ -378,16 +388,21 @@ class Boite:
                     self._question.set_result((texte, de_lui, self._suspect()))
                 else:  # il lisait une page ou un mail, ou c'est l'un de ses textes : il te demande si c'est bien toi
                     self.arrivees.put_nowait((texte, de_lui or self._suspect()))
+            while self._avis:
+                await self.envoyer(self._avis.pop(0))
             if self.erreur and not dit:
-                self._journal(f"   📱 Je ne lis pas tes iMessages : il me faut l'Accès complet au disque (Réglages → "
-                              f"Confidentialité et sécurité). ({self.erreur})")
+                self._journal(f"   📱 Je ne lis pas tes {self.origine} : il me faut l'Accès complet au disque "
+                              f"(Réglages → Confidentialité et sécurité). ({self.erreur})")
             elif not self.erreur and not annonce:  # une fois : ce qu'il lit, pour savoir où lui écrire
                 annonce = True
-                self._journal(f"   📱 iMessage : je lis ta conversation avec toi-même ({len(self._fils)} fil(s))."
-                              if self._fils else "   📱 iMessage : je ne trouve pas encore ta conversation avec "
-                              "toi-même. Envoie-toi un message (à ton numéro ou à ton adresse iCloud) : je le lirai.")
+                self._journal(self._annonce())
             dit = bool(self.erreur)
             await asyncio.sleep(60 if self.erreur else config.IMESSAGE_RELEVE_S)
+
+    def _annonce(self) -> str:
+        return (f"   📱 iMessage : je lis ta conversation avec toi-même ({len(self._fils)} fil(s))." if self._fils else
+                "   📱 iMessage : je ne trouve pas encore ta conversation avec toi-même. Envoie-toi un message (à ton "
+                "numéro ou à ton adresse iCloud) : je le lirai.")
 
     # --- répondre ----------------------------------------------------------------------------------------
 
@@ -455,9 +470,223 @@ class Boite:
         return bool(accord)
 
 
+# --- Par WhatsApp : ta discussion « Message à moi-même » ---------------------------------------------------------
+
+WHATSAPP_GROUPE = Path.home() / "Library" / "Group Containers" / "group.net.whatsapp.WhatsApp.shared"
+WHATSAPP_TEXTES = (0, 7)     # un message écrit, un message avec un lien
+WHATSAPP_SON = 3             # un message vocal (ou un son)
+ATTENTE_SON_WHATSAPP_S = 45  # le son d'un vocal que WhatsApp n'a pas encore téléchargé sur le Mac : attendu 45 s
+SES_VOCAUX_S = 30            # sa bulle de vocal apparaît dans la base jusqu'à 30 s après l'envoi
+
+
+def whatsapp_a_moi(reglage: str | None = None, groupe: Path | None = None) -> set[str]:
+    """Tes identifiants WhatsApp (« 336…@s.whatsapp.net », et « …@lid » s'il y en a un) : ton numéro donné dans
+    config.WHATSAPP_MOI, sinon lus dans les réglages de WhatsApp (plutil : plistlib ne lit pas ce fichier-là)."""
+    reglage = (config.WHATSAPP_MOI if reglage is None else reglage).strip()
+    if reglage.lower() not in {"auto", "oui", "on", "1", ""}:
+        return {f"{numero[1:]}@s.whatsapp.net"} if (numero := cle(reglage)).startswith("+") else set()
+    plist = (groupe or WHATSAPP_GROUPE) / "Library" / "Preferences" / "group.net.whatsapp.WhatsApp.shared.plist"
+    a_moi = set()
+    for nom in ("OwnJabberID", "lid"):
+        try:
+            sortie = subprocess.run(["plutil", "-extract", nom, "raw", "-o", "-", str(plist)],
+                                    capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if sortie.returncode == 0 and re.fullmatch(r"\d{6,}@(s\.whatsapp\.net|lid)", jid := sortie.stdout.strip()):
+            a_moi.add(jid)
+    return a_moi
+
+
+async def _whatsapp_texte(numero: str, texte: str) -> tuple[str, str]:
+    from . import vocal
+    return await vocal.envoyer_texte(numero, texte)
+
+
+async def _whatsapp_vocal(numero: str, texte: str) -> tuple[str, str]:
+    from . import vocal
+    return await vocal.envoyer(numero, texte)
+
+
+class BoiteWhatsApp(Boite):
+    """Ta discussion « Message à moi-même » de WhatsApp, vue depuis le Mac : comme Boite (iMessage), sans les
+    bulles doublées. Tout ce qui y est écrit vient de toi (ZISFROMME = 1 : ton iPhone ou ce Mac) ; ses réponses
+    commencent par 🤖 et ses vocaux sont notés : il ne se relit jamais. `envoyer_texte(numéro, texte)` et
+    `envoyer_vocal(numéro, texte)` répondent (« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », détail) : WhatsApp piloté
+    par l'accessibilité dans Steve (vocal.py), des faux dans les tests."""
+
+    origine = "WhatsApp"
+
+    def __init__(self, envoyer_texte: Callable[[str, str], Awaitable[tuple[str, str]]] = _whatsapp_texte,
+                 envoyer_vocal: Callable[[str, str], Awaitable[tuple[str, str]]] = _whatsapp_vocal,
+                 base: Path | None = None, moi: str | None = None,
+                 accord: Callable[[str], bool | None] = accord_simple, journal: Callable[[str], None] = print,
+                 suspect: Callable[[], bool] | None = None, transcrire: Callable[[Path], str] = transcrire_vocal) -> None:
+        super().__init__(envoyer=self._pas_par_messages, base=base or WHATSAPP_GROUPE / "ChatStorage.sqlite",
+                         adresses="auto", accord=accord, journal=journal, suspect=suspect, transcrire=transcrire)
+        self._envoyer_texte, self._envoyer_vocal = envoyer_texte, envoyer_vocal
+        self._medias = self._base.parent / "Message"   # ZMEDIALOCALPATH (« Media/… ») part de là
+        self._reglage = config.WHATSAPP_MOI if moi is None else moi
+        self._ids: set[str] = set()                    # tes identifiants WhatsApp
+        self._sessions: list[int] = []                 # ta discussion avec toi-même (Z_PK), parfois deux
+        self._en_attente: dict[int, tuple[float, float]] = {}  # vocal sans son encore : Z_PK → (vu à, sa date)
+        self._ses_vocaux: list[list[float]] = []       # [début, fin (0 tant qu'il l'envoie), bulles encore à sauter]
+
+    @staticmethod
+    async def _pas_par_messages(_adresse: str, _texte: str) -> tuple[int, str]:
+        return 1, "pas par Messages"
+
+    # --- lire la base --------------------------------------------------------------------------------------
+
+    def _trouver_fils(self, lien: sqlite3.Connection) -> None:
+        self._ids = whatsapp_a_moi(self._reglage, self._base.parent)
+        self._fils_lus = time.monotonic()
+        numeros = sorted(j for j in self._ids if j.endswith("@s.whatsapp.net"))
+        self.adresse = "+" + numeros[0].split("@")[0] if numeros else ""
+        if not self._ids:
+            self._sessions = []
+            return
+        ids = sorted(self._ids)
+        self._sessions = [pk for (pk,) in lien.execute(
+            f"SELECT Z_PK FROM ZWACHATSESSION WHERE ZCONTACTJID IN ({','.join('?' * len(ids))})", ids)]
+
+    def lire(self) -> list[str]:
+        """Tes nouveaux messages à Steve dans « Message à moi-même » (vide s'il n'y a rien : voir self.erreur)."""
+        try:
+            lien = self._ouvrir()
+        except sqlite3.Error as e:
+            self.erreur = str(e)
+            return []
+        try:
+            dernier = lien.execute("SELECT COALESCE(MAX(Z_PK), 0) FROM ZWAMESSAGE").fetchone()[0]
+            if self._dernier is None:  # au démarrage : ce qui est déjà là n'est pas une demande
+                self._dernier = dernier
+            # Sans ta discussion avec toi-même : cherchée toutes les 30 s (tu viens peut-être de la commencer).
+            if time.monotonic() - self._fils_lus > (ADRESSES_S if self._sessions else 30) or not self._fils_lus:
+                self._trouver_fils(lien)
+            if not self._sessions:  # rien n'est perdu : ce que tu y écris d'ici là sera lu une fois trouvée
+                self.erreur = ""
+                return []
+            lignes = []
+            if dernier > self._dernier or self._en_attente:
+                fils = ",".join("?" * len(self._sessions))
+                attente = list(self._en_attente)
+                lignes = lien.execute(
+                    "SELECT m.Z_PK, COALESCE(m.ZTEXT, ''), COALESCE(m.ZMESSAGETYPE, 0), COALESCE(m.ZMESSAGEDATE, 0), "
+                    "COALESCE(i.ZMEDIALOCALPATH, '') FROM ZWAMESSAGE m LEFT JOIN ZWAMEDIAITEM i ON i.Z_PK = m.ZMEDIAITEM "
+                    f"WHERE m.ZCHATSESSION IN ({fils}) AND m.ZISFROMME = 1 "
+                    f"AND (m.Z_PK > ? AND m.Z_PK <= ? OR m.Z_PK IN ({','.join('?' * len(attente))})) ORDER BY m.Z_PK",
+                    (*self._sessions, self._dernier, dernier, *attente)).fetchall()
+            self._dernier, self.erreur = max(self._dernier, dernier), ""
+        except sqlite3.Error as e:
+            self.erreur = str(e)
+            return []
+        finally:
+            lien.close()
+        textes = []
+        for pk, texte, genre, date, chemin in lignes:
+            quand = float(date) + comptes._EPOQUE_APPLE
+            if genre == WHATSAPP_SON:
+                texte = self._vocal(pk, quand, chemin)
+            elif genre in WHATSAPP_TEXTES:
+                texte = " ".join(texte.split())
+            else:
+                continue  # une photo, un fichier, un sticker, un message système : jamais un ordre
+            if not texte or vient_de_lui(texte):
+                continue
+            self.vu_a = time.monotonic()
+            textes.append(texte)
+        return textes
+
+    def _vocal(self, pk: int, quand: float, chemin: str) -> str:
+        """Ton vocal transcrit (une fois) ; le sien, jamais. Son son pas encore sur le Mac : attendu, puis dit."""
+        if pk not in self._en_attente and self._de_lui(quand):
+            return ""
+        fichier = Path(chemin) if Path(chemin).is_absolute() else self._medias / chemin
+        if not chemin or not fichier.is_file() or not fichier.stat().st_size:
+            vu = self._en_attente.setdefault(pk, (time.monotonic(), quand))[0]
+            if time.monotonic() - vu > ATTENTE_SON_WHATSAPP_S:
+                del self._en_attente[pk]
+                self._journal("   📱 Vocal WhatsApp : son pas arrivé sur le Mac.")
+                self._avis.append("Ton vocal n'est pas arrivé sur le Mac (WhatsApp ne l'a pas téléchargé) : "
+                                  "renvoie-le, ou écris-le-moi.")
+            return ""
+        self._en_attente.pop(pk, None)
+        try:
+            texte = self._transcrire(fichier)
+        except Exception as e:  # un son illisible : il le dit, sans tomber
+            self._journal(f"   📱 Message vocal pas compris ({type(e).__name__}: {e})")
+            return ""
+        if not texte:
+            self._journal("   📱 Message vocal : je n'ai rien entendu.")
+            return ""
+        return VOCAL + texte
+
+    def _de_lui(self, quand: float) -> bool:
+        """Une bulle de vocal datée de pendant qu'il en envoyait un (ou juste après) : la sienne, une par envoi."""
+        maintenant = time.time()
+        self._ses_vocaux[:] = [v for v in self._ses_vocaux if v[2] and (not v[1] or maintenant - v[1] < ENVOYES_S)]
+        for envoi in self._ses_vocaux:
+            debut, fin, _ = envoi
+            if debut - 2 <= quand <= (fin or maintenant) + SES_VOCAUX_S:
+                envoi[2] -= 1
+                return True
+        return False
+
+    def _annonce(self) -> str:
+        if not self._ids:
+            return ("   📱 WhatsApp : je ne trouve pas ton numéro dans WhatsApp. Donne-le-moi "
+                    "(JERVIS_WHATSAPP_MOI=+33…) pour lire ta discussion « Message à moi-même ».")
+        return ("   📱 WhatsApp : je lis ta discussion « Message à moi-même »." if self._sessions else
+                "   📱 WhatsApp : je ne trouve pas encore ta discussion « Message à moi-même ». Écris-toi un message "
+                "dans WhatsApp (ton propre nom, « (vous) ») : je le lirai.")
+
+    # --- répondre ----------------------------------------------------------------------------------------
+
+    async def envoyer(self, texte: str, debut: str = MARQUE) -> bool:
+        if not self.adresse:
+            return False
+        message = debut + en_clair(texte)
+        noter_envoi(message)
+        statut, detail = await self._envoyer_texte(self.adresse, message)  # (un envoi WhatsApp à la fois : vocal._tour)
+        if statut == "ÉCHEC":
+            self._journal(f"   📱 Réponse WhatsApp pas partie : {detail[:150]}")
+        return statut != "ÉCHEC"   # « INCERTAIN » : peut-être partie, jamais renvoyée en double
+
+    async def raconter(self, texte: str) -> bool:
+        return await self.envoyer(texte)
+
+    async def envoyer_vocal(self, texte: str) -> bool:
+        """Sa réponse en vrai vocal WhatsApp (tu lui as parlé), dite avec sa voix. Un lien dedans : le texte suit.
+        Si le vocal ne part pas (trop long, un appel en cours…) : le texte."""
+        if not self.adresse:
+            return False
+        envoi = [time.time(), 0.0, 1]
+        self._ses_vocaux.append(envoi)  # avant l'envoi : sa bulle peut être lue pendant qu'il l'envoie
+        try:
+            statut, detail = await self._envoyer_vocal(self.adresse, en_clair(texte))
+        except Exception as e:
+            statut, detail = "ÉCHEC", f"{type(e).__name__}: {e}"
+        finally:
+            envoi[1] = time.time()
+        if statut == "ÉCHEC":
+            envoi[2] = 0
+            self._journal(f"   📱 Vocal WhatsApp pas parti ({detail[:150]}) : je réponds par écrit.")
+            return await self.envoyer(texte)
+        if re.search(r"https?://", texte):
+            await self.envoyer(texte)
+        return True
+
+
+def la_derniere(boites: list[Boite]) -> Boite:
+    """Là où tu lui as écrit en dernier ; si tu ne lui as encore rien écrit, WhatsApp (une bulle par message)."""
+    return max(boites, key=lambda b: (b.vu_a, isinstance(b, BoiteWhatsApp)))
+
+
 async def servir(boite: Boite, demander: Callable[..., Awaitable[str]], relire: Callable[[], None] | None = None,
                  journal: Callable[[str], None] = print) -> None:
-    """Ta demande arrive, il la fait (`demander` : Cerveau.demander, venu d'iMessage), et te répond dans le fil.
+    """Ta demande arrive, il la fait (`demander` : Cerveau.demander, venu d'iMessage ou de WhatsApp), et te répond
+    dans le fil.
     Si elle prend du temps, un « je m'en occupe » part d'abord. Quand tu ne lui écris plus (ECRIT_RELECTURE_S),
     `relire` : il relit l'échange pour sa mémoire, comme après le chat du tableau de bord.
     Un message arrivé pendant qu'il lisait une page ou un mail : il te demande d'abord si c'est bien toi."""
@@ -481,7 +710,7 @@ async def servir(boite: Boite, demander: Callable[..., Awaitable[str]], relire: 
                 continue
         journal(f"🧑 Toi (iPhone) : {texte}")
         travail = asyncio.ensure_future(demander(texte, ecrit=lambda _morceau: None,
-                                                 confirmer_ecrit=boite.demander, origine="iMessage"))
+                                                 confirmer_ecrit=boite.demander, origine=boite.origine))
         try:
             if config.IMESSAGE_PATIENCE_S > 0:
                 fini, _ = await asyncio.wait({travail}, timeout=config.IMESSAGE_PATIENCE_S)

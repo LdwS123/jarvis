@@ -1178,33 +1178,45 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     chat.MESSAGERIE.brancher(asyncio.get_running_loop())
     par_ecrit = asyncio.create_task(repondre_par_ecrit())
     iphone: list[asyncio.Task] = []
+    boites: list = []   # d'où tu lui écris depuis l'iPhone : iMessage, WhatsApp « Message à moi-même »
+    from . import distance
+
+    def noter(ligne: str) -> None:
+        print(ligne, flush=True)  # le journal : le tableau de bord y relit l'échange
+
+    def relire_apres() -> None:
+        if not discussion["active"]:
+            cerveau.fin_de_conversation()
+
+    def accord(t: str) -> bool | None:
+        return a if (a := lire_accord(t)) is not None else distance.accord_simple(t)  # (accord_simple connaît 👍)
     if config.IMESSAGE.lower() not in {"non", "off", "0"}:
         # Ta conversation avec toi-même dans Messages : tu lui écris (ou le dictes à Siri) depuis l'iPhone,
         # il répond dans le même fil. Il faut l'Accès complet au disque pour lire Messages.
-        from . import distance
-        def noter(ligne: str) -> None:
-            print(ligne, flush=True)  # le journal : le tableau de bord y relit l'échange
         # Dans le fil exact où tu as écrit (boite.fil) ; un vocal de toi reçoit un vocal dit avec sa voix.
         boite = distance.Boite(envoyer=lambda adresse, texte: outils._applescript(outils._IMESSAGE_FIL, adresse, texte,
                                                                                  boite.fil),
                                envoyer_son=lambda adresse, son: outils._applescript(outils._IMESSAGE_SON, adresse,
                                                                                     str(son), boite.fil),
-                               dire=tts.vocal_en_fichier,
-                               accord=lambda t: a if (a := lire_accord(t)) is not None else distance.accord_simple(t),
-                               journal=noter, suspect=cerveau.lu_dehors)  # (accord_simple connaît le 👍 tapé)
-        iphone = [asyncio.create_task(boite.relever()), asyncio.create_task(distance.servir(
-            boite, cerveau.demander, journal=noter,
-            relire=lambda: None if discussion["active"] else cerveau.fin_de_conversation()))]
+                               dire=tts.vocal_en_fichier, accord=accord, journal=noter, suspect=cerveau.lu_dehors)
+        boites.append(boite)
+    if config.WHATSAPP_MOI.lower() not in {"non", "off", "0"} and (distance.WHATSAPP_GROUPE / "ChatStorage.sqlite").exists():
+        # Ta discussion WhatsApp « Message à moi-même » : une seule bulle par message. Il répond par WhatsApp
+        # (écrit, ou en vrai vocal si tu lui as parlé).
+        boites.append(distance.BoiteWhatsApp(accord=accord, journal=noter, suspect=cerveau.lu_dehors))
+    for canal in boites:
+        iphone += [asyncio.create_task(canal.relever()),
+                   asyncio.create_task(distance.servir(canal, cerveau.demander, journal=noter, relire=relire_apres))]
     # Le répondeur (« réponds à ma place pendant 2 h ») : chaque réponse partie, ou gardée pour toi, t'est dite
-    # dans le journal, en notification et, si tu veux, dans ta conversation avec toi-même sur l'iPhone.
+    # dans le journal, en notification et, si tu veux, sur l'iPhone : là où tu lui as écrit en dernier (WhatsApp
+    # d'abord si tu ne lui as encore rien écrit).
     from . import reponses
-    a_raconter = boite if iphone and config.REPONDEUR_IPHONE else None
 
     def prevenir_repondeur(texte: str) -> None:
         print(f"   {texte}", flush=True)
         asyncio.create_task(notifier(config.PRENOM, texte))
-        if a_raconter:
-            asyncio.create_task(a_raconter.raconter(texte))
+        if boites and config.REPONDEUR_IPHONE:
+            asyncio.create_task(distance.la_derniere(boites).raconter(texte))
     reponses.REPONDEUR.prevenir = prevenir_repondeur
     iphone.append(asyncio.create_task(reponses.REPONDEUR.tourner()))
     n = config.PRENOM
