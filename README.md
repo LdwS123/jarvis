@@ -1193,7 +1193,9 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   minutes, depuis quand le Mac est allumé ; ils s'allument un par un à l'ouverture), puis **ses outils connectés**
   (Chrome, Gmail, Agenda, Drive, Zapier : ✓ connecté, ▲ à reconnecter, ✕ ne répond pas, tel que Claude Code
   l'a dit à la dernière vérification), **ses dernières commandes** du terminal (survole-en une pour son but et la
-  commande entière ; les mots de passe, jetons et clés y sont toujours masqués), puis vos derniers échanges.
+  commande entière ; les mots de passe, jetons et clés y sont toujours masqués), puis vos 20 derniers échanges
+  (la colonne défile et reste collée au dernier, sauf si tu es remonté relire ; « · écrit » ou « · iPhone » dit
+  d'où venait un message écrit).
 - **En bas** : ses temps de réponse (survole une barre : fin de phrase, texte, Claude, voix), ce qu'il sait sur
   toi, et son usage de Claude : la part utilisée de ta fenêtre de 5 heures et de ta semaine d'abonnement, et ses
   jetons jour par jour (pas de prix). Il te prévient à voix haute à 80 % puis 95 % d'une limite ; quand elle est
@@ -1206,20 +1208,31 @@ Un écran façon hologramme, dans une fenêtre à part : clique sur son icône d
   agent en cours l'arrête. Au-dessus, le bilan depuis son démarrage : « 5 lancés · 1 en cours · 2 finis · 1 échec ·
   1 annulé ». Ni prix ni dollars : ce qui compte, c'est ta part d'abonnement, pas la facture API.
 - **Lui écrire** (sous vos échanges) : tape ta demande et Entrée (Maj+Entrée pour aller à la ligne). Il te
-  répond par écrit, sans un mot à voix haute, et sa réponse s'affiche au fur et à mesure, en entier (listes et
-  retours à la ligne compris). Pratique en réunion, dans le métro, ou pour une adresse, un code, un texte à
+  répond par écrit, sans un mot à voix haute, et sa réponse s'affiche au fur et à mesure, mise en forme : gras,
+  italique, listes, titres, citations, tableaux, blocs de code (avec un bouton **Copier**) et liens cliquables,
+  plus aucune étoile `**` brute. Pratique en réunion, dans le métro, ou pour une adresse, un code, un texte à
   coller. S'il a besoin de ton accord (« j'envoie le mail ? »), la question apparaît dans le chat avec deux
   boutons **Oui** / **Non** au lieu de passer par le micro ; sans clic au bout de 5 minutes, c'est non. Si tu lui
   parles pendant qu'il répond à un message écrit, il te dit « je finis ce que tu m'as écrit » et enchaîne : ta voix
   ne coupe pas une demande écrite. Ce que vous vous écrivez entre dans la même conversation, la même mémoire et le
   même carnet que ce que vous vous dites.
-- **Les boutons** : couper ou rallumer le micro, ouvrir sa mémoire, ses conversations, son briefing, sa ronde,
+- **Vos conversations** (**Tout voir** au-dessus de vos échanges, ou le bouton *Conversations*) : tout votre
+  historique dans une grande fenêtre, comme une messagerie, rangé par jour (Aujourd'hui, Hier, jeudi 20 novembre…).
+  Tes messages à droite, avec d'où ils venaient (🎙️ à voix haute, ⌨️ chat, 💬 iMessage, 🟢 WhatsApp, message
+  vocal) ; ses réponses à gauche, mises en forme, avec **Copier**. Les comptes rendus (ronde, tâches de fond)
+  sont repliés. Remonte pour charger les plus anciens (par 40), cherche un mot en haut (sans accents ni
+  majuscules : « cafe » trouve « café »), et continue d'écrire en bas : le chat suit dans la fenêtre, les
+  nouveaux échanges (ta voix, ton iPhone) arrivent tout seuls. Échap ferme.
+- **Les boutons** : couper ou rallumer le micro, ouvrir sa mémoire, vos conversations, son briefing, sa ronde,
   son carnet de leçons, son journal.
 
 La page est servie par Steve lui-même sur `http://127.0.0.1:8765` : elle n'existe que sur ce Mac, et tant qu'elle
 n'est pas ouverte elle ne lui coûte rien. Le chat passe par la même porte : rien de ce que tu tapes ne sort du Mac
 avant d'arriver à Claude, comme ce que tu dis. Écrire, lire le chat et répondre Oui / Non demandent le jeton secret
-que seule la page reçoit : un autre site ouvert dans ton navigateur ne peut ni lire ni écrire à ta place.
+que seule la page reçoit : un autre site ouvert dans ton navigateur ne peut ni lire ni écrire à ta place. Il en
+va de même pour l'historique (`GET /conversations`), lu dans `espace/conversations.jsonl` sur le Mac. La mise en
+forme est construite élément par élément (jamais de HTML recopié) et un lien n'est cliquable que s'il est en
+http(s) : un texte piégé lu dans un mail ou une page ne peut rien glisser dans le tableau de bord.
 
 **Ce que veulent dire les chiffres du Mac :**
 
@@ -1232,7 +1245,8 @@ que seule la page reçoit : un autre site ouvert dans ton navigateur ne peut ni 
 - **Disque** : garde 10 à 15 % de libre (▲ en dessous de 15 %, ✕ en dessous de 5 %). Pour faire de la place :
   Réglages Système › Général › Stockage.
 - **Batterie** : ▲ sous 20 %, ✕ sous 10 %. Le temps restant n'apparaît que quand macOS a une vraie estimation. Les phrases de l'anneau (« je t'écoute », « je réfléchis »…) se changent
-dans `ETATS`, dans `jervis/tableau.html`. Test : `PYTHONPATH=. .venv/bin/python tests/test_tableau.py`.
+dans `ETATS`, dans `jervis/tableau.html` ; le nombre d'échanges de la colonne dans `TOURS` et la taille d'un
+paquet de l'historique dans `HISTOIRE_PAGE` (`jervis/tableau.py`). Test : `PYTHONPATH=. .venv/bin/python tests/test_tableau.py`.
 
 ## Réglages
 

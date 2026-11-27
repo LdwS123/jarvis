@@ -9,7 +9,9 @@ import datetime as dt
 import http.client
 import json
 import os
+import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -89,8 +91,15 @@ verifier("journal : ses actions, les répétitions comptées", lu["outils"],
 verifier("journal : ses temps de réponse", [c["total"] for c in lu["chronos"]], [5.3, 2.1])
 long = tableau.lire_journal("".join(f"🧑 Toi : question {i}\n🤖 {P} : réponse {i}\n   ⏱ 1,0 s  (texte 1,0)\n"
                                     for i in range(40)))
-verifier("journal : seulement la fin (8 tours, 24 chronos)", (len(long["echanges"]), len(long["chronos"]),
-                                                               long["echanges"][-1]["texte"]), (8, 24, "réponse 39"))
+verifier("journal : seulement la fin (20 tours, 24 chronos)", (len(long["echanges"]), len(long["chronos"]),
+                                                                long["echanges"][-1]["texte"]), (20, 24, "réponse 39"))
+ecrit = tableau.lire_journal(f"🧑 Toi (écrit) : salut\n🤖 {P} (écrit) : **Bonjour** ⏎ - un\n"
+                             f"🧑 Toi (iPhone) : et là ?\n🤖 {P} (iPhone) : Ici.\n")
+verifier("journal : le chat et l'iPhone, ses réponses avec leurs retours à la ligne", ecrit["echanges"],
+         [{"qui": "toi", "texte": "salut", "ecrit": True, "canal": "chat"},
+          {"qui": "steve", "texte": "**Bonjour**\n- un", "ecrit": True, "canal": "chat"},
+          {"qui": "toi", "texte": "et là ?", "ecrit": True, "canal": "iPhone"},
+          {"qui": "steve", "texte": "Ici.", "ecrit": True, "canal": "iPhone"}])
 verifier("journal vide", tableau.lire_journal(""), {"echanges": [], "outils": [], "commandes": [], "chronos": []})
 
 # --- 3 bis. Ses dernières commandes du terminal, sans jamais un secret ----------------------------------------------
@@ -282,6 +291,85 @@ verifier("page : les nouveaux panneaux y sont", [m for m in ('id="connecteurs"',
                                                   if m not in page], [])
 verifier("page : plus de prix", [m for m in (" $", " $\"", "argent", ".cout", "peindreCout", "coût") if m in page], [])
 
+# --- 5 bis. Toutes vos conversations (conversations.jsonl), pour la fenêtre « Vos conversations » ----------------
+verifier("échange : le canal et les étiquettes séparés de ta demande",
+         tableau.lire_echange(3, {"quand": "2026-11-27T09:14", "toi": "(WhatsApp) (message vocal) Il fait beau ?",
+                                  "steve": "Oui."}),
+         {"i": 3, "quand": "2026-11-27T09:14", "canal": "WhatsApp", "notes": ["message vocal"],
+          "toi": "Il fait beau ?", "steve": "Oui.", "rapport": False})
+verifier("échange : à voix haute, sans étiquette", tableau.lire_echange(0, {"toi": "Bonjour", "steve": "Salut"})["canal"],
+         "voix")
+verifier("échange : un compte rendu de tâche de fond n'est pas une demande de toi",
+         [(e["canal"], e["rapport"]) for e in (tableau.lire_echange(0, {"toi": "(tâche de fond terminée) Le PDF est prêt."}),
+                                                tableau.lire_echange(1, {"toi": "(écrit) (interrompu) stop"}))],
+         [("voix", True), ("chat", False)])
+verifier("échange : une parenthèse au milieu reste dans le texte",
+         tableau.lire_echange(0, {"toi": "(écrit) J'ai vu (enfin presque) le film"})["toi"], "J'ai vu (enfin presque) le film")
+
+histoire = dossier / "conversations.jsonl"
+histoire.write_text("\n".join([json.dumps({"quand": f"2026-11-{10 + i // 10:02d}T10:{i % 60:02d}",
+                                            "toi": ("(écrit) " if i % 2 else "") + f"question {i}" + (" café" if i == 7 else ""),
+                                            "steve": f"réponse {i}"}, ensure_ascii=False) for i in range(100)]
+                               + ["pas du json", "[1, 2]"]) + "\n", encoding="utf-8")
+h = tableau.lire_conversations(histoire, n=10)
+verifier("historique : les 10 derniers, du plus ancien au plus récent, les lignes cassées sautées",
+         ([e["i"] for e in h["echanges"]], h["plus_anciens"], h["fin"]), (list(range(90, 100)), True, 102))
+h = tableau.lire_conversations(histoire, avant=5, n=10)
+verifier("historique : plus anciens, jusqu'au tout début", ([e["i"] for e in h["echanges"]], h["plus_anciens"]),
+         ([0, 1, 2, 3, 4], False))
+h = tableau.lire_conversations(histoire, apres=97)
+verifier("historique : seulement les nouveaux", [e["i"] for e in h["echanges"]], [98, 99])
+verifier("historique : la recherche, sans accents ni majuscules, tous les mots",
+         [e["i"] for e in tableau.lire_conversations(histoire, cherche="CAFE question")["echanges"]], [7])
+verifier("historique : rien trouvé", tableau.lire_conversations(histoire, cherche="licorne")["echanges"], [])
+verifier("historique : pas encore de fichier", tableau.lire_conversations(dossier / "absent.jsonl"),
+         {"echanges": [], "plus_anciens": False, "fin": 0})
+
+# --- 5 ter. Le Markdown de ses réponses, lu par la page (node, s'il est là) ----------------------------------------
+html = (Path(tableau.__file__).parent / "tableau.html").read_text(encoding="utf-8")
+module = html.split("// <markdown>", 1)[1].split("\n", 1)[1].split("// </markdown>", 1)[0]
+node = shutil.which("node")
+if not node:
+    print("   (Markdown non testé : pas de node ici)")
+else:
+    essais = {
+        "gras": "Il fait **beau** et *doux*, ~~pluie~~ `code`",
+        "lien": "Voir [la page](https://exemple.fr/a) ou https://exemple.fr/b. Pas [ça](javascript:alert(1))",
+        "liste": "Courses :\n- pain\n- lait\n  - entier\n\n3. trois\n4. quatre",
+        "titre": "## Résumé\nTexte\n---\n> cité **fort**",
+        "code": "```python\nprint('**pas gras**')\n```",
+        "table": "| Ville | °C |\n|---|---|\n| Paris | 12 |",
+        "calcul": "2 * 3 * 4 et snake_case_ici",
+    }
+    script = module + "\nconsole.log(JSON.stringify(Object.fromEntries(Object.entries(" + json.dumps(essais) + \
+             ").map(([k, v]) => [k, lireMarkdown(v)]))));"
+    sortie = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=20)
+    md = json.loads(sortie.stdout or "{}")
+    verifier("markdown : gras, italique, barré, code", md.get("gras"),
+             [{"t": "p", "lignes": [["Il fait ", {"t": "b", "c": ["beau"]}, " et ", {"t": "i", "c": ["doux"]}, ", ",
+                                     {"t": "s", "c": ["pluie"]}, " ", {"t": "code", "c": ["code"]}]]}])
+    verifier("markdown : liens http(s) seulement (un javascript: reste du texte)", md.get("lien"),
+             [{"t": "p", "lignes": [["Voir ", {"t": "lien", "href": "https://exemple.fr/a", "c": ["la page"]}, " ou ",
+                                     {"t": "lien", "href": "https://exemple.fr/b", "c": ["https://exemple.fr/b"]},
+                                     ". Pas [ça](javascript:alert(1))"]]}])
+    verifier("markdown : listes à puces (un sous-niveau) et numérotées", md.get("liste"),
+             [{"t": "p", "lignes": [["Courses :"]]},
+              {"t": "liste", "ordonnee": False, "debut": 1, "items": [{"c": ["pain"], "sous": []},
+                                                                      {"c": ["lait"], "sous": [["entier"]]}]},
+              {"t": "liste", "ordonnee": True, "debut": 3, "items": [{"c": ["trois"], "sous": []},
+                                                                     {"c": ["quatre"], "sous": []}]}])
+    verifier("markdown : titre, filet, citation", md.get("titre"),
+             [{"t": "titre", "niveau": 2, "c": ["Résumé"]}, {"t": "p", "lignes": [["Texte"]]}, {"t": "filet"},
+              {"t": "citation", "c": [{"t": "p", "lignes": [["cité ", {"t": "b", "c": ["fort"]}]]}]}])
+    verifier("markdown : dans un bloc de code, rien n'est interprété", md.get("code"),
+             [{"t": "code", "langue": "python", "texte": "print('**pas gras**')"}])
+    verifier("markdown : un tableau", md.get("table"),
+             [{"t": "table", "tete": [["Ville"], ["°C"]], "rangees": [[["Paris"], ["12"]]]}])
+    verifier("markdown : un calcul et un nom_avec_tirets restent tels quels", md.get("calcul"),
+             [{"t": "p", "lignes": [["2 * 3 * 4 et snake_case_ici"]]}])
+    verifier("markdown : jamais innerHTML dans la page", ("innerHTML" in html.replace("jamais innerHTML", ""),
+                                                          "insertAdjacentHTML" in html), (False, False))
+
 # --- 6. Le serveur : cette machine seulement, et un jeton pour appuyer sur un bouton -------------------------------
 with socket.socket() as s:
     try:
@@ -322,6 +410,17 @@ else:
     verifier("aucun bouton n'a été pressé jusqu'ici", appuis, [])
     verifier("POST avec le jeton", demander("POST", "/action/pause", **{"X-Jeton": ecran.jeton})[0].status, 204)
     verifier("le bouton a été pressé une fois", appuis, ["pause"])
+    from jervis import outils
+    vrai_journal, outils.JOURNAL = outils.JOURNAL, histoire   # jamais tes vraies conversations dans un test
+    verifier("GET /conversations sans jeton", demander("GET", "/conversations")[0].status, 403)
+    r, corps = demander("GET", "/conversations?avant=50&n=3&q=question", **{"X-Jeton": ecran.jeton})
+    d = json.loads(corps)
+    verifier("GET /conversations avec le jeton", (r.status, [e["i"] for e in d["echanges"]], d["plus_anciens"]),
+             (200, [47, 48, 49], True))
+    r, corps = demander("GET", "/conversations?avant=-1&n=abc&apres=1e9", **{"X-Jeton": ecran.jeton})
+    verifier("GET /conversations : des nombres étranges sont ignorés", (r.status, len(json.loads(corps)["echanges"])),
+             (200, tableau.HISTOIRE_PAGE))
+    outils.JOURNAL = vrai_journal
     verifier("POST d'un bouton inconnu", demander("POST", "/action/eteindre", **{"X-Jeton": ecran.jeton})[0].status, 404)
 
 print(f"\n{'✅' if not echecs else '❌'} tableau : {total - len(echecs)}/{total} vérifications OK", flush=True)

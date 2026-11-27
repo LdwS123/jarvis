@@ -45,6 +45,9 @@ verifier("clé : un mail en minuscules, sans le « E: » de la base", distance.c
 verifier("clé : rien de lisible → vide", distance.cle("abc"), "")
 verifier("en clair : sans Markdown", distance.en_clair("**Demain** : `14 h`\n- pain\n- lait"),
          "Demain : 14 h\n• pain\n• lait")
+verifier("en clair : ni italique ni barré, mais les puces « * » et les calculs restent",
+         distance.en_clair("C'est *vraiment* ~~cher~~ pas cher\n* pain\n2 * 3 * 4"),
+         "C'est vraiment cher pas cher\n• pain\n2 * 3 * 4")
 verifier("en clair : un lien lisible par Siri", distance.en_clair("[la fiche](https://exemple.fr/a)"),
          "la fiche : https://exemple.fr/a")
 verifier("en clair : coupé s'il est trop long", len(distance.en_clair("x" * 9000)), distance.TEXTE_MAX)
@@ -552,7 +555,8 @@ verifier("vocal en retour : rien à dire → pas de fichier", asyncio.run(tts.vo
 # --- Le tableau de bord et les consignes ------------------------------------------------------------------
 echanges = tableau.lire_journal(f"🧑 Toi (iPhone) : Météo demain\n🤖 {config.PRENOM} (iPhone) : Soleil ⏎ 18°\n")
 verifier("tableau : l'échange par iPhone s'affiche comme un écrit", echanges["echanges"],
-         [{"qui": "toi", "texte": "Météo demain", "ecrit": True}, {"qui": "steve", "texte": "Soleil\n18°", "ecrit": True}])
+         [{"qui": "toi", "texte": "Météo demain", "ecrit": True, "canal": "iPhone"},
+          {"qui": "steve", "texte": "Soleil\n18°", "ecrit": True, "canal": "iPhone"}])
 c = brain._consignes(ecran=False)
 verifier("consignes : il sait ce qu'est « (iMessage) … »", "« (iMessage) … »" in c, True)
 verifier("consignes : et un message vocal", "(message vocal)" in c, True)

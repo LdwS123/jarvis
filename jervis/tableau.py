@@ -26,6 +26,7 @@ import statistics
 import subprocess
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Callable
@@ -35,6 +36,8 @@ from . import chat, compteur, config, ligne, reglages, voix_locale
 PAGE = Path(__file__).with_name("tableau.html")
 JOURNAL = config.DOSSIER / "jervis.log"
 FIN_DU_JOURNAL = 96 * 1024   # on ne relit que la fin du journal : assez pour une longue conversation
+TOURS = 20                   # les derniers tours de parole montrés dans la colonne (elle défile)
+HISTOIRE_PAGE = 40           # « Toutes vos conversations » : les échanges envoyés à la page, par paquet
 CORPS_MAX = 20_000           # un message tapé (chat.TEXTE_MAX caractères, accents compris) tient largement dedans
 
 # --- Ce que raconte jervis.log ----------------------------------------------------------------------
@@ -135,18 +138,19 @@ def lire_journal(texte: str) -> dict[str, list]:
     lui = f"🤖 {config.PRENOM} : "
     lui_ecrit = (f"🤖 {config.PRENOM} (écrit) : ", f"🤖 {config.PRENOM} (iPhone) : ")  # le chat, ou iMessage
 
-    def tour(qui: str, phrase: str, ecrit: bool = False) -> None:
+    def tour(qui: str, phrase: str, ecrit: bool = False, canal: str = "") -> None:
         # Ses phrases d'une même réponse : un seul tour. Une réponse écrite reste à part (et en entier sur la page).
         if echanges and echanges[-1]["qui"] == qui and echanges[-1].get("ecrit", False) == ecrit and not ecrit:
             echanges[-1]["texte"] += " " + phrase
         else:
-            echanges.append({"qui": qui, "texte": phrase, **({"ecrit": True} if ecrit else {})})
+            echanges.append({"qui": qui, "texte": phrase, **({"ecrit": True, "canal": canal} if ecrit else {})})
 
     for ligne in _COULEURS.sub("", texte).splitlines():
         if m := _TOI.match(ligne):
-            tour("toi", m[2], ecrit=m[1] in ("écrit", "iPhone"))
+            tour("toi", m[2], ecrit=m[1] in ("écrit", "iPhone"), canal="iPhone" if m[1] == "iPhone" else "chat")
         elif ligne.startswith(lui_ecrit):
-            tour("steve", ligne.split(" : ", 1)[1].replace(" ⏎ ", "\n"), ecrit=True)
+            tour("steve", ligne.split(" : ", 1)[1].replace(" ⏎ ", "\n"), ecrit=True,
+                 canal="iPhone" if ligne.startswith(lui_ecrit[1]) else "chat")
         elif ligne.startswith(lui):
             # Son annonce au démarrage n'est pas une réponse (l'ancienne tournure traîne encore dans le journal).
             if ligne[len(lui):] not in (config.ANNONCE, f"{config.PRENOM} en ligne."):
@@ -161,7 +165,7 @@ def lire_journal(texte: str) -> dict[str, list]:
                 outils.append({"nom": nom, "action": action, "fois": 1})
         elif (m := _CHRONO.match(ligne)) and (chrono := lire_chrono(m[1], m[2])):
             chronos.append(chrono)
-    return {"echanges": echanges[-8:], "outils": outils[-6:], "commandes": commandes[-6:], "chronos": chronos[-24:]}
+    return {"echanges": echanges[-TOURS:], "outils": outils[-6:], "commandes": commandes[-6:], "chronos": chronos[-24:]}
 
 
 def fin_du_journal(chemin: Path = JOURNAL) -> str:
@@ -174,6 +178,58 @@ def fin_du_journal(chemin: Path = JOURNAL) -> str:
         return ""
     texte = brut.decode("utf-8", errors="replace")
     return texte.split("\n", 1)[-1] if taille > FIN_DU_JOURNAL else texte  # la 1re ligne est sans doute coupée
+
+
+# --- Toutes vos conversations (conversations.jsonl) -------------------------------------------------
+
+_PREFIXE = re.compile(r"^\(([^()\n]{1,60})\)\s*")
+_CANAUX = {"écrit": "chat", "iMessage": "iMessage", "WhatsApp": "WhatsApp"}
+_RAPPORTS = re.compile(r"^(?:ta ronde|briefing réunion|tâche de fond terminée|\d+ tâches de fond viennent de finir|programmé)")
+
+
+def lire_echange(i: int, e: dict[str, Any]) -> dict[str, Any]:
+    """Une ligne de conversations.jsonl, prête pour la page : d'où venait ta demande (ta voix, le chat, iMessage,
+    WhatsApp), ce qu'elle disait sans ses étiquettes « (écrit) (message vocal) … », et sa réponse."""
+    toi, notes, canal = str(e.get("toi", "")), [], "voix"
+    while len(notes) < 4 and (m := _PREFIXE.match(toi)):
+        etiquette = m[1].strip()
+        if etiquette in _CANAUX and canal == "voix":
+            canal = _CANAUX[etiquette]
+        else:
+            notes.append(etiquette)
+        toi = toi[m.end():]
+    return {"i": i, "quand": str(e.get("quand", "")), "canal": canal, "notes": notes, "toi": toi.strip(),
+            "steve": str(e.get("steve", "")), "rapport": any(_RAPPORTS.match(n) for n in notes)}
+
+
+def lire_conversations(chemin: Path | None = None, avant: int | None = None, apres: int | None = None,
+                       n: int = HISTOIRE_PAGE, cherche: str = "") -> dict[str, Any]:
+    """Vos échanges, du plus ancien au plus récent : les `n` derniers (avant le numéro `avant`, ou après `apres`
+    pour ne prendre que les nouveaux), ceux qui contiennent tous les mots de `cherche` (sans accents ni majuscules).
+    Le numéro d'un échange, c'est sa ligne dans le fichier : il ne fait que grandir."""
+    from . import outils   # ici et pas en haut : comme pour _souvenirs, le tableau ne charge ses outils qu'au besoin
+    try:
+        lignes = (chemin or outils.JOURNAL).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lignes = []
+    mots = outils._sans_accents(cherche).split()[:8]
+    fin = len(lignes) if avant is None else max(0, min(avant, len(lignes)))
+    debut = 0 if apres is None else max(0, apres + 1)
+    trouves: list[dict[str, Any]] = []
+    for i in range(fin - 1, debut - 1, -1):
+        try:
+            e = json.loads(lignes[i])
+        except ValueError:
+            continue
+        if not isinstance(e, dict):
+            continue
+        echange = lire_echange(i, e)
+        if mots and not all(m in outils._sans_accents(f"{echange['toi']} {echange['steve']}") for m in mots):
+            continue
+        trouves.append(echange)
+        if len(trouves) > n:
+            break
+    return {"echanges": trouves[:n][::-1], "plus_anciens": len(trouves) > n, "fin": len(lignes)}
 
 
 # --- Son usage de Claude ----------------------------------------------------------------------------
@@ -525,6 +581,18 @@ class Tableau:
                         return
                     v = re.fullmatch(r"depuis=(\d{1,12})", requete)
                     self._json(chat.MESSAGERIE.depuis(int(v[1]) if v else 0))
+                elif chemin == "/conversations":  # tout votre historique : seulement pour la page (qui a le jeton)
+                    if not self._jeton_ok():
+                        self._repondre(403)
+                        return
+                    q = urllib.parse.parse_qs(requete, max_num_fields=8)
+
+                    def nombre(cle: str) -> int | None:
+                        v = q.get(cle, [""])[0]
+                        return int(v) if v.isdigit() and len(v) <= 12 else None
+                    self._json(lire_conversations(avant=nombre("avant"), apres=nombre("apres"),
+                                                  n=min(nombre("n") or HISTOIRE_PAGE, 200),
+                                                  cherche=q.get("q", [""])[0][:200]))
                 elif chemin == "/pouls":
                     self._json(tableau.pouls())
                 elif chemin == "/etat":

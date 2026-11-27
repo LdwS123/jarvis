@@ -137,7 +137,8 @@ def cle(adresse: str | None) -> str:
 
 def en_clair(texte: str) -> str:
     """Sa réponse écrite, lisible dans une bulle (et par Siri) : sans les ** ni les ` du Markdown."""
-    texte = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m[1] or m[2], texte)
+    texte = re.sub(r"\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~", lambda m: m[1] or m[2] or m[3], texte)
+    texte = re.sub(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])", r"\1", texte)  # *en italique*
     texte = re.sub(r"`{1,3}([^`]*)`{1,3}", r"\1", texte)
     texte = re.sub(r"^#{1,6}\s*", "", texte, flags=re.MULTILINE)
     texte = re.sub(r"^\s*[-*]\s+", "• ", texte, flags=re.MULTILINE)

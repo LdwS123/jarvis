@@ -135,17 +135,92 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
 
 /* --- Conversation et actions --- */
 .fil { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fil h2 .tout-voir { order: 2; background: none; border: 0; padding: 0; color: var(--cyan); font: 12px/1 var(--texte); cursor: pointer; }
+.fil h2 .tout-voir:hover, .fil h2 .tout-voir:focus-visible { color: var(--glace); text-decoration: underline; outline: none; }
+.fil h2::after { order: 1; }
+/* La conversation défile (molette, trackpad) ; elle colle au bas tant que tu n'es pas remonté la relire. */
 .tours {
-  flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;
-  -webkit-mask-image: linear-gradient(transparent, #000 18%); mask-image: linear-gradient(transparent, #000 18%);
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px;
+  padding-right: 6px; scrollbar-width: thin; scrollbar-color: var(--filet) transparent;
 }
+.tours > :first-child { margin-top: auto; }
 .tour { flex: none; padding-left: 11px; border-left: 2px solid var(--cyan); }
 .tour.steve { border-left-color: var(--braise); }
 .tour .qui { display: block; font-size: 11.5px; color: var(--brume); }
-.tour p { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; font-size: 13.5px; max-width: 62ch; }
-.tour.ecrit p { display: block; -webkit-line-clamp: unset; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
-.tour.ecrit .qui::after { content: " · écrit"; }
+.tour > p { font-size: 13.5px; max-width: 62ch; overflow-wrap: anywhere; }
+.tour.ecrit > p { white-space: pre-wrap; }
 .tour.attend { opacity: .6; }
+
+/* --- Sa réponse écrite, mise en forme (gras, listes, code, liens, tableaux) : plus jamais de ** à l'écran --- */
+.md { font-size: 13.5px; max-width: 68ch; overflow-wrap: anywhere; }
+.md > * + * { margin-top: 7px; }
+.md strong { color: #fff; font-weight: 600; }
+.md em { font-style: italic; }
+.md s { color: var(--brume); }
+.md a { color: var(--cyan); text-decoration: underline; text-decoration-color: rgba(111, 224, 255, .4); text-underline-offset: 2px; }
+.md a:hover { text-decoration-color: var(--cyan); }
+.md code { font: 12.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace; background: rgba(111, 224, 255, .08); border: 1px solid var(--filet); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+.md .titre { font-weight: 600; color: #fff; }
+.md .titre.n1 { font-size: 15px; }
+.md ul, .md ol { padding-left: 1.35em; display: grid; gap: 3px; }
+.md li > ul { margin-top: 3px; }
+.md li::marker { color: var(--cyan); }
+.md blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--brume); color: var(--brume); }
+.md hr { border: 0; border-top: 1px solid var(--filet); }
+.md .bloc-code { position: relative; }
+.md pre { margin: 0; padding: 9px 12px; border-radius: 6px; background: rgba(2, 8, 16, .8); border: 1px solid var(--filet); overflow-x: auto; }
+.md pre code { background: none; border: 0; padding: 0; white-space: pre; overflow-wrap: normal; }
+.md .defile { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: 12.5px; }
+.md th, .md td { border: 1px solid var(--filet); padding: 4px 9px; text-align: left; vertical-align: top; }
+.md th { color: var(--cyan); font-weight: 500; }
+.copier {
+  background: rgba(5, 17, 32, .85); border: 1px solid var(--filet); border-radius: 4px; color: var(--brume); cursor: pointer;
+  font: 11px/1 var(--texte); padding: 4px 7px;
+}
+.copier:hover, .copier:focus-visible { color: var(--cyan); border-color: var(--cyan); outline: none; }
+.md .bloc-code .copier { position: absolute; top: 6px; right: 6px; opacity: 0; transition: opacity .15s; }
+.md .bloc-code:hover .copier, .md .bloc-code .copier:focus-visible { opacity: 1; }
+
+/* --- Toutes vos conversations : l'historique complet, comme une messagerie --- */
+.salon { position: fixed; inset: 0; z-index: 20; display: flex; justify-content: center; background: rgba(3, 9, 18, .95); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.salon[hidden] { display: none; }
+.salon .cadre { width: min(900px, 100%); height: 100%; display: flex; flex-direction: column; padding: 22px 26px 18px; }
+.salon-tete { flex: none; display: flex; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--filet); }
+.salon-tete h2 { flex: 1; margin: 0; font-size: 15px; color: var(--glace); letter-spacing: .01em; }
+.salon-tete h2::after { display: none; }
+.salon-tete input {
+  width: min(300px, 40vw); padding: 7px 11px; border-radius: 6px; background: rgba(5, 17, 32, .7); border: 1px solid var(--filet);
+  color: var(--glace); font: 13px/1.3 var(--texte);
+}
+.salon-tete input:focus { outline: none; border-color: var(--cyan); }
+.salon-tete input::placeholder { color: var(--brume); }
+.salon-tete .fermer { background: none; border: 1px solid var(--filet); border-radius: 6px; color: var(--brume); cursor: pointer; font: 13px/1 var(--texte); padding: 7px 11px; }
+.salon-tete .fermer:hover, .salon-tete .fermer:focus-visible { color: var(--glace); border-color: var(--cyan); outline: none; }
+.salon-fil {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px;
+  padding: 16px 8px 10px 2px; scrollbar-width: thin; scrollbar-color: var(--filet) transparent;
+}
+.salon-fil > :first-child { margin-top: auto; }
+.salon-fil .vide { align-self: center; max-width: 46ch; text-align: center; margin-bottom: auto; }
+.salon-bas { flex: none; }
+.salon-bas .direct .tour { max-width: 78%; }
+.plus-anciens { align-self: center; background: none; border: 1px solid var(--filet); border-radius: 999px; color: var(--cyan); cursor: pointer; font: 12px/1 var(--texte); padding: 6px 14px; }
+.plus-anciens:hover, .plus-anciens:focus-visible { border-color: var(--cyan); outline: none; }
+.separateur { align-self: center; margin: 6px 0 2px; padding: 3px 11px; border: 1px solid var(--filet); border-radius: 999px; font-size: 11.5px; color: var(--brume); }
+.message { position: relative; max-width: 78%; padding: 8px 13px 9px; border-radius: 14px; }
+.message.toi { align-self: flex-end; background: rgba(44, 127, 201, .24); border: 1px solid rgba(111, 224, 255, .22); border-bottom-right-radius: 4px; }
+.message.toi > p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; }
+.message.steve { align-self: flex-start; background: rgba(255, 178, 91, .06); border: 1px solid rgba(255, 178, 91, .22); border-bottom-left-radius: 4px; }
+.message .meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 3px; font-size: 11px; color: var(--brume); }
+.message.toi .meta { justify-content: flex-end; }
+.message .canal { color: var(--cyan); }
+.message.steve .meta .nom { color: var(--braise); }
+.message .copier { position: absolute; right: 8px; bottom: -11px; opacity: 0; transition: opacity .15s; }
+.message:hover .copier, .message .copier:focus-visible { opacity: 1; }
+.rapport { align-self: center; max-width: 78%; font-size: 12.5px; color: var(--brume); }
+.rapport summary { cursor: pointer; text-align: center; }
+.rapport p { margin-top: 6px; padding: 8px 11px; border: 1px dashed var(--filet); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* --- Le chat écrit --- */
 .direct { flex: none; display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
@@ -367,8 +442,8 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
       <ul id="commandes"></ul>
     </section>
     <section class="fil">
-      <h2>Conversation</h2>
-      <div class="tours" id="fil"></div>
+      <h2>Conversation <button type="button" class="tout-voir" id="tout-voir">Tout voir</button></h2>
+      <div class="tours" id="fil" tabindex="0" aria-label="Vos derniers échanges"></div>
       <div class="direct" id="direct" aria-live="polite"></div>
       <form class="ecrire" id="ecrire" autocomplete="off">
         <textarea id="message" rows="1" maxlength="4000" aria-label="Lui écrire"></textarea>
@@ -403,6 +478,18 @@ body.micro-coupe #b-pause .pastille { border-color: var(--brume); color: var(--b
 </footer>
 
 <div id="bulle" role="tooltip" hidden></div>
+
+<div class="salon" id="salon" role="dialog" aria-modal="true" aria-labelledby="titre-salon" hidden>
+  <div class="cadre">
+    <header class="salon-tete">
+      <h2 id="titre-salon">Vos conversations</h2>
+      <input type="search" id="chercher" placeholder="Chercher dans vos conversations…" aria-label="Chercher dans vos conversations" autocomplete="off">
+      <button type="button" class="fermer" id="fermer-salon" aria-label="Fermer (Échap)">Fermer</button>
+    </header>
+    <div class="salon-fil" id="salon-fil" tabindex="0" aria-live="polite"></div>
+    <div class="salon-bas" id="salon-bas"></div>
+  </div>
+</div>
 
 <script nonce="__NONCE__">
 "use strict";
@@ -712,6 +799,143 @@ function peindreSystemes(e) {
     if (l.courbe) COURBES[l.courbe].peindre();
   });
 }
+// <markdown> Sa réponse écrite, mise en forme : gras, italique, code, listes, titres, citations, tableaux, liens.
+// Tout est construit nœud par nœud (jamais innerHTML) et un lien n'est jamais que du http(s) : un texte lu dans un
+// mail ou une page ne peut rien glisser dans la page. lireMarkdown est pur (testé hors navigateur, tests/test_tableau.py).
+const EN_LIGNE = /(`+)([^`\n]+?)\1|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'»)]*[^\s<>"'»).,;:!?])|\*\*(?=\S)(.+?)\*\*|__(?=\S)(.+?)__(?!\w)|~~(?=\S)(.+?)~~|(?<![\w*])\*(?=[^\s*])([^*\n]+?)\*(?![\w*])|(?<![\w_])_(?=[^\s_])([^_\n]+?)_(?![\w_])/g;
+const PUCE = /^(\s*)[-*•+]\s+(.*)$/, NUMERO = /^(\s*)(\d{1,4})[.)]\s+(.*)$/, TITRE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+const CLOTURE = /^\s*(`{3,}|~{3,})\s*([\w+#.-]*)\s*$/, FILET = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/, CITATION = /^\s{0,3}>\s?(.*)$/;
+const RANGEE = /^\s*\|.*\|\s*$/, SEPARATION = /^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
+function enLigne(texte) {
+  const morceaux = [];
+  let i = 0;
+  for (const m of texte.matchAll(EN_LIGNE)) {
+    if (m.index > i) morceaux.push(texte.slice(i, m.index));
+    if (m[2] !== undefined) morceaux.push({ t: "code", c: [m[2]] });
+    else if (m[3] !== undefined) morceaux.push({ t: "lien", href: m[4], c: enLigne(m[3]) });
+    else if (m[5] !== undefined) morceaux.push({ t: "lien", href: m[5], c: [m[5]] });
+    else if ((m[6] ?? m[7]) !== undefined) morceaux.push({ t: "b", c: enLigne(m[6] ?? m[7]) });
+    else if (m[8] !== undefined) morceaux.push({ t: "s", c: enLigne(m[8]) });
+    else morceaux.push({ t: "i", c: enLigne(m[9] ?? m[10]) });
+    i = m.index + m[0].length;
+  }
+  if (i < texte.length) morceaux.push(texte.slice(i));
+  return morceaux;
+}
+
+const cellules = l => l.trim().replace(/^\||\|$/g, "").split("|").map(c => enLigne(c.trim()));
+
+function lireMarkdown(texte) {
+  const lignes = String(texte).replace(/\r\n?/g, "\n").split("\n"), blocs = [];
+  let paragraphe = [];
+  const finir = () => { if (paragraphe.length) blocs.push({ t: "p", lignes: paragraphe.map(l => enLigne(l.trim())) }); paragraphe = []; };
+  for (let i = 0; i < lignes.length; i++) {
+    const l = lignes[i];
+    let m;
+    if ((m = CLOTURE.exec(l))) {
+      finir();
+      const code = [], fin = m[1];
+      while (++i < lignes.length && lignes[i].trim() !== fin) code.push(lignes[i]);
+      blocs.push({ t: "code", langue: m[2], texte: code.join("\n") });
+    } else if (!l.trim()) finir();
+    else if ((m = TITRE.exec(l))) { finir(); blocs.push({ t: "titre", niveau: m[1].length, c: enLigne(m[2]) }); }
+    else if (FILET.test(l)) { finir(); blocs.push({ t: "filet" }); }
+    else if (RANGEE.test(l) && SEPARATION.test(lignes[i + 1] || "")) {
+      finir();
+      const tete = cellules(l), rangees = [];
+      for (i += 2; i < lignes.length && RANGEE.test(lignes[i]); i++) rangees.push(cellules(lignes[i]));
+      i--;
+      blocs.push({ t: "table", tete, rangees });
+    } else if (PUCE.test(l) || NUMERO.test(l)) {
+      finir();
+      const premier = NUMERO.exec(l), ordonnee = !!premier && !PUCE.test(l), marge = (PUCE.exec(l) || premier)[1].length;
+      const items = [];
+      for (; i < lignes.length; i++) {
+        const p = PUCE.exec(lignes[i]), n = NUMERO.exec(lignes[i]), r = p || n;
+        if (r && r[1].length > marge && items.length) items[items.length - 1].sous.push(enLigne(p ? p[2] : n[3]));  // un cran plus à droite
+        else if (r && (ordonnee ? n : p)) items.push({ c: enLigne(p ? p[2] : n[3]), sous: [] });
+        else if (lignes[i].trim() && /^\s{2,}\S/.test(lignes[i]) && items.length) items[items.length - 1].c.push(" ", ...enLigne(lignes[i].trim()));
+        else break;
+      }
+      i--;
+      blocs.push({ t: "liste", ordonnee, debut: ordonnee ? +premier[2] : 1, items });
+    } else if (CITATION.test(l)) {
+      finir();
+      const dedans = [];
+      for (; i < lignes.length && (m = CITATION.exec(lignes[i])); i++) dedans.push(m[1]);
+      i--;
+      blocs.push({ t: "citation", c: lireMarkdown(dedans.join("\n")) });
+    } else paragraphe.push(l);
+  }
+  finir();
+  return blocs;
+}
+// </markdown>
+
+function poserEnLigne(parent, morceaux) {
+  for (const m of morceaux) {
+    if (typeof m === "string") { parent.append(m); continue; }
+    const e = document.createElement({ b: "strong", i: "em", s: "s", code: "code", lien: "a" }[m.t]);
+    if (m.t === "lien") { e.href = m.href; e.target = "_blank"; e.rel = "noopener noreferrer"; e.title = m.href; }
+    poserEnLigne(e, m.c);
+    parent.append(e);
+  }
+  return parent;
+}
+
+function boutonCopier(texte, mot = "Copier") {
+  const b = el("button", "copier", mot);
+  b.type = "button";
+  b.addEventListener("click", async ev => {
+    ev.stopPropagation();
+    try { await navigator.clipboard.writeText(texte); b.textContent = "Copié ✓"; } catch { b.textContent = "Impossible"; }
+    setTimeout(() => { b.textContent = mot; }, 1400);
+  });
+  return b;
+}
+
+function poserBloc(b) {
+  if (b.t === "p") {
+    const p = el("p");
+    b.lignes.forEach((l, i) => { if (i) p.append(el("br")); poserEnLigne(p, l); });
+    return p;
+  }
+  if (b.t === "titre") return poserEnLigne(el("p", "titre n" + Math.min(b.niveau, 3)), b.c);
+  if (b.t === "filet") return el("hr");
+  if (b.t === "code") {
+    const boite = el("div", "bloc-code"), pre = el("pre");
+    pre.append(el("code", "", b.texte));
+    boite.append(pre, boutonCopier(b.texte));
+    return boite;
+  }
+  if (b.t === "citation") { const q = el("blockquote"); q.append(...b.c.map(poserBloc)); return q; }
+  if (b.t === "liste") {
+    const liste = el(b.ordonnee ? "ol" : "ul");
+    if (b.ordonnee && b.debut !== 1) liste.start = b.debut;
+    for (const item of b.items) {
+      const li = poserEnLigne(el("li"), item.c);
+      if (item.sous.length) { const sous = el("ul"); sous.append(...item.sous.map(s => poserEnLigne(el("li"), s))); li.append(sous); }
+      liste.append(li);
+    }
+    return liste;
+  }
+  const defile = el("div", "defile"), table = el("table"), tete = el("tr");   // un tableau
+  tete.append(...b.tete.map(c => poserEnLigne(el("th"), c)));
+  const thead = el("thead"), tbody = el("tbody");
+  thead.append(tete);
+  for (const r of b.rangees) { const tr = el("tr"); tr.append(...b.tete.map((_, i) => poserEnLigne(el("td"), r[i] || []))); tbody.append(tr); }
+  table.append(thead, tbody);
+  defile.append(table);
+  return defile;
+}
+
+function md(texte) {
+  const boite = el("div", "md");
+  boite.append(...lireMarkdown(texte).map(poserBloc));
+  return boite;
+}
+
 function allumer() {   // au premier affichage, les systèmes s'allument l'un après l'autre
   if (allumees >= 5) return;
   allumees++;
@@ -720,14 +944,26 @@ function allumer() {   // au premier affichage, les systèmes s'allument l'un ap
 }
 if (!calme) setTimeout(allumer, 450);
 
+// La colonne colle au bas (au dernier échange) tant que tu n'es pas remonté relire : même quand une police finit
+// de charger après coup, ou que la colonne rétrécit quand le reste de la page se remplit.
+let filColle = true;
+$("fil").addEventListener("scroll", e => { const f = e.target; filColle = f.scrollHeight - f.scrollTop - f.clientHeight < 48; });
+const recoller = () => { if (filColle) $("fil").scrollTop = $("fil").scrollHeight; };
+document.fonts?.ready.then(recoller);
+new ResizeObserver(recoller).observe($("fil"));   // la colonne change de taille quand les autres panneaux se remplissent
+
 function peindreFil(echanges) {
   const fil = $("fil");
   if (!echanges.length) return fil.replaceChildren(el("p", "vide", `Rien pour l'instant. Dis « ${PRENOM} », puis ta question, ou écris-lui ci-dessous.`));
+  const enBas = filColle;
   fil.replaceChildren(...echanges.map(t => {
     const tour = el("div", "tour " + t.qui + (t.ecrit ? " ecrit" : ""));
-    tour.append(el("span", "qui", t.qui === "toi" ? "Toi" : PRENOM), el("p", "", t.texte));
+    const ou = t.ecrit ? (t.canal === "iPhone" ? " · iPhone" : " · écrit") : "";
+    tour.append(el("span", "qui", (t.qui === "toi" ? "Toi" : PRENOM) + ou),
+                t.qui === "steve" && t.ecrit ? md(t.texte) : el("p", "", t.texte));
     return tour;
   }));
+  if (enBas) fil.scrollTop = fil.scrollHeight;
 }
 
 function peindreActions(outils) {
@@ -1059,13 +1295,14 @@ function peindreDirect() {
         });
         choix.append(b);
       }
-      q.append(el("p", "", m.texte), choix);
+      q.append(md(m.texte), choix);
       return q;
     }
     const tour = el("div", "tour ecrit " + (m.qui === "toi" ? "toi attend" : "steve"));
-    tour.append(el("span", "qui", m.qui === "toi" ? "Toi" : PRENOM), el("p", "", m.texte || "…"));
+    tour.append(el("span", "qui", m.qui === "toi" ? "Toi" : PRENOM), m.qui === "toi" ? el("p", "", m.texte) : md(m.texte || "…"));
     return tour;
   }));
+  if (!salon.hidden) salonFil.scrollTop = salonFil.scrollHeight;
 }
 
 function peindreEtatChat() {
@@ -1090,7 +1327,7 @@ async function suivreChat() {
     if (d.messages.length || d.v < versionChat) peindreDirect();
     versionChat = d.v;
     branche = d.branche;
-    if (fini) instantane();   // une réponse vient de finir : la conversation la montre tout de suite
+    if (fini) { instantane(); nouveauxDuSalon(); }   // une réponse vient de finir : la conversation la montre tout de suite
     if ([...chat.values()].some(m => !m.fini)) delai = 400;
   } catch {
     branche = null;
@@ -1132,12 +1369,150 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && mi
 
 for (const bouton of document.querySelectorAll(".boutons button")) {
   bouton.addEventListener("click", async () => {
+    if (bouton.dataset.action === "conversations") return ouvrirSalon();
     bouton.disabled = true;
     try { await fetch("/action/" + bouton.dataset.action, { method: "POST", headers: { "X-Jeton": JETON } }); } catch { }
     await instantane();
     setTimeout(() => { bouton.disabled = false; }, 400);
   });
 }
+
+// --- Toutes vos conversations : tout l'historique (conversations.jsonl), par jour, comme une messagerie ---------
+// Ta voix, le chat, iMessage et WhatsApp au même endroit. On remonte par paquets de 40 ; la recherche se fait sur
+// le Mac (GET /conversations, avec le jeton). Le chat (sa saisie, ses réponses en cours) passe dans la fenêtre.
+const salon = $("salon"), salonFil = $("salon-fil"), chercher = $("chercher"), salonBas = $("salon-bas");
+const foyerChat = direct.parentNode;
+const CANAUX = { voix: "🎙️ à voix haute", chat: "⌨️ chat", iMessage: "💬 iMessage", WhatsApp: "🟢 WhatsApp" };
+let archives = [], plusAnciens = false, finArchives = 0, quete = "", minuteurSalon = null, minuteurQuete = null, remonte = false;
+
+async function lireArchives(params) {
+  const r = await fetch("/conversations?" + new URLSearchParams({ ...params, ...(quete ? { q: quete } : {}) }),
+                        { cache: "no-store", headers: { "X-Jeton": JETON }, signal: AbortSignal.timeout(6000) });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+function nomDuJour(quand) {   // « 2026-11-27T05:14 » → « Aujourd'hui », « Hier », « Jeudi 20 novembre »
+  const d = new Date(quand.slice(0, 10) + "T12:00"), auj = new Date();
+  if (isNaN(d)) return "";
+  auj.setHours(12, 0, 0, 0);
+  const ecart = Math.round((auj - d) / 864e5);
+  if (ecart === 0) return "Aujourd'hui";
+  if (ecart === 1) return "Hier";
+  return majuscule(d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long",
+                                                    ...(d.getFullYear() !== auj.getFullYear() ? { year: "numeric" } : {}) }));
+}
+
+function messagesDe(e) {
+  const heure = e.quand.slice(11, 16), sortie = [];
+  if (e.rapport) {   // un compte rendu (ronde, tâche de fond) : ce n'est pas toi qui parlais
+    const d = el("details", "rapport");
+    d.append(el("summary", "", "📋 " + majuscule(e.notes.join(" · ")) + (heure ? " · " + heure : "")), el("p", "", e.toi));
+    sortie.push(d);
+  } else if (e.toi) {
+    const b = el("article", "message toi"), meta = el("div", "meta");
+    meta.append(el("span", "canal", CANAUX[e.canal] || e.canal), ...e.notes.map(n => el("span", "", n)), el("span", "", heure));
+    b.append(meta, el("p", "", e.toi));
+    sortie.push(b);
+  }
+  if (e.steve) {
+    const b = el("article", "message steve"), meta = el("div", "meta");
+    meta.append(el("span", "nom", PRENOM), el("span", "", heure));
+    b.append(meta, md(e.steve), boutonCopier(e.steve));
+    sortie.push(b);
+  }
+  return sortie;
+}
+
+function peindreSalon(defilement) {   // « bas » : tout en bas ; « garder » : là où tu lisais ; « suivre » : en bas si tu y étais
+  const depuisLeBas = salonFil.scrollHeight - salonFil.scrollTop, enBas = depuisLeBas - salonFil.clientHeight < 60;
+  const noeuds = [];
+  if (plusAnciens) {
+    const b = el("button", "plus-anciens", quete ? "Plus de résultats" : "Plus anciens");
+    b.type = "button";
+    b.addEventListener("click", plusVieux);
+    noeuds.push(b);
+  }
+  let jour = "";
+  for (const e of archives) {
+    const ce = nomDuJour(e.quand);
+    if (ce && ce !== jour) { noeuds.push(el("div", "separateur", ce)); jour = ce; }
+    noeuds.push(...messagesDe(e));
+  }
+  if (!archives.length) noeuds.push(el("p", "vide", quete ? `Rien trouvé pour « ${quete} ».`
+                                                         : `Pas encore de conversation. Dis « ${PRENOM} », ou écris-lui ci-dessous.`));
+  salonFil.replaceChildren(...noeuds);
+  if (defilement === "garder") salonFil.scrollTop = salonFil.scrollHeight - depuisLeBas;
+  else if (defilement === "bas" || enBas) salonFil.scrollTop = salonFil.scrollHeight;
+}
+
+async function chargerSalon() {
+  try {
+    const d = await lireArchives({});
+    archives = d.echanges; plusAnciens = d.plus_anciens; finArchives = d.fin;
+    peindreSalon("bas");
+  } catch {
+    salonFil.replaceChildren(el("p", "vide", `Pas de liaison avec ${PRENOM} : réessaie dans un instant.`));
+  }
+}
+
+async function plusVieux() {
+  if (remonte || !plusAnciens || !archives.length) return;
+  remonte = true;
+  try {
+    const d = await lireArchives({ avant: archives[0].i });
+    archives = [...d.echanges, ...archives]; plusAnciens = d.plus_anciens;
+    peindreSalon("garder");
+  } catch { /* la prochaine fois */ }
+  remonte = false;
+}
+
+async function nouveauxDuSalon() {   // les échanges arrivés depuis (ta voix, ton iPhone, le chat)
+  if (salon.hidden) return;
+  clearTimeout(minuteurSalon);
+  try {
+    const d = await lireArchives(finArchives ? { apres: finArchives - 1, n: 200 } : {});
+    if (d.fin < finArchives) await chargerSalon();   // le fichier a été remis à zéro (mémoire effacée)
+    else {
+      const neufs = d.echanges.filter(e => e.i >= finArchives);
+      finArchives = d.fin;
+      if (neufs.length) { archives.push(...neufs); peindreSalon("suivre"); }
+    }
+  } catch { /* il redémarre peut-être : on réessaie */ }
+  if (!salon.hidden) minuteurSalon = setTimeout(nouveauxDuSalon, 4000);
+}
+
+function ouvrirSalon() {
+  if (!salon.hidden) return;
+  salon.hidden = false;
+  salonBas.append(direct, $("ecrire"), etatChat);   // le chat suit : tu peux écrire d'ici
+  salonFil.replaceChildren(el("p", "vide", "…"));
+  chargerSalon().then(() => { clearTimeout(minuteurSalon); minuteurSalon = setTimeout(nouveauxDuSalon, 4000); });
+  saisie.focus();
+}
+
+function fermerSalon() {
+  if (salon.hidden) return;
+  salon.hidden = true;
+  clearTimeout(minuteurSalon);
+  foyerChat.append(direct, $("ecrire"), etatChat);
+  if (quete) { quete = ""; chercher.value = ""; }
+  $("tout-voir").focus();
+}
+
+$("tout-voir").addEventListener("click", ouvrirSalon);
+$("fermer-salon").addEventListener("click", fermerSalon);
+salon.addEventListener("click", e => { if (e.target === salon) fermerSalon(); });
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || salon.hidden) return;
+  if (document.activeElement === chercher && chercher.value) return;   // Échap vide d'abord la recherche
+  fermerSalon();
+});
+salonFil.addEventListener("scroll", () => { if (salonFil.scrollTop < 80) plusVieux(); });
+chercher.addEventListener("input", () => {
+  clearTimeout(minuteurQuete);
+  minuteurQuete = setTimeout(() => { quete = chercher.value.trim(); chargerSalon(); }, 280);
+});
 
 changerEtat("demarre");
 peindreDate();

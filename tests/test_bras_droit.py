@@ -480,8 +480,8 @@ lu = tableau.lire_journal(
     f"🤖 {config.PRENOM} (écrit) : Voici : ⏎ - Marc ⏎ - Léa\n"
     f"🧑 Toi : merci\n🤖 {config.PRENOM} : De rien.\n🤖 {config.PRENOM} : Autre chose ?\n")
 verifier("journal : les tours écrits sont marqués, en entier, retours à la ligne compris", lu["echanges"], [
-    {"qui": "toi", "texte": "lis mes mails", "ecrit": True},
-    {"qui": "steve", "texte": "Voici :\n- Marc\n- Léa", "ecrit": True},
+    {"qui": "toi", "texte": "lis mes mails", "ecrit": True, "canal": "chat"},
+    {"qui": "steve", "texte": "Voici :\n- Marc\n- Léa", "ecrit": True, "canal": "chat"},
     {"qui": "toi", "texte": "merci"},
     {"qui": "steve", "texte": "De rien. Autre chose ?"}])
 verifier("journal : « Toi (suite) » reste un tour parlé", tableau.lire_journal("🧑 Toi (suite) : et demain\n")["echanges"],
