@@ -7,14 +7,16 @@ Sans Claude ni réseau : un faux client joue les messages (un outil lancé, puis
 
 import asyncio
 import os
+import tempfile
 import threading
 import types
+from pathlib import Path
 
 threading.Timer(30, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).start()
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock  # noqa: E402
 
-from jervis import compteur, config, fond, tableau  # noqa: E402
+from jervis import compteur, config, fond, savoir_faire, tableau  # noqa: E402
 
 echecs: list[str] = []
 total = 0
@@ -71,6 +73,7 @@ class FauxClient:
 async def sans_connecteurs(*_a, **_k) -> None: ...
 
 fond.ClaudeSDKClient = FauxClient
+savoir_faire.DOSSIER = Path(tempfile.mkdtemp()) / "savoir-faire"  # jamais tes vraies recettes dans leurs briefs
 fond.preparer_connecteurs = sans_connecteurs
 compteur.noter = lambda *_a, **_k: None  # ne pas écrire dans les vraies dépenses
 fond.Taches._options = lambda self, tache: None

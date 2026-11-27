@@ -230,6 +230,16 @@ LEXIQUE_MAX = int(_env("LEXIQUE_MAX", "80"))
 # relue la fois suivante au lieu de tout redécouvrir.
 DOSSIER_SAVOIR_FAIRE = DOSSIER / "espace" / "savoir-faire"
 SAVOIR_FAIRE_MAX = int(_env("SAVOIR_FAIRE_MAX", "40"))
+# Une tâche de fond qui a demandé au moins RECETTE_ETAPES étapes : il en garde la méthode (une recette), pour que la
+# fois suivante aille plus vite. (0 = il ne le propose plus de lui-même.)
+RECETTE_ETAPES = int(_env("RECETTE_ETAPES", "12"))
+# Ses chantiers en cours (objectifs.md) : ce que tu lui as confié pour plus tard (« il faut qu'on fasse connaître
+# Oko »), où il en est et la prochaine étape. Relus à chaque session, par lui et ses agents ; au plus OBJECTIFS_MAX.
+FICHIER_OBJECTIFS = DOSSIER / "objectifs.md"
+OBJECTIFS_MAX = int(_env("OBJECTIFS_MAX", "12"))
+# Son catalogue d'alternatives gratuites (gratuit.py) : ce qu'il sait déjà, plus ce qu'il a trouvé lui-même
+# (alternatives.json), pour ne pas chercher à chaque fois.
+FICHIER_ALTERNATIVES = DOSSIER / "alternatives.json"
 
 # --- Le chat écrit (tableau de bord) -----------------------------------------------
 # Tu peux lui écrire au lieu de parler : il répond par écrit, sans voix. Une question oui/non dans le chat
@@ -253,6 +263,10 @@ IMESSAGE_VOCAUX_DOSSIER = _env("IMESSAGE_VOCAUX_DOSSIER", "")  # où ranger ses 
 # auto = ton numéro est lu dans WhatsApp ; non = coupé ; ou ton numéro : « +33612345678 ». IMESSAGE_RELEVE_S,
 # IMESSAGE_PATIENCE_S, QUESTION_IMESSAGE_S et IMESSAGE_VOCAL valent aussi pour lui.
 WHATSAPP_MOI = _env("WHATSAPP_MOI", "auto")
+# Une question qui t'attend (un CAPTCHA, une double vérification, la question d'un agent de fond) et à laquelle tu
+# ne réponds pas à voix haute, alors que tu n'as pas touché le Mac depuis PRESENT_S : elle part sur ton iPhone
+# (WhatsApp ou iMessage, là où tu lui as écrit en dernier), et ton « ok » le fait continuer. non = coupé.
+RELAIS_IPHONE = _env("RELAIS_IPHONE", "oui").lower() not in {"non", "off", "0"}
 
 # --- Répondre à ta place (reponses.py) ------------------------------------------------------------------
 # « Steve, réponds à tous mes messages » : iMessage et WhatsApp, dans ton style avec chaque personne.

@@ -18,7 +18,7 @@ import unicodedata
 from . import bureau, chat, compteur, config, dev, langues, oral, reunion, touche, tts, vocal, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
-from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond
+from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond, present
 
 NOM = re.compile(config.NOM, re.IGNORECASE)
 # Ce qui précède son nom quand on l'appelle (avec ce que la transcription en fait : « Hey » → « Yes », « Dit », « І »…).
@@ -34,9 +34,11 @@ DISCUSSION = re.compile(r"^(?:(?:allez|bon|viens)\W+)?(?:on (?:discute|papote|pa
                         r"mode (?:discussion|conversation)|reste (?:à l'écoute|avec moi|là))"
                         r"(?: un peu| un moment| ensemble)?\b\W*", re.IGNORECASE)
 OUI = re.compile(r"\b(oui|ouais|ouep|yes|vas[- ]y|ok|okay|d'accord|confirme|go|bien sûr|carrément|exactement"
-                 r"|évidemment|fais[- ]le|envoie|valide|parfait|c'est bon|je veux|allez)\b", re.IGNORECASE)
+                 r"|évidemment|fais[- ]le|envoie|valide|parfait|c'est bon|je veux|allez|c['’]est (?:fait|réglé)|done)\b",
+                 re.IGNORECASE)
 NON = re.compile(r"\b(non|nan|surtout pas|annule|arrête|stop|laisse tomber|attends|pas maintenant|pas ça"
-                 r"|ne (?:le |l')?(?:fais|envoie) pas|n'envoie pas|ne fais rien)\b", re.IGNORECASE)
+                 r"|ne (?:le |l')?(?:fais|envoie) pas|n'envoie pas|ne fais rien|pas encore|pas (?:encore )?fait)\b",
+                 re.IGNORECASE)
 # « pas de souci », « n'hésite pas » : des oui qui contiennent « pas ».
 OUI_MALGRE_PAS = re.compile(r"\b(pas de (?:souci|soucis|problème)|n'hésite pas|pourquoi pas)\b", re.IGNORECASE)
 
@@ -797,7 +799,11 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             guet["fin_voix"] = recente[0] = time.monotonic()
             await suspendre_guet()  # libère le micro avant qu'on l'écoute à nouveau
 
-    async def confirmer(question: str) -> bool:
+    async def confirmer(question: str, relayer: bool = True) -> bool | None:
+        """Ton oui ou non à voix haute. Si tu ne dis rien du tout (tu n'es pas là) et que tu n'as pas touché le
+        Mac depuis un moment, la question part sur ton iPhone (standard.relais) ; avec relayer=False, il rend
+        None à la place pour que l'appelant la relaie lui-même (une question de tâche de fond : l'attente de ta
+        réponse sur l'iPhone se fait dans la tâche, pas en bloquant le micro)."""
         if appel["en_cours"]:
             # En appel, jamais de oui à voix haute : un « oui » dit à tes collègues ne doit rien confirmer.
             print(f"🤖 {config.PRENOM} (écrit, en appel) : {question}", flush=True)
@@ -806,11 +812,13 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         reprendre = await suspendre_guet()  # le micro sert à entendre ton oui ou non
         try:
             await parler(question, interruptible=False)
+            rien = True  # rien entendu du tout, aux trois essais
             for essai in range(3):
                 tts.bip()
                 etat("ecoute")
                 reponse, _ = await entendre(12)
                 print(f"🧑 Toi : {reponse or '(rien)'}")
+                rien = rien and not reponse
                 accord = lire_accord(reponse)
                 if accord:
                     controle = controle_voix(chrono.get("voix"), oreilles.voix_connue, config.CONFIRMATION_VOIX)
@@ -834,11 +842,15 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                     return False
                 if essai < 2:  # pas compris : on redemande au lieu de prendre ça pour un refus
                     await parler("Pardon, c'est oui ou non ?" if reponse else "Oui ou non ?", interruptible=False)
-            return False
         finally:
             if reprendre and not coupure["texte"]:
                 etat("reflechit")
                 lancer_guet()
+        if rien and standard.relais is not None:
+            if not relayer:
+                return None
+            return bool(await standard.relais(question))
+        return False
 
     def apres_coupure(ajout: str = "") -> str | None:
         """Tu lui as coupé la parole : ta nouvelle demande (« » si tu as juste dit stop), ou None.
@@ -894,7 +906,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
                 if ev.futur is not None and ev.futur.done():
                     continue  # la tâche n'attend plus la réponse (annulée, ou trop tard)
                 tts.bip()
-                ok = await confirmer(ev.texte)
+                ok = await confirmer(ev.texte, relayer=False)  # None (pas là) : la tâche la relaie à l'iPhone
                 if ev.futur and not ev.futur.done():
                     ev.futur.set_result(ok)
                 if ajout := prendre_ajout():  # tu as parlé d'autre chose à la place d'un oui ou d'un non
@@ -980,7 +992,7 @@ async def mode_vocal(etat: Etat | None = None) -> None:
     async def repondre_questions() -> None:
         """Les questions de tes tâches de fond, posées dès qu'il y a un blanc dans la conversation."""
         while ev := standard.prendre(("question",)):
-            ok = await confirmer(ev.texte)
+            ok = await confirmer(ev.texte, relayer=False)
             if ev.futur and not ev.futur.done():
                 ev.futur.set_result(ok)
 
@@ -1204,6 +1216,15 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         # Ta discussion WhatsApp « Message à moi-même » : une seule bulle par message. Il répond par WhatsApp
         # (écrit, ou en vrai vocal si tu lui as parlé).
         boites.append(distance.BoiteWhatsApp(accord=accord, journal=noter, suspect=cerveau.lu_dehors))
+    async def relayer(question: str, delai: float | None = None) -> bool | None:
+        """Une question restée sans réponse à voix haute (un CAPTCHA, une double vérification, la question d'une
+        tâche de fond) alors que tu n'es pas devant le Mac : elle part sur ton iPhone, là où tu lui as écrit en
+        dernier, et ton « ok » ou « c'est fait » là-bas vaut réponse. None : il ne relaie pas."""
+        if not (boites and config.RELAIS_IPHONE) or await present():
+            return None
+        print(f"   📱 Pas de réponse à voix haute : je te pose la question sur l'iPhone ({question[:120]})", flush=True)
+        return await distance.la_derniere(boites).demander(question, delai)
+    standard.relais = relayer
     for canal in boites:
         iphone += [asyncio.create_task(canal.relever()),
                    asyncio.create_task(distance.servir(canal, cerveau.demander, journal=noter, relire=relire_apres))]

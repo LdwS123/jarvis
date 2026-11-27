@@ -104,6 +104,29 @@ def chercher(quoi: str) -> str:
     return "\n\n---\n\n".join(t for _, t in notes[:2])
 
 
+# Des mots trop courants pour dire qu'une tâche ressemble à une recette (« fais-moi un truc pour mon site »).
+_VIDES = set("avec dans pour sans sous elle elles ils nous vous leur leurs mon mes ton tes son ses notre votre cette "
+             "ces cet tout tous toute toutes fais faire fait moi lui une des les aux est sont pas plus que qui quoi "
+             "quand comment chaque bien aussi puis alors encore deja tres peu son sur par entre apres avant ici".split())
+
+
+def pour_tache(titre: str, brief: str = "") -> str:
+    """La recette qui colle à une tâche de fond (au moins deux vrais mots en commun avec son titre et son « quand »),
+    en entier, pour la glisser dans le brief de l'agent : il la suit au lieu de tout redécouvrir. "" sinon.
+    (Plus strict que chercher : un brief est long, un mot commun ne suffit pas.)"""
+    mots = {m for m in _cle(f"{titre} {brief}").split() if len(m) > 2 and m not in _VIDES}
+    meilleur, texte_meilleur = 1, ""
+    for fiche in _fiches():
+        t, quand = _titre_et_quand(fiche)
+        communs = len(mots & ({m for m in _cle(f"{t} {quand}").split() if len(m) > 2} - _VIDES))
+        if communs > meilleur:
+            try:
+                meilleur, texte_meilleur = communs, fiche.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+    return texte_meilleur
+
+
 def pour_consignes() -> str:
     """La liste de ses recettes (titre et quand), à la fin de ses consignes : il sait qu'elles existent."""
     fiches = _fiches()

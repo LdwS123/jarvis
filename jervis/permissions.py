@@ -111,7 +111,7 @@ def nom_action(outil: str) -> str:
 def politique_confiance(outil: str, entree: dict[str, Any], apps_vues: Iterable[str] = ()) -> Decision:
     action = nom_action(outil)
     if outil.startswith("mcp__jervis__"):  # iMessage : envoyé direct ; demander_accord : c'est lui qui veut demander
-        return _maison(action, entree, {"demander_accord", "liberer_port", *COMPTES_A_CONFIRMER})
+        return _maison(action, entree, {"demander_accord", "attendre_validation", "liberer_port", *COMPTES_A_CONFIRMER})
     if outil.startswith(CHROME_PERSO):  # du code dans ton Chrome connecté (banque, mails…) : toujours demandé
         return _chrome_perso(action, entree)
     if outil.startswith("mcp__navigateur__"):
@@ -156,7 +156,7 @@ def politique_autonome(outil: str, entree: dict[str, Any], apps_vues: Iterable[s
     decision = politique_confiance(outil, entree, apps_vues)
     if decision is not Decision.DEMANDER:
         return decision
-    if action == "demander_accord" or (config.PAIEMENTS and (ACTION_QUI_PAIE.search(action)
+    if action in {"demander_accord", "attendre_validation"} or (config.PAIEMENTS and (ACTION_QUI_PAIE.search(action)
                                                              or ACTION_QUI_PAIE.search(str(entree.get("action", ""))))):
         return Decision.DEMANDER
     return Decision.OUI
@@ -382,7 +382,7 @@ _REPONSE_SENSIBLE = re.compile(r"https?://|www\.|\b\w[\w-]*\.[^\W\d_]{2,}\b|@"
                                r"|\d(?:[\s.-]?\d){4,}|\b\d+,?\s*(?:bis\s+)?(?:rue|avenue|av\.|bd|boulevard|"
                                r"place|chemin|allée|impasse|quai)\b|\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,}", re.I)
 # Le répondeur : l'allumer (il répondra seul à ta place) se confirme ; l'éteindre ou demander son état, jamais.
-JERVIS_A_CONFIRMER = {*ENVOIS, "repondeur", "appeler", "demander_accord",
+JERVIS_A_CONFIRMER = {*ENVOIS, "repondeur", "appeler", "demander_accord", "attendre_validation",
                       "mettre_a_la_corbeille", "effacer_memoire", "liberer_port", *COMPTES_A_CONFIRMER}
 # L'atelier de code (dev.py). Ce qui lance le code d'un projet ou un programme de Homebrew (gh) : après un texte venu
 # d'ailleurs, toujours dans la cage (le Gardien ajoute `cage` à l'appel), même après ton oui, puisque la question ne
@@ -690,6 +690,21 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
         return f"Je confie à un agent « {entree.get('titre') or ''} » : {entree.get('brief') or ''}. Je peux ?"
     if action == "demander_accord":
         return f"{entree.get('action', 'Je continue').strip().rstrip('.')}. Je peux ?"
+    if action == "attendre_validation":
+        quoi = " ".join(str(entree.get("quoi") or "Une validation t'attend").split()).rstrip(".")
+        return f"{quoi}. Fais-le, puis réponds oui (ou « c'est fait ») quand c'est bon."
+    if action == "noter_alternative":
+        note = " ".join(str(entree.get("note") or "").split())
+        return (f"Je note dans mon catalogue : à la place de « {str(entree.get('payant', '')).strip()} » (payant), "
+                f"« {' '.join(str(entree.get('gratuit', '')).split())} »" + (f" ({note})" if note else "")
+                + ". Je peux ?")
+    if action == "noter_objectif":
+        objectif = " ".join(str(entree.get("objectif") or "").split())
+        if entree.get("fini"):
+            return f"Je raye de mes chantiers « {objectif} » (fini). Je peux ?"
+        suite = " ".join(str(entree.get("prochaine_etape") or "").split())
+        return (f"J'écris dans mes chantiers « {objectif} » : {' '.join(str(entree.get('ou_on_en_est') or '').split())}"
+                + (f" ; prochaine étape : {suite}" if suite else "") + ". Je peux ?")
     if action in {"creer_mot_de_passe", "copier_mot_de_passe"}:
         # Le domaine que l'outil utilisera vraiment (« https://www.Canva.com/x » → « canva.com »), pas le texte brut.
         site = comptes.domaine(entree.get("site")) or "une adresse qui n'est pas un site"
@@ -820,7 +835,8 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
 # PRESSE_PAPIERS_S, et quinze secondes après le dernier collage (cmd+v).
 GESTES_PENDANT_COLLAGE = {"browser_click", "browser_press_key", "browser_type", "browser_hover", "browser_wait_for",
                           "click", "type", "press", "hotkey", "scroll", "form_input",
-                          "creer_mot_de_passe", "copier_mot_de_passe", "demander_accord", "signaler_captcha"}
+                          "creer_mot_de_passe", "copier_mot_de_passe", "demander_accord", "signaler_captcha",
+                          "attendre_validation"}
 GESTES_CHROME = {"left_click", "double_click", "triple_click", "key", "type", "scroll", "wait", "hover"}
 _COLLER = re.compile(r"\b(meta|cmd|command|control|ctrl)\s*\+\s*v\b", re.IGNORECASE)
 
@@ -940,7 +956,11 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        # Le graphe ne contient que les faits de sa mémoire (graphe.py), déjà dans ses consignes.
                        r"chercher_liens|"
                        # Les comptes : « c'est rangé », et la liste qu'il a écrite lui-même (jamais un mot de passe).
-                       r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes|signaler_captcha|noter_publication|"
+                       r"creer_mot_de_passe|copier_mot_de_passe|lister_comptes|signaler_captcha|attendre_validation|"
+                       r"noter_publication|"
+                       # Son catalogue d'alternatives gratuites et ses chantiers : écrits par le code ou par lui
+                       # (gratuit.py, objectifs.py).
+                       r"chercher_alternative_gratuite|noter_alternative|noter_objectif|"
                        # Son lexique et ses recettes : ce qu'il a écrit lui-même (lexique.py, savoir_faire.py).
                        r"noter_mot|noter_savoir_faire|chercher_savoir_faire|"
                        # Une clé d'API rangée dans le Trousseau : il ne lit que « c'est rangé » (apis.py).
@@ -962,7 +982,7 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
 # d'ailleurs, ou pendant le compte rendu d'un agent, c'est toi qui dis oui, en voyant le texte exact.
 ECRIT_POUR_PLUS_TARD = {"retenir", "oublier", "noter_lecon", "programmer_annonce", "lancer_tache_de_fond",
                          "noter_publication", "noter_mot", "noter_savoir_faire", "definir_mode",
-                         "noter_regle_rangement"}
+                         "noter_regle_rangement", "noter_alternative", "noter_objectif"}
 # Ce qu'il te lit de ces outils avant de dire oui, et jusqu'où. Ce qui s'exécute est ce texte-là, mot pour mot :
 # au-delà de la limite, il ne coupe pas en douce, il refuse et redit plus court.
 A_MONTRER: dict[str, dict[str, int]] = {
@@ -978,6 +998,9 @@ A_MONTRER: dict[str, dict[str, int]] = {
                      "fenetres": 20},
     "noter_regle_rangement": {"motif": 60, "dossier": 120},
     "repondeur": {"consigne": 300},
+    "attendre_validation": {"quoi": 200},
+    "noter_alternative": {"payant": 60, "gratuit": 200, "note": 200},
+    "noter_objectif": {"objectif": 100, "ou_on_en_est": 300, "prochaine_etape": 200},
 }
 
 
@@ -1452,7 +1475,7 @@ BLOCAGES: deque[dict[str, Any]] = deque(maxlen=BLOCAGES_MAX)
 _numeros = itertools.count(1)
 AUTORISATIONS = _RACINE / "autorisations.json"
 AUTORISATIONS_MAX = 100
-JAMAIS_AUTORISABLES = {"demander_accord", "effacer_memoire", *COMPTES_A_CONFIRMER,
+JAMAIS_AUTORISABLES = {"demander_accord", "attendre_validation", "effacer_memoire", *COMPTES_A_CONFIRMER,
                        "autoriser_desormais", "retirer_autorisation", "lister_blocages"}
 _SANS_TRACE = {"autoriser_desormais", "retirer_autorisation", "lister_blocages"}  # (sinon « ça » serait lui-même)
 _CIBLE_DOSSIER = {"Write", "Edit", "mcp__jervis__mettre_a_la_corbeille"}  # la règle vaut pour tout ce dossier
@@ -2008,6 +2031,8 @@ class Gardien:
                 cle = f"fichiers:{Path(str(entree.get('file_path') or '')).parent}"
             elif outil.startswith("mcp__claude_ai") and action not in PAR_APPEL:
                 cle = outil
+            elif action == "attendre_validation":
+                cle = f"{outil}:{time.monotonic()}"  # deux CAPTCHA à la suite : deux questions, jamais un vieux oui
             else:
                 cle = f"{outil}:{sorted(entree.items(), key=str)}:{depot}"  # un autre dossier : une autre question
             if action == "autoriser_desormais":  # la règle exacte, écrite par le code
@@ -2033,6 +2058,11 @@ class Gardien:
             if action_dev in DEV_EN_CAGE:  # ses tests, son serveur, gh : dans la cage après un texte venu d'ailleurs
                 return PermissionResultAllow(updated_input={**entree, "cage": mefiant and Path(CAGE_EXEC).exists()})
             return PermissionResultAllow(updated_input=entree)
+        if outil == "mcp__jervis__attendre_validation":
+            return PermissionResultDeny(
+                message="L'utilisateur a refusé : il ne l'a pas fait (pas de réponse, ou « pas encore »). Ne touche "
+                        "plus à la page, ne contourne rien : dis-lui où tu en es, et reprends quand il dit « c'est "
+                        "bon ».")
         return PermissionResultDeny(
             message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "
                     "dis-lui simplement que tu n'as rien fait."

@@ -148,8 +148,8 @@ def en_clair(texte: str) -> str:
 
 
 _OUI = re.compile(r"^\W*(oui|ouais|ouep|yes|yep|ok|okay|vas[- ]y|go|d'accord|dac|confirme|bien sûr|carrément|"
-                  r"fais[- ]le|valide|c'est bon|👍)(?!\w)", re.IGNORECASE)
-_NON = re.compile(r"^\W*(non|nan|no|nope|stop|annule|laisse|surtout pas|pas maintenant|attends|👎)(?!\w)", re.IGNORECASE)
+                  r"fais[- ]le|valide|c'est bon|c['’]est fait|c['’]est réglé|done|👍)(?!\w)", re.IGNORECASE)
+_NON = re.compile(r"^\W*(non|nan|no|nope|stop|annule|laisse|surtout pas|pas maintenant|pas encore|attends|👎)(?!\w)", re.IGNORECASE)
 
 
 def est_un_son(nom: str, mime: str | None = None, uti: str | None = None) -> bool:
@@ -240,6 +240,7 @@ class Boite:
         self._guids: dict[int, str] = {}      # ROWID du fil → son identifiant pour Messages
         self._vus: deque[tuple[str, float]] = deque(maxlen=20)
         self._question: asyncio.Future | None = None
+        self._une_question = asyncio.Lock()   # une question à la fois : deux à la suite, jamais mêlées
         # (ton texte, arrivé pendant qu'il lisait une page ou un mail ?) : alors il te demande si c'est bien toi
         self.arrivees: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
         self.erreur = ""                      # pourquoi il ne lit pas (l'accès au disque…) ; "" s'il lit
@@ -447,21 +448,27 @@ class Boite:
 
     async def demander(self, question: str, delai: float | None = None) -> bool:
         """Une question oui/non par iMessage : ton prochain message y répond. Pas de réponse à temps = non.
-        Autre chose qu'un oui ou un non : c'est non, et ton message est lu ensuite comme une nouvelle demande."""
-        futur = asyncio.get_running_loop().create_future()
-        self._question = futur
-        # D'ici ta réponse, aucun de ses agents ne lance ce qui pourrait écrire dans Messages : ton « oui » est le tien.
-        with permissions.QuestionEnCours():
-            try:
-                if not await self.envoyer(f"{question} (réponds oui ou non)", QUESTION):
+        Autre chose qu'un oui ou un non : c'est non, et ton message est lu ensuite comme une nouvelle demande.
+        Deux questions en même temps (Steve et une tâche de fond) : la seconde attend que la première ait sa réponse.
+        Tu ne lui as encore rien écrit depuis son démarrage : elle part dans ta conversation avec toi-même."""
+        async with self._une_question:
+            if not self.adresse and getattr(self, "_fils", None):
+                self.adresse, self.fil = self._fils[0][1], self._guids.get(self._fils[0][0], "")
+            futur = asyncio.get_running_loop().create_future()
+            self._question = futur
+            # D'ici ta réponse, aucun de ses agents ne lance ce qui pourrait écrire dans Messages : ton « oui » est
+            # le tien.
+            with permissions.QuestionEnCours():
+                try:
+                    if not await self.envoyer(f"{question} (réponds oui ou non)", QUESTION):
+                        return False
+                    texte, de_lui, suspect = await asyncio.wait_for(asyncio.shield(futur),
+                                                                    delai or config.QUESTION_IMESSAGE_S)
+                except asyncio.TimeoutError:
+                    await self.envoyer("Pas de réponse : je n'ai rien fait.")
                     return False
-                texte, de_lui, suspect = await asyncio.wait_for(asyncio.shield(futur),
-                                                                delai or config.QUESTION_IMESSAGE_S)
-            except asyncio.TimeoutError:
-                await self.envoyer("Pas de réponse : je n'ai rien fait.")
-                return False
-            finally:
-                self._question = None
+                finally:
+                    self._question = None
         if de_lui:  # la réponse reprend un texte passé par ses outils : elle vient de lui, ce n'est pas ton accord
             self._journal(f"   📱 Réponse écartée (elle reprend un texte de ses outils) : {texte[:120]}")
             return False

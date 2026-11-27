@@ -790,7 +790,8 @@ fait de bout en bout, dans son Chrome ou dans le tien.
    de lui faire réinitialiser un de tes comptes), `JERVIS_CONFIRMATIONS=confiance`. Un **CAPTCHA** (« je
    ne suis pas un robot », images à cocher, puzzle), c'est toi : il ne le résout pas et ne le contourne jamais (ni
    service qui les résout, ni astuce). Il t'envoie une notification « Un CAPTCHA t'attend sur reddit.com », te le
-   dit, et reprend où il en était quand tu dis « Steve, c'est bon ».
+   dit, et reprend où il en était quand tu dis « Steve, c'est bon » (outil `attendre_validation`). Tu n'es pas devant
+   le Mac ? La question part sur ton iPhone (voir « Valider depuis l'iPhone » plus bas).
 
 **Payer : coupé par défaut.** Il ne paie jamais, même si tu le lui demandes : arrivé à un paiement (carte, PayPal,
 Apple Pay, un « essai gratuit » qui demande une carte), il s'arrête et te dit ce qu'il faudrait payer, où et
@@ -895,6 +896,37 @@ partir d'une page ou d'un mail, ni lien, ni adresse, ni numéro, ses agents de f
 en écrire (ils mettent ce qu'ils ont appris dans leur compte rendu), au plus `JERVIS_SAVOIR_FAIRE_MAX` recettes.
 Menu → « Ses savoir-faire (ses recettes) » ouvre le dossier : chaque recette est un texte que tu peux corriger ou
 jeter. « Efface ta mémoire, tout » vide aussi le lexique et les recettes.
+
+**Des recettes toutes seules, après une réussite difficile.** Un agent de fond qui a réussi une tâche longue (au
+moins `JERVIS_RECETTE_ETAPES` étapes, 12 par défaut) finit son compte rendu par une partie « Méthode : » en étapes
+numérotées ; Steve en fait une recette (`noter_savoir_faire`), sans le dire à voix haute. La fois suivante, quand tu
+lances une tâche qui ressemble (au moins deux vrais mots en commun avec le titre de la recette ou son « quand »), la
+recette est **glissée dans le brief de l'agent** : il part de la méthode au lieu de tout redécouvrir, dit ce qui a
+changé sur la page, et Steve met la recette à jour (même titre) si besoin. Le journal le montre : « 🧵 Tâche 3 : je
+lui donne la recette « … » ». En mode prudent, cette recette venue d'un compte rendu d'agent se demande avant d'être
+écrite (un agent a lu des pages). `JERVIS_RECETTE_ETAPES=0` coupe le rappel.
+
+### Ses chantiers en cours (objectifs sur plusieurs jours)
+
+Sa mémoire retient des faits, son carnet des façons de faire, ses recettes des marches à suivre. Pour un objectif qui
+ne se boucle pas d'un coup (« fais connaître Oko », « trouve-moi un stage »), il tient un **chantier** : où il en est
+et la prochaine étape (outil `noter_objectif`), dans `objectifs.md` à la racine du projet. Ses chantiers sont en
+entier dans ses consignes : quand tu en reparles le lendemain, il reprend à la prochaine étape sans tout te
+redemander, met le chantier à jour à chaque vraie avancée et le raye quand c'est fini. Un chantier redit un peu
+autrement (« faire connaitre Oko. ») reste le même. Au plus `JERVIS_OBJECTIFS_MAX` chantiers (12) ; mêmes
+protections que le carnet (ni lien, ni adresse, ni numéro, jamais sous la dictée d'une page, pas par ses agents de
+fond). Tu peux ouvrir le fichier, le corriger ou le vider ; « Efface ta mémoire, tout » le vide aussi.
+
+### Son catalogue d'alternatives gratuites
+
+Tu ne peux rien payer : avant de chercher sur le web, il regarde son petit catalogue local
+(`chercher_alternative_gratuite`, dans `jervis/gratuit.py`) : une quarantaine de services payants courants et leur
+équivalent gratuit (Canva Pro → Canva gratuit, Figma, Penpot ; Zoom Pro → Google Meet, Jitsi ; un nom de domaine →
+le sous-domaine gratuit de l'hébergeur ; Midjourney → les offres gratuites d'Ideogram ou de Leonardo ;
+DocuSign → la signature dans Aperçu, Docuseal…). Rien ne part du Mac pour ça. Quand il trouve et essaie une alternative qui
+marche, il la note (`noter_alternative`) dans `alternatives.json` à la racine du projet : la tienne passe ensuite
+devant celles du catalogue (« noté par toi après l'avoir essayé »). Ni lien ni adresse dedans, et pas par ses agents
+de fond.
 
 ### Sa ronde (il prend l'initiative)
 
@@ -1108,6 +1140,22 @@ question. Il ne répond plus « je ne peux pas » au premier obstacle :
   à valider le CAPTCHA. ») ;
 - si ça échoue vraiment, il te dit en une phrase ce qu'il a tenté et sa meilleure solution de repli, jamais juste
   « impossible ». Ses agents de fond suivent la même règle, et le chemin qui a marché va dans son carnet.
+
+Avant d'agir, il regarde ce qu'il sait déjà : son carnet (pour ne pas refaire une erreur), une recette qui
+ressemble, ses chantiers en cours, son catalogue d'alternatives gratuites, sa mémoire. C'est ce qui le rend plus
+rapide à chaque fois.
+
+### Valider depuis l'iPhone
+
+Un CAPTCHA, un « c'est bien vous ? » sur ton téléphone, un lien de confirmation, une case macOS : un geste que toi
+seul peux faire. Il s'arrête, te le dit à voix haute (outil `attendre_validation`), et reprend quand tu réponds
+« c'est fait » (ou « oui », « c'est réglé », « done » ; « pas encore » = non, il ne touche plus à rien et te dit où il
+en est). **Tu n'es pas devant le Mac** (pas de réponse à voix haute, et ni clavier ni souris touchés depuis
+`JERVIS_PRESENT_S` secondes) : la même question part sur ton iPhone, dans la dernière conversation où tu lui as écrit
+(iMessage ou WhatsApp « Message à moi-même »), et tu réponds « ok » de là-bas. Ça vaut aussi pour les questions de ses
+agents de fond et pour toutes ses confirmations ; deux questions en même temps partent l'une après l'autre, jamais
+mêlées. Sans réponse en `JERVIS_QUESTION_IMESSAGE_S` secondes, c'est non. Jamais pour un mot de passe, un code, un
+paiement ni une décision : seulement pour « c'est fait ». `JERVIS_RELAIS_IPHONE=non` garde les questions à voix haute.
 
 ### Ce qu'il te demande encore
 
@@ -1415,6 +1463,9 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_LEXIQUE` | oui | `non` : ses phrases ne sont plus corrigées par son lexique |
 | `JERVIS_LEXIQUE_MAX` | 80 | paires gardées dans son lexique (les plus anciennes s'en vont) |
 | `JERVIS_SAVOIR_FAIRE_MAX` | 40 | recettes au plus dans `espace/savoir-faire/` |
+| `JERVIS_RECETTE_ETAPES` | 12 | à partir de ce nombre d'étapes, une tâche de fond réussie devient une recette (0 = jamais) |
+| `JERVIS_OBJECTIFS_MAX` | 12 | chantiers en cours au plus dans `objectifs.md` |
+| `JERVIS_RELAIS_IPHONE` | oui | `non` : une question sans réponse à voix haute ne part pas sur ton iPhone |
 | `JERVIS_INFOS_DELAI_S` | 8 | secondes qu'il laisse à un service d'infos (actualité, météo, change…) avant de dire qu'il ne répond pas et de passer à WebSearch |
 | `JERVIS_APIS_CACHE_S` | 120 | secondes pendant lesquelles la même demande à une API est resservie sans repartir (0 = jamais) |
 | `JERVIS_APIS_CATALOGUE_JOURS` | 30 | âge au-delà duquel le catalogue des API est retéléchargé en fond (0 = jamais) |
@@ -1495,6 +1546,7 @@ Les agents de fond (plusieurs en parallèle, leur état, leur histoire) : `tests
 Les serveurs MCP gratuits en plus, ton `mcp.json` et ce qu'en dit le Gardien (rien n'est lancé) : `tests/test_extras.py`.
 Le chat écrit, le carnet de leçons et la ronde (sans Claude ni réseau) : `tests/test_bras_droit.py`.
 Son lexique, ses savoir-faire et leurs garde-fous (dossier temporaire, faux client Claude) : `tests/test_apprendre.py`.
+Valider depuis l'iPhone, les recettes automatiques, le catalogue gratuit et ses chantiers (dossier temporaire) : `tests/test_valider.py`.
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
 Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.

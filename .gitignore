@@ -37,3 +37,7 @@ autorisations.json
 
 # Tes choix de la page Réglages (nom, langues, voix, modèle)
 reglages.json
+
+# Ses chantiers en cours et ses alternatives gratuites notées
+objectifs.md
+alternatives.json

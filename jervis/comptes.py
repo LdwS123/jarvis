@@ -10,7 +10,8 @@ Les codes de vérification reçus par SMS (iPhone → Mac) : chercher_code_recu 
 le Mac, et ne rend que le code. Il faut l'Accès complet au disque pour Jervis (Réglages → Confidentialité).
 
 Ce qui reste à toi : les CAPTCHA (« je ne suis pas un robot » : il ne les contourne jamais, il te prévient par la
-voix et une notification, et reprend quand tu dis « c'est bon »), la validation 3-D Secure de ta banque, et payer :
+voix et une notification, et reprend quand tu dis « c'est bon » ; si tu n'es pas devant le Mac, attendre_validation
+te pose la question sur l'iPhone et ton « ok » le fait reprendre), la validation 3-D Secure de ta banque, et payer :
 par défaut il ne paie jamais (config.PAIEMENTS) ; un numéro de carte ne passe jamais par ses outils.
 
 Faire connaître un projet (Oko…) : un vrai compte par site, à ton nom, sur les annuaires et communautés qui
@@ -426,16 +427,31 @@ async def chercher_code_recu(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool("signaler_captcha", "Un CAPTCHA (« je ne suis pas un robot », images à cocher, puzzle) bloque la page : "
       "tu ne le résous jamais et ne le contournes jamais. Cet outil le prévient (notification sur le Mac) ; ensuite "
-      "arrête-toi, dis-lui à voix haute qu'un CAPTCHA l'attend sur ce site, et reprends quand il dit « c'est bon ». "
-      "`site` = le domaine de la page.",
+      "arrête-toi et appelle attendre_validation : il te dit « c'est bon » à voix haute, ou depuis son iPhone s'il "
+      "n'est pas devant le Mac. `site` = le domaine de la page.",
       {"site": str})
 async def signaler_captcha(args: dict[str, Any]) -> dict[str, Any]:
     site = domaine(args.get("site")) or "une page de son Chrome"
     script = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run"
     await _lancer("osascript", "-e", script, config.PRENOM,
                   f"Un CAPTCHA t'attend sur {site}. Fais-le, puis dis-moi « c'est bon ».", delai=5)
-    return _texte(f"Il est prévenu. Arrête-toi là : dis-lui qu'un CAPTCHA l'attend sur {site}, et reprends où tu en "
-                  "étais quand il dit « c'est bon ». Ne touche plus à la page d'ici là.")
+    return _texte(f"Il est prévenu. Arrête-toi là, ne touche plus à la page, et appelle tout de suite "
+                  f"attendre_validation avec quoi = « Un CAPTCHA t'attend sur {site} dans Chrome » : reprends où tu en "
+                  "étais quand il dit « c'est bon » (à voix haute, ou depuis son iPhone s'il n'est pas là).")
+
+
+@tool("attendre_validation", "Un geste que lui seul peut faire te bloque : un CAPTCHA (après signaler_captcha), "
+      "« c'est bien vous ? » ou une notification à approuver sur son téléphone, un lien de confirmation à ouvrir, "
+      "une autorisation macOS à cocher. Il te dit « c'est fait » à voix haute ; s'il ne répond pas et n'est pas devant "
+      "le Mac, la question part sur son iPhone (iMessage ou WhatsApp) et son « ok » là-bas te fait reprendre. `quoi` "
+      "= ce qu'il doit faire, en une phrase (« Un CAPTCHA t'attend sur canva.com dans Chrome »). Jamais pour lui "
+      "demander un mot de passe ou un code (le code, tu le lis avec chercher_code_recu ou dans Gmail), jamais pour "
+      "un paiement (c'est demander_accord), et jamais pour une décision : c'est un « préviens-moi quand c'est fait ».",
+      {"quoi": str})
+async def attendre_validation(args: dict[str, Any]) -> dict[str, Any]:
+    # Arrivé ici, le gardien t'a posé la question et tu as dit oui (permissions.py) : c'est fait de ton côté.
+    return _texte("Il dit que c'est fait : regarde de nouveau la page (ou l'app) et reprends où tu en étais. Si c'est "
+                  "encore bloqué, dis-lui ce que tu vois au lieu de recommencer en boucle.")
 
 
 def _lien_du_site(lien: str, site: str) -> str:
@@ -491,7 +507,7 @@ async def lister_publications(args: dict[str, Any]) -> dict[str, Any]:
 
 
 OUTILS_COMPTES = [creer_mot_de_passe, copier_mot_de_passe, lister_comptes, chercher_code_recu,
-                  signaler_captcha, noter_publication, lister_publications]
+                  signaler_captcha, attendre_validation, noter_publication, lister_publications]
 
 CONSIGNE = """\
 - Créer un compte à sa place (« inscris-moi sur… », « crée-moi un compte… ») : ses infos sont dans sa fiche
@@ -516,12 +532,13 @@ CONSIGNE = """\
   2. Un compte que tu as créé : copier_mot_de_passe, puis cmd+v.
   3. Un compte à lui : clique dans le champ et laisse le remplissage automatique du navigateur (ou son
      gestionnaire de mots de passe) proposer l'identifiant et le mot de passe ; valide la suggestion, sans la lire.
-  4. Si une double vérification arrive (code sur son téléphone, « c'est bien vous ? », notification), arrête-toi,
-     dis-lui laquelle, et reprends quand il dit « c'est bon ».
+  4. Si une double vérification arrive (code sur son téléphone, « c'est bien vous ? », notification), arrête-toi
+     et appelle attendre_validation en disant laquelle ; tu reprends à son « c'est fait » (à voix haute, ou sur
+     son iPhone s'il n'est pas là). Un code reçu par SMS ou par mail, tu le lis toi-même (chercher_code_recu, Gmail).
   Ne tape jamais un mot de passe que tu aurais lu ou deviné, et ne le demande pas dans la conversation.
 - Un CAPTCHA (« je ne suis pas un robot », images à cocher, puzzle) : tu ne le résous pas, tu ne le contournes
-  jamais (ni service qui le résout, ni astuce). signaler_captcha avec le site, puis arrête-toi et dis-lui
-  « un CAPTCHA t'attend sur … » ; quand il dit « c'est bon », reprends où tu en étais.
+  jamais (ni service qui le résout, ni astuce). signaler_captcha avec le site, puis attendre_validation
+  (« Un CAPTCHA t'attend sur … dans Chrome ») ; à son « c'est fait », reprends où tu en étais.
 {payer}- Faire connaître un de ses projets (« fais connaître Oko », « mets Oko sur des annuaires ») : d'abord
   ta liste de publications (plus bas dans tes consignes, ou lister_publications) : jamais deux fois au même
   endroit, et jamais de recherche dans Gmail ou sur le web pour savoir ce qui est fait ; chaque site traité, publié

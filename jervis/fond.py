@@ -26,7 +26,7 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKCli
                               ToolUseBlock, tool)
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import apis, compteur, config, extras, infos, infos2, outils, permissions
+from . import apis, compteur, config, extras, infos, infos2, outils, permissions, savoir_faire
 from .brain import EXPERT, _maintenant, avec_extras, carnet, documents, env_outils, preparer_connecteurs
 from .permissions import Gardien, est_lecture, noter_outil
 
@@ -45,6 +45,10 @@ class Standard:
         self._file: deque[Evenement] = deque()
         self.sonnerie = threading.Event()  # lue par le fil du micro : interrompt la veille entre deux phrases
         self._nouveau = asyncio.Event()
+        # Le relais vers ton iPhone (posé par __main__ quand une boîte iMessage ou WhatsApp est branchée) :
+        # une question restée sans réponse à voix haute part là-bas. Il rend None quand il ne relaie pas
+        # (tu es devant le Mac, aucune boîte, RELAIS_IPHONE=non).
+        self.relais: Callable[..., Any] | None = None
 
     def poster(self, ev: Evenement) -> None:
         self._file.append(ev)
@@ -72,12 +76,13 @@ class Standard:
 
     async def demander(self, question: str, delai: float | None = None) -> bool:
         """Pour une tâche de fond : pose la question dès que tu es disponible. Sans réponse en
-        QUESTION_FOND_S (30 min), c'est non."""
+        QUESTION_FOND_S (30 min), c'est non. Posée à voix haute sans aucune réponse (le futur rend None : tu
+        n'étais pas là), elle part sur ton iPhone par le relais, et ta réponse là-bas compte."""
         futur = asyncio.get_running_loop().create_future()
         ev = Evenement("question", question, futur)
         self.poster(ev)
         try:
-            return await asyncio.wait_for(futur, config.QUESTION_FOND_S if delai is None else delai)
+            ok = await asyncio.wait_for(futur, config.QUESTION_FOND_S if delai is None else delai)
         except asyncio.TimeoutError:
             return False
         finally:  # trop tard, ou tâche annulée : la question n'a plus à être posée
@@ -86,6 +91,9 @@ class Standard:
                 if not self._file:
                     self.sonnerie.clear()
                     self._nouveau.clear()
+        if ok is None and self.relais is not None:
+            ok = await self.relais(question)
+        return bool(ok)
 
 
 # --- Tâches de fond ------------------------------------------------------------------------
@@ -103,6 +111,7 @@ class Tache:
     jetons: int = 0                  # ce que l'agent a lu et écrit chez Claude (entrée + sortie), connu à la fin
     attend: str = ""                 # la question qu'il t'a posée, tant que tu n'as pas répondu
     lecture_seule: bool = False      # sa ronde : il regarde, il ne touche à rien
+    recette: str = ""                # le titre de la recette (savoir-faire) glissée dans son brief, s'il y en a une
     au_rapport: Callable[[str], str | None] | None = field(default=None, repr=False)  # son compte rendu → ce qu'il
                                      # faut te dire (None : rien à dire, pas d'annonce)
 
@@ -148,6 +157,12 @@ class Taches:
         self._suivant += 1
         self._bilan["lancees"] += 1
         self._boucle = asyncio.get_running_loop()
+        if au_rapport is None and (recette := savoir_faire.pour_tache(tache.titre, brief)):
+            # Il l'a déjà réussie : l'agent part de la méthode au lieu de tout redécouvrir (la 2e fois va plus vite).
+            tache.recette = recette.splitlines()[0].lstrip("# ").strip()
+            brief += ("\n\nTa recette pour ce genre de tâche (écrite par Steve après l'avoir réussie) : suis-la, et "
+                      "adapte ce qui a changé sur la page. Dans ta « Méthode », dis ce qui a changé.\n\n" + recette)
+            self._journal(f"   🧵 Tâche {tache.numero} : je lui donne la recette « {tache.recette} »")
         tache.travail = self._boucle.create_task(self._travailler(tache, brief))
         self._taches[tache.numero] = tache
         self._journal(f"   🧵 Tâche {tache.numero} lancée : {tache.titre}")
@@ -264,6 +279,18 @@ class Taches:
             can_use_tool=Gardien(confirmer),
         )
 
+    @staticmethod
+    def _garder_la_methode(tache: Tache) -> str:
+        """Une tâche difficile (au moins RECETTE_ETAPES étapes) : il garde sa méthode comme recette, pour que la
+        prochaine fois aille plus vite. Rien pour une tâche courte, ni si RECETTE_ETAPES=0."""
+        if not config.RECETTE_ETAPES or tache.etapes < config.RECETTE_ETAPES or tache.lecture_seule:
+            return ""
+        deja = (f"Elle suivait ta recette « {tache.recette} » : mets-la à jour (même titre) si la méthode a changé, "
+                "sinon n'y touche pas. " if tache.recette else "")
+        return (f"\nC'était une tâche longue ({tache.etapes} étapes). Si elle a réussi et peut revenir, garde sa "
+                f"méthode : {deja}noter_savoir_faire avec la partie « Méthode » de son compte rendu (8 étapes au plus, "
+                "sans lien, adresse ni numéro). Ne le dis pas à voix haute.")
+
     async def _travailler(self, tache: Tache, brief: str) -> None:
         client = ClaudeSDKClient(options=self._options(tache))
         textes: list[str] = []
@@ -296,7 +323,7 @@ class Taches:
                 return
             self._standard.poster(Evenement(
                 "fini", f"(tâche de fond terminée) « {tache.titre} » : {compte_rendu}\n"
-                        "Résume-le-lui en deux phrases."))
+                        "Résume-le-lui en deux phrases." + self._garder_la_methode(tache)))
         except asyncio.CancelledError:
             self._clore(tache, "annulée")
             self._journal(f"   🧵 Tâche {tache.numero} annulée.")
@@ -344,7 +371,8 @@ ETAT_RONDE = config.ESPACE / "ronde.json"
 _INFOS = {f"mcp__{outils.NOM_SERVEUR}__{t.name}" for t in [*infos.OUTILS_INFOS, *infos2.OUTILS_INFOS2,
                                                              *apis.OUTILS_APIS]}
 # Ce que seul Steve écrit pour les fois suivantes (voir _options) : ses agents de fond n'y touchent pas.
-ECRIT_PAR_STEVE = ("noter_lecon", "noter_mot", "noter_savoir_faire", "autoriser_desormais", "retirer_autorisation")
+ECRIT_PAR_STEVE = ("noter_lecon", "noter_mot", "noter_savoir_faire", "noter_alternative", "noter_objectif",
+                   "autoriser_desormais", "retirer_autorisation")
 
 
 def outil_de_lecture(outil: str) -> bool:
