@@ -22,6 +22,7 @@ import asyncio
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import time
@@ -149,8 +150,14 @@ def etat() -> str:
             quoi = f"fini {il_y_a(p['fin'])}" if p.get("fin") else "arrêté"
         relances = len(p.get("relances") or [])
         lignes.append(f"- {nom} : {quoi}" + (", se relance s'il s'arrête" if p.get("relancer") else "")
-                      + (f", relancé {relances} fois" if relances else "") + f" ({p['commande'][:80]})")
+                      + (f", relancé {relances} fois" if relances else "") + f" ({_sans_cd(p)[:80]})")
     return "\n".join(lignes)
+
+
+def _sans_cd(p: dict[str, Any]) -> str:
+    """La commande sans le « cd » vers son dossier que le gardien met en tête (permissions.Gardien._processus)."""
+    tete = f"cd {shlex.quote(str(p.get('dossier') or ''))} && "
+    return p["commande"][len(tete):] if p["commande"].startswith(tete) else p["commande"]
 
 
 def veiller(maintenant: float | None = None) -> list[str]:

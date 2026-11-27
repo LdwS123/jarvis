@@ -388,8 +388,9 @@ JERVIS_A_CONFIRMER = {*ENVOIS, "repondeur", "appeler", "demander_accord", "atten
 # d'ailleurs, toujours dans la cage (le Gardien ajoute `cage` à l'appel), même après ton oui, puisque la question ne
 # te montre pas ce code. Arrêter un programme, ouvrir un projet dans une app : après un tel texte, c'est toi qui dis oui.
 DEV_EN_CAGE = {"lancer_tests", "serveur_de_dev", "lister_activite_github", "surveiller_ci"}
-DEV_DEMANDE_APRES_DEHORS = {"liberer_port", "ouvrir_projet"}
-DEV_A_CONFIRMER_PRUDENT = {"lancer_tests", "serveur_de_dev"}  # (en mode « toutes » seulement)
+DEV_DEMANDE_APRES_DEHORS = {"liberer_port", "ouvrir_projet",
+                            "processus"}  # (arrêter un processus de fond ; le lancer : Gardien._processus)
+DEV_A_CONFIRMER_PRUDENT = {"lancer_tests", "serveur_de_dev", "processus"}  # (en mode « toutes » seulement)
 
 
 def chemins_a_jeter(entree: dict[str, Any]) -> list[str]:
@@ -641,6 +642,11 @@ def _destinataire(nom: Any, adresse: Any) -> str:
     return f"{nom} ({adresse})"
 
 
+def _processus_nom(entree: dict[str, Any]) -> str:
+    from . import processus
+    return processus.nom_valide(entree.get("nom")) or "?"
+
+
 def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str:
     """Formule la question de confirmation, à l'oral."""
     if outil == "Bash":
@@ -652,6 +658,8 @@ def decrire(outil: str, entree: dict[str, Any], apps: Iterable[str] = ()) -> str
     if outil in LECTURE_FICHIERS:
         return f"Je vais lire {Path(chemin_fichier(entree).split()[0]).name}, qui peut contenir des secrets. Je peux ?"
     action = nom_action(outil)
+    if action == "processus":  # (seul « arreter » passe par ici : lancer est demandé par Gardien._processus)
+        return f"Je vais arrêter le processus de fond « {_processus_nom(entree)} ». Je peux ?"
     if action == "liberer_port":
         force = " de force" if entree.get("forcer") else ""
         return f"Je vais arrêter{force} le programme qui occupe le port {entree.get('port')}. Je peux ?"
@@ -1182,9 +1190,13 @@ _SE_LANCE_DOSSIERS = ("Library/Messages", "Library/LaunchAgents", ".claude", ".s
 _SE_LANCE_FICHIERS = (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".bashrc", ".bash_profile",
                       ".bash_login", ".profile", ".gitconfig")
 _STEVE_DOSSIERS = ("jervis", ".venv", "Jervis.app", ".git",  # .git : hooks, config (core.hooksPath), info, commondir…
-                   "espace/dev")  # ses serveurs (les pid qu'il arrête), les journaux de tests qu'il relit, touches.json
+                   "espace/dev",  # ses serveurs (les pid qu'il arrête), les journaux de tests qu'il relit, touches.json
+                   "espace/processus")  # les journaux de ses processus de fond, qu'il relit
 _STEVE_FICHIERS: tuple[str, ...] = ("autorisations.json", "autorisations.tmp",  # tes règles 📌 : que par toi
-                                    "mcp.json")  # tes serveurs MCP : chacun lance son programme au démarrage
+                                    "mcp.json",  # tes serveurs MCP : chacun lance son programme au démarrage
+                                    # ses processus de fond : une entrée glissée là (« relancer », une commande à
+                                    # elle) serait relancée par le programmateur, hors cage et sans le Gardien
+                                    "espace/processus.json")
 # Dans la cage, ~/Jervis/.git est fermé en entier (objets, branches, index compris : rien d'y glisser pour plus tard)
 # et git y lit sans rien écrire (GIT_OPTIONAL_LOCKS=0 : git status marche). Tes commits se font hors cage.
 # Partout, dans tout dépôt, à toute profondeur (sous-modules, worktrees) : la config (core.fsmonitor, core.hooksPath
@@ -1865,53 +1877,58 @@ class Gardien:
         return resultat
 
     async def _processus(self, entree: dict[str, Any], ctx: ToolPermissionContext):
-        """Ses processus de fond (processus.py). Lancer = une commande Bash comme les autres (interdits, cage après
-        un texte venu d'ailleurs, questions selon ton mode), la commande telle qu'elle a été permise (encagée s'il
-        faut) devenant celle qui tourne. Un programme qui se relance tout seul, ou en arrêter un, juste après un
-        texte venu d'ailleurs : toi d'abord, avec une question écrite par le code."""
+        """Lancer un processus de fond (processus.py) : une commande Bash comme les autres (interdits, cage après un
+        texte venu d'ailleurs, questions selon ton mode, pendant un appel…), lancée depuis son dossier (un « cd » en
+        tête : c'est là qu'elle lira et écrira), la commande telle qu'elle a été permise (encagée s'il faut) devenant
+        celle qui tourne, dans le dossier vérifié ici. Un programme qui se relance tout seul, juste après un texte venu
+        d'ailleurs : toi d'abord, commande et dossier sous les yeux (une question écrite par le code)."""
         from . import processus
-        action = str(entree.get("action") or "etat")
-        if action in ("etat", "journal"):
-            if action == "journal":
-                self.a_lu_dehors()  # sa sortie peut venir d'une page qu'il a relevée
-            return PermissionResultAllow(updated_input=entree)
         nom = processus.nom_valide(entree.get("nom")) or "?"
+        commande = str(entree.get("commande") or "").strip()
+        try:
+            dossier = (Path(os.path.expanduser(str(entree.get("dossier") or ""))) if entree.get("dossier")
+                       else config.ESPACE).resolve()
+        except (OSError, RuntimeError, ValueError):
+            return PermissionResultDeny(message="Ce dossier n'est pas utilisable : donne un chemin simple.")
+        montre = str(dossier).replace(str(Path.home()), "~", 1) if str(dossier).startswith(str(Path.home())) \
+            else str(dossier)
         mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
-        question = None
-        if action == "arreter" and mefiant:
-            question = f"Je vais arrêter le processus de fond « {nom} ». Je peux ?"
-        elif action == "lancer" and mefiant and entree.get("relancer") is True:
-            commande = " ".join(str(entree.get("commande") or "").split())
-            if len(commande) > COMMANDE_MONTREE_MAX:
+        if mefiant and entree.get("relancer") is True:
+            vue = " ".join(commande.split()).replace("«", '"').replace("»", '"')
+            lieu = " ".join(montre.split()).replace("«", '"').replace("»", '"')
+            if len(vue) + len(lieu) > COMMANDE_MONTREE_MAX:
                 return PermissionResultDeny(
                     message=f"Cette commande est trop longue pour que je la lui montre en entier avant de dire oui : "
-                            f"mets-la dans un script de {COMMANDE_MONTREE_MAX} caractères au plus, puis réessaie.")
-            question = (f"Je vais lancer « {nom} » en continu, relancé s'il s'arrête : "
-                        f"« {commande.replace('«', '\"').replace('»', '\"')} ». Je peux ?")
-        if question:
-            cle = f"processus:{action}:{nom}:{entree.get('commande')}"
+                            f"mets-la dans un script ({COMMANDE_MONTREE_MAX} caractères au plus avec son dossier), "
+                            "puis réessaie.")
+            question = f"Je vais lancer « {nom} » en continu dans {lieu}, relancé s'il s'arrête : « {vue} ». Je peux ?"
+            cle = f"processus:lancer:{nom}:{dossier}:{commande}"
             async with self._verrou:
                 if cle not in self._reponses:
                     self._reponses[cle] = await self._confirmer(question)
-                    noter_blocage("mcp__jervis__processus", entree, pourquoi="un processus de fond juste après un "
-                                  "texte venu d'ailleurs", cible=None, autorisable=False, en_appel=self.en_appel,
-                                  question=question, accorde=self._reponses[cle])
+                    noter_blocage("mcp__jervis__processus", entree, pourquoi="un programme qui se relance tout seul, "
+                                  "juste après un texte venu d'ailleurs", cible=None, autorisable=False,
+                                  en_appel=self.en_appel, question=question, accorde=self._reponses[cle])
             if not self._reponses[cle]:
                 return PermissionResultDeny(message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre "
                                                     "moyen : dis-lui simplement que tu n'as rien fait.")
-        if action != "lancer":
-            return PermissionResultAllow(updated_input=entree)
-        resultat = await self._decider("Bash", {"command": str(entree.get("commande") or ""),
-                                                "description": f"lancer en continu le processus de fond « {nom} »"},
-                                       ctx)
+        resultat = await self._decider("Bash", {
+            "command": f"cd {shlex.quote(str(dossier))} && {commande}",
+            "description": f"lancer le processus de fond « {nom} » dans {montre}"}, ctx)
         if isinstance(resultat, PermissionResultAllow):
-            permise = (resultat.updated_input or {}).get("command") or entree.get("commande")
-            return PermissionResultAllow(updated_input={**entree, "commande": permise})
+            permise = (resultat.updated_input or {}).get("command") or f"cd {shlex.quote(str(dossier))} && {commande}"
+            return PermissionResultAllow(updated_input={**entree, "commande": permise, "dossier": str(dossier)})
         return resultat
 
     async def _decider(self, outil: str, entree: dict[str, Any], _ctx: ToolPermissionContext):
-        if outil == "mcp__jervis__processus":
-            return await self._processus(entree, _ctx)
+        if outil == "mcp__jervis__processus":  # (arreter suit le chemin commun, comme liberer_port)
+            action = str(entree.get("action") or "etat")
+            if action in ("etat", "journal"):
+                if action == "journal":
+                    self.a_lu_dehors()  # sa sortie peut venir d'une page qu'il a relevée
+                return PermissionResultAllow(updated_input=entree)
+            if action == "lancer":
+                return await self._processus(entree, _ctx)
         if comptes.secret_au_presse_papiers():
             if lit_le_presse_papiers(outil, entree):
                 return PermissionResultDeny(message="Un mot de passe est dans le presse-papiers : tant qu'il y est, tu "

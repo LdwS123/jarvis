@@ -1117,9 +1117,14 @@ regarde son journal une fois pour vérifier qu'il démarre.
   programme fini reste dans la liste un jour.
 - **La sécurité** : la commande passe par le même Gardien qu'une commande du terminal (les interdits, tes
   questions selon ton mode, la cage de macOS juste après un texte venu d'ailleurs, et c'est la commande encagée
-  qui tourne). Juste après une page ou un mail lus, un programme **qui se relance tout seul** ou en **arrêter**
-  un te demande ton oui, la commande en entier sous les yeux : « Je vais lancer « bot » en continu, relancé s'il
-  s'arrête : « python3 bot.py ». Je peux ? ». Lire son journal compte comme un texte venu d'ailleurs.
+  qui tourne, depuis le dossier vérifié). Juste après une page ou un mail lus, un programme **qui se relance tout
+  seul** ou en **arrêter** un te demande ton oui, la commande et son dossier sous les yeux : « Je vais lancer « bot »
+  en continu dans ~/code/bot, relancé s'il s'arrête : « python3 bot.py ». Je peux ? ». Arrêter suit les mêmes
+  règles que libérer un port : demandé aussi pendant un appel, en mode « toutes », ou quand c'est le compte rendu
+  d'un agent qui le demande. Lire son journal compte comme un texte venu d'ailleurs.
+  Son registre (`espace/processus.json`) et ses journaux sont protégés comme le code de Steve : fermés dans la
+  cage, et y écrire juste après un texte venu d'ailleurs te demande ton oui. Sinon une entrée glissée là, avec
+  « relancer », serait relancée par lui hors de la cage, sans passer par le Gardien.
 
 ### La doc de tes outils, Wikipédia, arXiv (serveurs MCP gratuits)
 

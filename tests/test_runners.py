@@ -8,6 +8,7 @@ programmes lancés pour de vrai sont de petites commandes du shell (sleep, echo)
 
 import asyncio
 import os
+import shlex
 import signal
 import tempfile
 import threading
@@ -161,6 +162,10 @@ async def tester_outil():
     verifier("lancer : il tourne, et il sait où va sa sortie", ("« veilleur » tourne" in texte(r),
                                                                  "sera relancé" in texte(r), r.get("is_error")),
              (True, True, None))
+    r = await o({"action": "lancer", "nom": "depuis-cd", "commande": f"cd {shlex.quote(str(TMP))} && sleep 30"})
+    verifier("une commande rendue par le gardien (« cd » en tête) : l'état la montre sans", (
+        "(sleep 30)" in processus.etat(), "&&" in processus.etat()), (True, False))
+    processus.arreter("depuis-cd")
     r = await o({"action": "journal", "nom": "veilleur", "lignes": 5})
     verifier("journal : la fin de sa sortie", "tic" in texte(r), True)
     r = await o({"action": "journal", "nom": "inconnu"})
@@ -200,7 +205,8 @@ async def tester_gardien():
         "PermissionResultAllow", True))
     r = await neuf()(outil, {"action": "lancer", "nom": "bot", "commande": "python3 bot.py", "relancer": True}, None)
     verifier("lancer à ta demande (autonome) : sans question, hors cage",
-             (nom(r), r.updated_input["commande"], questions), ("PermissionResultAllow", "python3 bot.py", []))
+             (nom(r), r.updated_input["commande"], questions), ("PermissionResultAllow", f"cd {shlex.quote(str(TMP))} && python3 bot.py", []))
+    verifier("… depuis son dossier vérifié, rendu tel quel (c'est lui qui servira)", r.updated_input["dossier"], str(TMP))
     r = await neuf()(outil, {"action": "lancer", "nom": "bot", "commande": "sudo python3 bot.py"}, None)
     verifier("… une commande interdite reste interdite", nom(r), "PermissionResultDeny")
     r = await neuf()(outil, {"action": "arreter", "nom": "bot"}, None)
@@ -210,18 +216,24 @@ async def tester_gardien():
                                         "relancer": True}, None)
     verifier("après un texte venu d'ailleurs, un programme qui se relance : il te demande, la commande sous les yeux",
              (nom(r), questions), ("PermissionResultDeny",
-                                   ["Je vais lancer « bot » en continu, relancé s'il s'arrête : « python3 bot.py ». "
-                                    "Je peux ?"]))
+                                   [f"Je vais lancer « bot » en continu dans {TMP}, relancé s'il s'arrête : "
+                                    "« python3 bot.py ». Je peux ?"]))
     verifier("… un refus : il n'insiste pas", "refusé" in r.message, True)
     verifier("… la question ne devient pas une règle 📌", permissions.BLOCAGES[-1]["autorisable"], False)
     r = await neuf(dehors=True)(outil, {"action": "lancer", "nom": "bot", "commande": "echo « x »", "relancer": True},
                                 None)
     verifier("… les guillemets de la commande ne cassent pas la question", questions[-1],
-             "Je vais lancer « bot » en continu, relancé s'il s'arrête : « echo \" x \" ». Je peux ?")
+             f"Je vais lancer « bot » en continu dans {TMP}, relancé s'il s'arrête : « echo \" x \" ». Je peux ?")
+    (TMP / "ailleurs").mkdir()
+    r = await neuf(dehors=True)(outil, {"action": "lancer", "nom": "bot", "commande": "python3 bot.py",
+                                        "dossier": str(TMP / "ailleurs" / ".." / "ailleurs"), "relancer": True}, None)
+    verifier("… le dossier où il tournera est dans la question (résolu), et un autre dossier se redemande",
+             questions[-1], f"Je vais lancer « bot » en continu dans {TMP / 'ailleurs'}, relancé s'il s'arrête : "
+                            "« python3 bot.py ». Je peux ?")
     r = await neuf(dehors=True)(outil, {"action": "lancer", "nom": "bot", "commande": "x" * 400, "relancer": True},
                                 None)
     verifier("… une commande trop longue pour être montrée : refusée sans question", (nom(r), len(questions)),
-             ("PermissionResultDeny", 2))
+             ("PermissionResultDeny", 3))
 
     reponse["oui"] = True
     r = await neuf(dehors=True)(outil, {"action": "lancer", "nom": "bot", "commande": "python3 bot.py",
@@ -239,6 +251,47 @@ async def tester_gardien():
     r = await neuf(dehors=True)(outil, {"action": "arreter", "nom": "bot"}, None)
     verifier("… en arrêter un : il te demande", questions[-1], "Je vais arrêter le processus de fond « bot ». Je peux ?")
     reponse["oui"] = False
+
+    # son registre : une entrée glissée là serait relancée hors cage, sans le Gardien
+    vrai_registre = permissions._RACINE / "espace" / "processus.json"
+    vrais_journaux = permissions._RACINE / "espace" / "processus"
+    verifier("son registre et ses journaux sont protégés (comme ce qui se lance tout seul)",
+             [bool(permissions.SE_LANCE_PLUS_TARD.search(str(c))) for c in (vrai_registre, vrais_journaux / "bot.log")],
+             [True, True])
+    verifier("… fermés dans la cage", all(permissions._sbpl(c) in permissions._cage_profil()
+                                           for c in (vrai_registre, vrais_journaux)), True)
+    avant = len(questions)
+    r = await neuf(dehors=True)("Write", {"file_path": str(vrai_registre), "content": "{}"}, None)
+    verifier("… y écrire juste après un texte venu d'ailleurs : il te demande (et tu as dit non)",
+             (nom(r), len(questions) - avant), ("PermissionResultDeny", 1))
+
+    # arrêter suit le chemin commun : pendant un appel, en mode « toutes », après le compte rendu d'un agent
+    avant = len(questions)
+    g = neuf()
+    g.en_appel = True
+    r = await g(outil, {"action": "arreter", "nom": "bot"}, None)
+    verifier("pendant un appel, arrêter : il te demande (la voix pouvait être celle d'un participant)",
+             (nom(r), questions[avant:]), ("PermissionResultDeny", ["Je vais arrêter le processus de fond « bot ». "
+                                                                    "Je peux ?"]))
+    g = neuf()
+    g.en_appel = True
+    r = await g(outil, {"action": "lancer", "nom": "bot", "commande": "python3 bot.py"}, None)
+    verifier("… le lancer aussi, et la question dit lequel et où", (nom(r), questions[-1]),
+             ("PermissionResultDeny", f"Je vais lancer le processus de fond « bot » dans {TMP}. Je peux ?"))
+    vrai_mode = config.CONFIRMATIONS
+    config.CONFIRMATIONS = "toutes"
+    avant = len(questions)
+    r = await neuf()(outil, {"action": "arreter", "nom": "bot"}, None)
+    verifier("en mode « toutes » : arrêter se demande", (nom(r), len(questions) - avant), ("PermissionResultDeny", 1))
+    r = await neuf()(outil, {"action": "etat"}, None)
+    verifier("… l'état non", (nom(r), len(questions) - avant), ("PermissionResultAllow", 1))
+    config.CONFIRMATIONS = "essentielles"
+    g = neuf()
+    g.mefiance = True
+    r = await g(outil, {"action": "arreter", "nom": "bot"}, None)
+    verifier("mode prudent, demandé par un agent : arrêter se demande", (nom(r), len(questions) - avant),
+             ("PermissionResultDeny", 2))
+    config.CONFIRMATIONS = vrai_mode
 
     vrai = config.MEFIANCE
     config.MEFIANCE = False
