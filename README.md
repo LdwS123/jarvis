@@ -1093,6 +1093,22 @@ d'ailleurs ; toute autre action d'un de ces serveurs te demande d'abord, **dans 
 Pour les tiens, rien n'est deviné d'après le nom (un `query` peut effacer) : seules les actions de
 leur liste `"lectures"` passent seules, toutes les autres te sont demandées. Ce qu'ils renvoient compte comme un texte venu d'ailleurs, comme une page web.
 
+### Il trouve un moyen (« il faut qu'on fasse ça »)
+
+« Il faut qu'on… », « on doit… », « trouve un moyen », « débrouille-toi » : pour lui c'est un objectif, pas une
+question. Il ne répond plus « je ne peux pas » au premier obstacle :
+
+- il essaie **au moins trois chemins vraiment différents** avant de dire que ça ne marche pas (ses outils, une
+  API, le site dans le navigateur, l'app du Mac, un script ou un outil qu'il installe, un agent de fond) ;
+- s'il manque un outil, il cherche le service ou le logiciel libre qui le fait ;
+- s'il faut payer, il cherche **d'abord la version gratuite** (offre gratuite, essai sans carte, logiciel libre,
+  autre façon d'y arriver) ; sinon il prépare tout jusqu'au paiement, **sans payer**, et te dit le prix ;
+- les limites restent des limites : un refus du gardien, un mot de passe, un CAPTCHA, un paiement, il ne les
+  contourne jamais. Il va jusqu'à elles et te laisse le dernier geste en une phrase (« Tout est rempli, il te reste
+  à valider le CAPTCHA. ») ;
+- si ça échoue vraiment, il te dit en une phrase ce qu'il a tenté et sa meilleure solution de repli, jamais juste
+  « impossible ». Ses agents de fond suivent la même règle, et le chemin qui a marché va dans son carnet.
+
 ### Ce qu'il te demande encore
 
 **Presque rien : par défaut (`JERVIS_CONFIRMATIONS=autonome`), il fait tout seul et en prend la responsabilité.**

@@ -927,5 +927,15 @@ async def tester_au_rapport():
 
 asyncio.run(tester_au_rapport())
 
+# --- Trouve un moyen : un objectif, pas une question, mais jamais au-delà des limites ---
+verifier("consignes : il trouve un moyen", "Trouve un moyen." in brain.CONSIGNES, True)
+verifier("consignes : trois chemins avant d'abandonner", "au moins trois chemins vraiment différents" in brain.CONSIGNES, True)
+verifier("consignes : la version gratuite d'abord", "cherche d'abord la version gratuite" in brain.CONSIGNES, True)
+verifier("consignes : les limites ne se contournent pas", "tu ne cherches jamais de détour autour d'elles" in brain.CONSIGNES, True)
+verifier("consignes : jamais juste « impossible »", "jamais juste\n  « impossible »" in brain.CONSIGNES, True)
+verifier("agents de fond : trois chemins avant un échec", "au moins trois chemins vraiment différents" in brain.EXPERT, True)
+verifier("agents de fond : ne contournent toujours pas un refus", "n'essaie pas de la contourner" in brain.EXPERT, True)
+verifier("agents de fond : préparent sans payer", "sans payer" in brain.EXPERT, True)
+
 print(f"\n{'✅' if not echecs else '❌'} bras droit : {total - len(echecs)}/{total} vérifications OK", flush=True)
 os._exit(0 if not echecs else 1)
