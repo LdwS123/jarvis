@@ -364,8 +364,8 @@ verifier("cage : seuls un git clone / init simples sortent (ni -c, ni --upload-p
 verifier("cage : un git clone / init vers ~/.claude, LaunchAgents, le code de Steve, ~ ou un dossier inconnu → reste en cage",
          [bool(permissions.nouveau_depot(c)) for c in (
              "git clone https://a/b ~/.claude/skills/b", "cd ~/.claude/skills && git clone https://a/b.git",
-             "git clone https://a/b ~/Library/LaunchAgents/x", "git init ~/Jervis/jervis/x", "cd ~ && git init",
-             "git init ~/Jervis", "git init ~/p/.git/x", "git init ~+/x", "git clone https://a/b.git",
+             "git clone https://a/b ~/Library/LaunchAgents/x", f"git init {permissions._RACINE / 'jervis' / 'x'}",
+             "cd ~ && git init", f"git init {permissions._RACINE}", "git init ~/p/.git/x", "git init ~+/x", "git clone https://a/b.git",
              "git init projet", "cd ~/Documents && git clone https://a/b.git",
              "git clone https://a/b ~/.CLAUDE/skills/b", "git init ~/Projets/.GIT/x",
              "cd ~/Documents && git init", f"git init {permissions._RACINE / 'README.md'}")], [False] * 15)

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 🔒 Une faille de sécurité · Security vulnerability
+    url: https://github.com/LdwS123/jarvis/security/advisories/new
+    about: En privé, pas dans une issue publique · Privately, not in a public issue

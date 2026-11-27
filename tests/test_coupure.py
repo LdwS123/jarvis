@@ -273,7 +273,10 @@ else:
     fil.start()
 
     def demander(methode: str, chemin: str, **entetes: str):
-        for _ in range(50):
+        # Le serveur démarre encore (refusé, ou rien ne répond : sur une machine chargée comme celles de GitHub,
+        # le port est pris avant d'écouter) : on réessaie, 30 s au plus en tout.
+        fin = time.monotonic() + 30
+        while time.monotonic() < fin:
             try:
                 c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
                 c.request(methode, chemin, headers={"Host": f"127.0.0.1:{port}", **entetes})
@@ -281,8 +284,8 @@ else:
                 donnees = r.read()
                 c.close()
                 return r.status, donnees
-            except ConnectionRefusedError:
-                time.sleep(0.1)  # le serveur démarre encore
+            except OSError:  # ConnectionRefusedError, TimeoutError…
+                time.sleep(0.1)
         return None, b""
 
     code, corps = demander("GET", "/")

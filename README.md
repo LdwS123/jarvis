@@ -5,11 +5,14 @@
 <p align="center"><b>Français</b> · <a href="README.en.md">English</a> · <a href="README.zh.md">中文</a> · <a href="README.ka.md">ქართული</a></p>
 
 <p align="center">
+  <a href="https://github.com/LdwS123/jarvis/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/LdwS123/jarvis/actions/workflows/tests.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="Licence MIT" src="https://img.shields.io/badge/licence-MIT-green"></a>
   <img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000?logo=apple&logoColor=white">
   <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
   <img alt="Propulsé par Claude" src="https://img.shields.io/badge/propuls%C3%A9%20par-Claude-D97757">
   <img alt="Langues : français, English, 中文, ქართული et 21 autres" src="https://img.shields.io/badge/langues-fr%20%C2%B7%20en%20%C2%B7%20%E4%B8%AD%E6%96%87%20%C2%B7%20%E1%83%A5%E1%83%90%E1%83%A0%20%C2%B7%20%2B21-2C7FC9">
   <img alt="Voix locale" src="https://img.shields.io/badge/voix-locale%20%C2%B7%20sans%20cloud-6FE0FF">
+  <a href="https://github.com/LdwS123/jarvis/stargazers"><img alt="Étoiles GitHub" src="https://img.shields.io/github/stars/LdwS123/jarvis?style=social"></a>
 </p>
 
 Le projet s'appelle Jarvis ; l'assistant, lui, s'appelle **Steve** (c'est le mot qui le réveille).
@@ -1481,3 +1484,13 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   (sa voix locale ne parle que français) ; `JERVIS_VOIX_NEURONALE=non` les lit avec les voix du Mac à la place.
 - La page Réglages tourne sur ce Mac (127.0.0.1, avec un jeton). Elle lit l'état de ton compte Claude par
   `claude auth status` et n'en garde que « connecté » et le type d'abonnement : ni ton adresse, ni ton organisation.
+
+## Contribuer
+
+Un bug, une phrase mal comprise, une langue de plus, une idée : tout est bienvenu, en français comme en anglais.
+Voir [CONTRIBUTING.md](CONTRIBUTING.md) (et [SECURITY.md](SECURITY.md) pour signaler une faille en privé). Les
+tests : `.venv/bin/python -m pytest -q`.
+
+## Licence
+
+[MIT](LICENSE). Si Jarvis te sert, une ⭐ sur GitHub aide beaucoup : c'est comme ça que d'autres le trouvent.

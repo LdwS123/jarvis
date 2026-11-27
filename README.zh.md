@@ -76,3 +76,7 @@
 
 你的声音永远不会离开 Mac：唤醒词、转写、语言识别和声纹都在本地计算。你说的话（文字）以及它替你读取的内容
 会发送给 Claude，以便回答。完整说明见法语 README。
+
+---
+
+[MIT](LICENSE) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · ⭐

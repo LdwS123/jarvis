@@ -16,7 +16,7 @@ threading.Timer(80, lambda: (print("⏰ bloqué", flush=True), os._exit(2))).sta
 
 from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock  # noqa: E402
 
-from jervis import audio, brain, chat, config, fond, outils, reunion, stt, tts  # noqa: E402
+from jervis import audio, brain, chat, config, fond, outils, reglages, reunion, stt, tts  # noqa: E402
 from jervis import __main__ as m  # noqa: E402
 from jervis.naturel import (avis_limite, corriger_transcription, decoder_epellation, epellation_en_cours,  # noqa: E402
                             hesite, hors_alphabet, nettoyer, recoller)
@@ -422,6 +422,8 @@ class FauxCerveau:
 audio.Oreilles = FauxOreilles
 # Un vrai appel en cours sur le Mac (FaceTime au micro) le ferait taire au milieu du test : aucun appel ici.
 reunion.Surveillance.regarder = lambda self: None
+# Ni le compte Claude de ce Mac (une machine de test n'en a pas : il attendrait qu'on le connecte).
+reglages.statut_claude = lambda: {"installe": True, "connecte": True}
 stt.transcrire = lambda a, *x: a
 stt.prechauffer = lambda: None
 tts.parler = faux_parler

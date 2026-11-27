@@ -4,21 +4,60 @@
 
 <p align="center"><a href="README.md">Français</a> · <b>English</b> · <a href="README.zh.md">中文</a> · <a href="README.ka.md">ქართული</a></p>
 
-An always-listening voice assistant for the Mac. You call it by name (**Steve** by default, or any name you choose),
-it understands you, answers out loud, and acts on your Mac: apps, windows, browser, mail, calendar, messages,
-background agents running in parallel, and a dashboard. Wake word, speech recognition and the local voice run on the
-Apple chip; the thinking is done by Claude, **on your own Claude subscription** (no API key).
+<p align="center">
+  <a href="https://github.com/LdwS123/jarvis/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/LdwS123/jarvis/actions/workflows/tests.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green"></a>
+  <img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000?logo=apple&logoColor=white">
+  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="Powered by Claude" src="https://img.shields.io/badge/powered%20by-Claude-D97757">
+  <a href="https://github.com/LdwS123/jarvis/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/LdwS123/jarvis?style=social"></a>
+</p>
 
-It speaks your languages: tell it which ones you speak (English, 中文, ქართული, Español, Deutsch, Русский, 日本語… 25
-with a dedicated voice, or all 99 Whisper languages) and, sentence by sentence, it recognises the language you used
-and answers in the same one, with a voice of that language.
+**A real "Jarvis" for your Mac.** Say its name (**Steve** by default, or any name you pick), talk normally, and it
+**acts**: apps, windows, files, browser, mail, calendar, messages, background agents in parallel. It answers out
+loud with a local voice, goes quiet by itself during your calls, takes meeting notes, and learns from your
+corrections.
 
-> The full documentation is in French: [README.md](README.md). The code, its comments and its messages are in
+- 🎙️ **Your voice never leaves the Mac**: wake word, speech recognition (Parakeet / Whisper on MLX), language
+  detection and its voice (Pocket TTS) all run on the Apple chip.
+- 🧠 **The thinking is Claude**, through the Claude Agent SDK, **on your own Claude Pro/Max subscription**: no API
+  key, no per-token bill.
+- 🌍 **It speaks your languages**: tell it which ones you speak (English, 中文, Español, Deutsch, 日本語, ქართული…)
+  and it answers each sentence in the language you used, with a voice of that language.
+
+> The full documentation is in French: [README.md](README.md) (your browser can translate it). The code is in
 > French too; the assistant itself answers in whatever language you speak to it.
+
+## What it does
+
+| | What it does | Where it runs |
+|---|---|---|
+| 🎙️ | Listens ("Steve…"), understands, answers out loud; switches to your headphones or AirPods | on the Mac (wake word, Parakeet/Whisper, local voice) |
+| ✋ | **Barge-in**: talk over it and it stops dead to listen, then resumes if you weren't talking to it | on the Mac (echo cancellation) |
+| 📞 | **Goes quiet during your calls** (Zoom, Meet, Teams, FaceTime…) and comes back after | on the Mac (CoreAudio) |
+| 📝 | **Meeting notes**: transcribes each part in its own language, then a summary and action items in Notes | transcription on the Mac, summary by Claude |
+| 🪟 | Windows, **modes** ("work mode"), music, selected text, **folder cleanup** (undoable), **Mac health** | on the Mac |
+| 🔎 | "Find the PDF of the March quote": **searches inside** your files | Spotlight, on the Mac |
+| 📱 | Text or **send a voice note from your iPhone** (iMessage): it does the task on the Mac and **replies with a voice note** | transcribed and spoken on the Mac |
+| 💬 | **Replies to your messages in your style** (iMessage, WhatsApp), or answers for you while you're busy | Claude, with your confirmation rules |
+| 📌 | **Learns from you**: correct it once and it keeps the rule | its notebook, `lecons.md` |
+| 🤖 | Mail, calendar, Chrome, Mac apps, up to 5 background agents, a live dashboard | Claude (your subscription) |
+
+```mermaid
+flowchart LR
+    Mic[🎙️ Mic / AirPods] --> Ears[Wake word + echo cancellation<br/>local transcription]
+    iPhone[📱 iMessage<br/>text or voice note] --> Ears
+    Call[📞 Zoom · Meet · FaceTime] -. goes quiet .-> Ears
+    Ears --> Brain[Claude Agent SDK<br/>+ instructions, memory, notebook 📌]
+    Brain --> Tools[Mac tools<br/>windows · modes · files · Notes · Messages]
+    Brain --> Background[Background agents<br/>up to 5 in parallel]
+    Brain --> Voice[🔊 Local voice]
+    Meeting[📝 Meeting notes<br/>Whisper, 99 languages] --> Brain
+```
 
 ## Install
 
-You need an Apple Silicon Mac, Python 3.12, and a Claude Pro or Max subscription.
+You need an Apple Silicon Mac (M1 or later), Python 3.12, and a Claude Pro or Max subscription.
 
     git clone https://github.com/LdwS123/jarvis.git ~/Jervis && cd ~/Jervis
     python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
@@ -80,4 +119,14 @@ Every setting can also be set with an environment variable, which always wins ov
 
 Your voice never leaves the Mac: wake word, transcription, language detection and voice print are computed locally.
 What you say (as text), and what it reads for you, goes to Claude so it can answer. See the French README for the
-full list.
+full list, and [SECURITY.md](SECURITY.md) for its safety model (text from web pages, emails or other people is
+data, never an instruction; money is off by default; `sudo` and `rm` are always refused).
+
+## Contributing
+
+Bug reports, ideas, new languages and pull requests are very welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Run the tests with `.venv/bin/python -m pytest -q`.
+
+## License
+
+[MIT](LICENSE). If Jarvis is useful to you, a ⭐ on GitHub helps a lot: it's how other people find it.

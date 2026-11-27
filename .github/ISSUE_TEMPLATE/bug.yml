@@ -1,0 +1,24 @@
+name: 🐛 Un bug · Bug report
+description: Il a mal compris, planté, ou fait autre chose que prévu · Something went wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: quoi
+    attributes:
+      label: Ce qui s'est passé · What happened
+      description: Ce que tu as dit ou écrit, ce qu'il a fait, ce que tu attendais · What you said, what it did, what you expected
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac et macOS
+      placeholder: MacBook Air M2, macOS 26.1
+    validations:
+      required: true
+  - type: textarea
+    id: journal
+    attributes:
+      label: Fin de jervis.log (facultatif · optional)
+      description: "⚠️ Relis avant de coller : le journal peut contenir tes messages, fichiers ou rendez-vous · Check for personal data before pasting"
+      render: text

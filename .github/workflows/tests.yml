@@ -1,0 +1,27 @@
+# Les tests de Steve sur un Mac à puce Apple de GitHub, à chaque push et chaque pull request.
+# Ni micro, ni compte Claude, ni tes données : les tests remplacent tout ce qui touche au vrai Mac.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Dépendances
+        run: |
+          brew install portaudio
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Tests
+        # Les outils du système d'abord (/usr/bin/git), comme sur un Mac neuf : ses règles 📌 ne visent qu'eux.
+        run: PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "$pythonLocation/bin/python" -m pytest -q
