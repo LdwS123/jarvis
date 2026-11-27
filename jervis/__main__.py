@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 
-from . import bureau, chat, compteur, config, dev, oral, reunion, touche, tts, vocal, voix_locale
+from . import bureau, chat, compteur, config, dev, langues, oral, reunion, touche, tts, vocal, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
 from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond
@@ -159,9 +159,10 @@ FRANCAIS = frozenset("le la les un une des de du et est je tu il on pas ça que 
 
 
 def en_anglais(texte: str) -> bool:
-    """Une vidéo YouTube en anglais, pas toi : beaucoup de petits mots anglais, presque aucun français."""
+    """Une vidéo YouTube en anglais, pas toi : beaucoup de petits mots anglais, presque aucun français.
+    Jamais quand tu lui parles toi-même anglais (JERVIS_LANGUES) : ton anglais n'est pas une vidéo."""
     mots = re.findall(r"[\w']+", texte.casefold())
-    if len(mots) < 4:
+    if len(mots) < 4 or langues.parle("en"):
         return False
     anglais = sum(m in ANGLAIS for m in mots) / len(mots)
     francais = sum(m in FRANCAIS for m in mots) / len(mots)
@@ -206,7 +207,10 @@ def _meme_mot(a: str, b: str) -> bool:
 
 def charabia(entendu: str) -> bool:
     """Quatre mots ou plus, presque aucun mot français courant : du bruit pris pour une phrase
-    (« Og det spikes sjovt base præskel », « Gamla fed le plussoeau Ernesto »)."""
+    (« Og det spikes sjovt base præskel », « Gamla fed le plussoeau Ernesto »).
+    Une phrase dans une autre langue que tu lui parles n'en est pas ; sans le français, ce test ne vaut rien."""
+    if not langues.parle("fr") or langues.autre_que_bruit(entendu):
+        return False
     mots = re.findall(r"\w+", entendu.casefold())
     return len(mots) >= 4 and sum(m in MOTS_COURANTS for m in mots) / len(mots) < 0.25
 
@@ -1353,6 +1357,7 @@ def mode_barre() -> None:
     app.menu = [
         bouton_pause,
         rumps.MenuItem("Tableau de bord", callback=lambda _: ecran.ouvrir()),
+        rumps.MenuItem("Réglages… (nom, langues, voix, compte Claude)", callback=lambda _: ecran.ouvrir("reglages")),
         None,
         rumps.MenuItem("Ce qu'il sait de moi (mémoire)", callback=lambda _: ouvrir(outils.MEMOIRE)),
         rumps.MenuItem("Nos conversations", callback=lambda _: ouvrir(outils.JOURNAL)),

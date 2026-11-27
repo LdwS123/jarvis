@@ -637,7 +637,7 @@ async def ordre_de_fabrication():
     debuts = []
     _vrai = tts._preparer
 
-    async def faux_preparer(p, en_tete=False):
+    async def faux_preparer(p, en_tete=False, langue=None):
         debuts.append((p, round(time.monotonic() - t0, 1)))
         await asyncio.sleep(0.3)
         return None, None

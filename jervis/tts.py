@@ -4,6 +4,10 @@
 Quand le micro tourne en duplex (voir audio.py), le son est décodé et joué par ce flux-là :
 l'anti-écho connaît alors exactement ce qui sort des enceintes et le retire du micro.
 Sinon (micro en pause, flux duplex impossible), on joue avec `afplay` comme avant.
+
+Quand tu lui parles plusieurs langues (JERVIS_LANGUES), chaque phrase prend la voix de sa langue : chinois,
+géorgien, anglais… (voir langues.py). Sa voix locale ne dit que la langue de son modèle ; les autres passent
+par la voix Microsoft de cette langue, puis par une voix macOS de cette langue.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config, ligne, oral, voix_locale
+from . import config, langues, ligne, oral, voix_locale
 
 _DOSSIER_AUDIO = Path(tempfile.mkdtemp(prefix="jervis-voix-"))
 _TINK = Path("/System/Library/Sounds/Tink.aiff")
@@ -87,16 +91,43 @@ _DELAI_VOIX = 6.0  # au-delà, on ne l'attend plus : la voix macOS prend le rela
 _DELAI_VOIX_LOCALE = 45.0  # au démarrage, le temps qu'on laisse à sa voix locale pour se charger (4 s d'habitude)
 
 
-async def _synthetiser(phrase: str, en_tete: bool = False) -> Path | None:
+def _langues_des(phrases: list[str]) -> list[str | None]:
+    """La langue de chaque phrase, pour lui donner la bonne voix. Une phrase qui ne dit pas la sienne (« OK. »,
+    « 14 h 30. ») garde celle de la précédente ; la première part de la langue où tu viens de lui parler.
+    Avec une seule langue : None partout, ses voix habituelles (rien ne change)."""
+    if not langues.plusieurs():
+        return [None] * len(phrases)
+    courante, resultat = langues.derniere or config.LANGUE, []
+    for phrase in phrases:
+        code = langues.detecter(phrase)
+        if code in langues.LANGUES:
+            courante = code
+        resultat.append(courante)
+    return resultat
+
+
+def _voix_neuronale(langue: str | None) -> str:
+    return langues.voix_neuronale(langue) if langue else config.VOIX_NEURONALE
+
+
+def _voix_mac(langue: str | None) -> str:
+    if not langue or langue == config.LANGUE:
+        return config.VOIX
+    return langues.voix_mac(langue) or config.VOIX  # aucune voix de cette langue sur ce Mac : la tienne, faute de mieux
+
+
+async def _synthetiser(phrase: str, en_tete: bool = False, langue: str | None = None) -> Path | None:
     """Fabrique le mp3 d'une phrase. Renvoie None si la voix neuronale est indisponible.
-    `en_tete` : c'est le début d'une réponse, celui qu'on attend en silence, donc il est demandé deux fois."""
+    `en_tete` : c'est le début d'une réponse, celui qu'on attend en silence, donc il est demandé deux fois.
+    `langue` : celle de la phrase, quand tu lui en parles plusieurs (sinon sa voix habituelle)."""
     if config.VOIX_NEURONALE.lower() in {"", "non", "off"}:
-        return None
+        return None  # (JERVIS_VOIX_NEURONALE=non coupe la voix Microsoft dans toutes les langues)
+    voix = _voix_neuronale(langue)
     fichier = _nouveau_fichier(".mp3")
     depart = time.monotonic()
     if ligne.disponible():
         try:
-            son = await asyncio.wait_for(ligne.dire(phrase, config.VOIX_NEURONALE, config.VITESSE, doubler=en_tete),
+            son = await asyncio.wait_for(ligne.dire(phrase, voix, config.VITESSE, doubler=en_tete),
                                          timeout=_DELAI_VOIX)
             fichier.write_bytes(son)
             return fichier
@@ -105,7 +136,7 @@ async def _synthetiser(phrase: str, en_tete: bool = False) -> Path | None:
                 return None  # le service est lent ou muet : inutile de l'attendre une deuxième fois
     try:  # le chemin d'edge-tts : une connexion neuve pour cette phrase
         import edge_tts
-        com = edge_tts.Communicate(phrase, config.VOIX_NEURONALE, rate=config.VITESSE)
+        com = edge_tts.Communicate(phrase, voix, rate=config.VITESSE)
         await asyncio.wait_for(com.save(str(fichier)), timeout=_DELAI_VOIX - (time.monotonic() - depart))
         return fichier if fichier.stat().st_size > 0 else None
     except Exception:
@@ -122,9 +153,10 @@ def prechauffer() -> None:
         ligne.prechauffer()
 
 
-async def _say_vers_fichier(phrase: str) -> Path | None:
+async def _say_vers_fichier(phrase: str, langue: str | None = None) -> Path | None:
     fichier = _nouveau_fichier(".aiff")
-    proc = await asyncio.create_subprocess_exec("say", "-v", config.VOIX, "-r", config.DEBIT, "-o", str(fichier), phrase)
+    proc = await asyncio.create_subprocess_exec("say", "-v", _voix_mac(langue), "-r", config.DEBIT, "-o", str(fichier),
+                                                phrase)
     await proc.wait()
     return fichier if proc.returncode == 0 and fichier.exists() else None
 
@@ -167,10 +199,11 @@ def _ecrire_wav(chemin: Path, echantillons: np.ndarray) -> None:
         w.writeframes((np.clip(echantillons, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
 
 
-async def _en_local(phrase: str) -> tuple[Path, np.ndarray] | None:
+async def _en_local(phrase: str, langue: str | None = None) -> tuple[Path, np.ndarray] | None:
     """La phrase dite par sa voix locale : le fichier (pour afplay, hors duplex) et les échantillons.
-    None si elle n'est pas là ou si elle a raté cette phrase : la voix Microsoft prend alors le relais."""
-    if not voix_locale.prete():
+    None si elle n'est pas là, si elle a raté cette phrase, ou si la phrase n'est pas dans la langue de son modèle
+    (du chinois lu par le modèle français) : la voix Microsoft prend alors le relais."""
+    if not voix_locale.prete() or (langue and langues.modele_local(langue) != config.VOIX_LOCALE_LANGUE):
         return None
     try:
         echantillons = await asyncio.wait_for(asyncio.to_thread(voix_locale.dire, phrase), timeout=_DELAI_VOIX)
@@ -184,14 +217,15 @@ async def _en_local(phrase: str) -> tuple[Path, np.ndarray] | None:
     return fichier, echantillons
 
 
-async def _preparer(phrase: str, en_tete: bool = False) -> tuple[Path | None, np.ndarray | None]:
+async def _preparer(phrase: str, en_tete: bool = False,
+                    langue: str | None = None) -> tuple[Path | None, np.ndarray | None]:
     """Le fichier son de la phrase et, si on joue en duplex, ses échantillons déjà décodés."""
-    if local := await _en_local(phrase):
+    if local := await _en_local(phrase, langue):
         return local
-    fichier = await _synthetiser(phrase, en_tete)
+    fichier = await _synthetiser(phrase, en_tete, langue)
     if not _duplex():
         return fichier, None
-    fichier = fichier or await _say_vers_fichier(phrase)
+    fichier = fichier or await _say_vers_fichier(phrase, langue)
     return fichier, (_rogner(await _decoder(fichier)) if fichier else None)
 
 
@@ -200,17 +234,17 @@ async def _preparer(phrase: str, en_tete: bool = False) -> tuple[Path | None, np
 _en_tete: asyncio.Task | None = None
 
 
-def _fabriquer(phrase: str) -> asyncio.Task:
+def _fabriquer(phrase: str, langue: str | None = None) -> asyncio.Task:
     global _en_tete
     if _en_tete is None or _en_tete.done():
         # S'il ne parle pas en ce moment, ce bout-là est attendu en silence : il est demandé deux fois.
-        _en_tete = asyncio.create_task(_preparer(phrase, en_tete=not _verrou.locked()))
+        _en_tete = asyncio.create_task(_preparer(phrase, en_tete=not _verrou.locked(), langue=langue))
         return _en_tete
     tete = _en_tete
 
     async def apres_la_tete():
         await asyncio.wait({tete})
-        return await _preparer(phrase)
+        return await _preparer(phrase, langue=langue)
     return asyncio.create_task(apres_la_tete())
 
 
@@ -229,9 +263,10 @@ _pretes: dict[str, tuple[Path | None, np.ndarray | None]] = {}
 
 def anticiper(texte: str) -> None:
     """Commence à fabriquer le son de ce texte tout de suite ; `parler` le reprendra là où il en est."""
-    for phrase in _phrases(_nettoyer(texte)):
+    phrases = _phrases(_nettoyer(texte))
+    for phrase, langue in zip(phrases, _langues_des(phrases)):
         if phrase not in _anticipees and phrase not in _pretes:
-            _anticipees[phrase] = _fabriquer(phrase)
+            _anticipees[phrase] = _fabriquer(phrase, langue)
 
 
 async def precharger(phrases: list[str]) -> None:
@@ -288,17 +323,18 @@ async def parler(texte: str) -> None:
     if not texte:
         return
     phrases = _phrases(texte)
+    leurs_langues = _langues_des(phrases)
 
     async def deja_pret(phrase: str):
         return _pretes[phrase]
 
     # Déjà prête ou en fabrication (anticipée) : on la reprend ; sinon on la lance maintenant.
     fabrications = [asyncio.ensure_future(deja_pret(p)) if p in _pretes
-                    else _anticipees.pop(p, None) or _fabriquer(p) for p in phrases]
+                    else _anticipees.pop(p, None) or _fabriquer(p, langue) for p, langue in zip(phrases, leurs_langues)]
     global _tais_toi, premier_son
     async with _verrou:
         _tais_toi = False
-        for phrase, fabrication in zip(phrases, fabrications):
+        for phrase, langue, fabrication in zip(phrases, leurs_langues, fabrications):
             fichier, echantillons = await fabrication
             if _tais_toi:
                 break
@@ -309,7 +345,7 @@ async def parler(texte: str) -> None:
             elif fichier:
                 await _jouer(["afplay", str(fichier)])
             else:
-                await _jouer(["say", "-v", config.VOIX, "-r", config.DEBIT, phrase])
+                await _jouer(["say", "-v", _voix_mac(langue), "-r", config.DEBIT, phrase])
             if fichier and phrase not in _pretes:
                 fichier.unlink(missing_ok=True)
         for phrase, fabrication in zip(phrases, fabrications):  # phrases coupées : on range quand même leurs fichiers

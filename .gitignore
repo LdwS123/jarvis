@@ -34,3 +34,6 @@ rangement.json
 
 # Tes règles 📌 « autorise ça désormais »
 autorisations.json
+
+# Tes choix de la page Réglages (nom, langues, voix, modèle)
+reglages.json

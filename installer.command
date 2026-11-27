@@ -19,6 +19,15 @@ if [[ "${1:-}" == "--retirer" ]]; then
 fi
 
 [[ -x .venv/bin/python ]] || { echo "❌ Pas de .venv ici : installe d'abord Jervis (voir README)."; exit 1; }
+# Il pense avec TON abonnement Claude (Pro ou Max), par Claude Code : sans lui, il entend mais ne répond pas.
+CLAUDE="$(command -v claude || ls "$HOME/.local/bin/claude" /opt/homebrew/bin/claude 2>/dev/null | head -1 || true)"
+if [[ -z "$CLAUDE" ]]; then
+  echo "⚠️  Claude Code n'est pas installé. Installe-le, puis connecte ton abonnement :"
+  echo "     curl -fsSL https://claude.ai/install.sh | bash && claude auth login"
+elif ! "$CLAUDE" auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; then
+  echo "⚠️  Claude Code n'est connecté à aucun compte : lance « claude auth login » (ou le bouton de la page Réglages)."
+fi
+
 zsh outils/construire_app.sh
 
 mkdir -p "$HOME/Library/LaunchAgents"
@@ -42,3 +51,5 @@ echo "   macOS va te demander l'accès au micro : clique « Autoriser »."
 echo "   Il redémarrera tout seul à chaque ouverture de session."
 echo "   ⚠️  Ne lance pas lancer.command en même temps (deux Jervis se disputeraient le micro)."
 echo "   Pour l'enlever du démarrage : ./installer.command --retirer"
+echo "   Son nom, tes langues (中文, English, ქართული…), sa voix, ton compte Claude : menu de l'icône → Réglages…"
+echo "   (ou double-clique reglages.command)."

@@ -3,6 +3,7 @@
 Rien n'y est inventé : son état, vos derniers échanges, ce qu'il vient de faire et ses temps de réponse
 (lus à la fin de jervis.log), son usage de Claude, sa voix, et l'état du Mac expliqué en clair.
 On peut aussi lui écrire (le chat, chat.py) : il répond par écrit, sans un mot à voix haute.
+La page Réglages (/reglages, reglages.py) y est servie aussi : son nom, ses langues, sa voix, ton compte Claude.
 
 Le serveur n'écoute que sur cette machine, refuse les pages d'autres sites, et ne calcule rien tant que
 la page n'est pas ouverte : la boucle vocale ne le sent pas.
@@ -29,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from . import chat, compteur, config, ligne, voix_locale
+from . import chat, compteur, config, ligne, reglages, voix_locale
 
 PAGE = Path(__file__).with_name("tableau.html")
 JOURNAL = config.DOSSIER / "jervis.log"
@@ -425,6 +426,8 @@ class Tableau:
         """Ce que fait un bouton : ceux de la barre (pause, mémoire…), ou « annuler-agent-3 » (le × d'un agent)."""
         if nom in self.actions:
             return self.actions[nom]
+        if nom == "reglages":
+            return lambda: self.ouvrir("reglages")
         if m := re.fullmatch(r"annuler-agent-(\d{1,6})", nom):
             taches = getattr(self.etat, "taches", None)
             if taches is not None:
@@ -526,6 +529,15 @@ class Tableau:
                     self._json(tableau.pouls())
                 elif chemin == "/etat":
                     self._json(tableau.instantane())
+                elif chemin == "/reglages":
+                    page, nonce = reglages.page(tableau.jeton)
+                    self._repondre(200, page.encode(), "text/html",
+                                   {"Content-Security-Policy": reglages.regles(nonce)})
+                elif chemin.startswith("/reglages/"):
+                    if not self._jeton_ok():
+                        self._repondre(403)
+                        return
+                    self._repondre(*reglages.traiter("GET", chemin))
                 elif chemin == "/":
                     page, nonce = tableau.page()
                     regles = (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
@@ -557,6 +569,8 @@ class Tableau:
                         self._repondre(503, "Il n'écoute pas encore (il démarre, ou il est en pause).".encode())
                     else:
                         self._repondre(204)
+                elif self.path in {"/reglages", "/reglages/claude"}:
+                    self._repondre(*reglages.traiter("POST", self.path, corps))
                 elif m := re.fullmatch(r"/repondre/(\d{1,12})/(oui|non)", self.path):
                     self._repondre(204 if chat.MESSAGERIE.repondre(int(m[1]), m[2] == "oui") else 410)
                 elif (action := tableau.action(self.path.removeprefix("/action/"))) is None:
@@ -576,14 +590,16 @@ class Tableau:
         _actif = self
         return True
 
-    def ouvrir(self) -> bool:
-        """Dans une fenêtre sans barre d'adresse si Chrome est là, sinon dans le navigateur par défaut."""
+    def ouvrir(self, page: str = "") -> bool:
+        """Dans une fenêtre sans barre d'adresse si Chrome est là, sinon dans le navigateur par défaut.
+        `page` : « reglages » pour la page Réglages."""
         if self.port is None:
             return False
+        adresse = self.adresse + page
         if Path("/Applications/Google Chrome.app").exists():
-            subprocess.Popen(["open", "-na", "Google Chrome", "--args", f"--app={self.adresse}"])
+            subprocess.Popen(["open", "-na", "Google Chrome", "--args", f"--app={adresse}"])
         else:
-            subprocess.Popen(["open", self.adresse])
+            subprocess.Popen(["open", adresse])
         return True
 
 

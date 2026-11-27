@@ -149,7 +149,7 @@ verifier("son annonce et ses relances y sont",
 demandes_microsoft: list[str] = []
 
 
-async def faux_synthetiser(phrase, en_tete=False):
+async def faux_synthetiser(phrase, en_tete=False, langue=None):
     demandes_microsoft.append(phrase)
     return None
 

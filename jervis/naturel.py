@@ -164,7 +164,12 @@ def epellation_en_cours(texte: str) -> bool:
 
 # --- Le bruit d'une vidéo dans une autre écriture (russe, chinois, arabe…) : pas toi -------------------------------
 def hors_alphabet(texte: str) -> bool:
-    """Plus de la moitié des lettres sont hors de l'alphabet latin : une vidéo, jamais une demande pour lui."""
+    """Plus de la moitié des lettres sont hors de l'alphabet latin : une vidéo, jamais une demande pour lui.
+    Sauf si c'est l'écriture d'une langue que tu lui parles (chinois, géorgien… avec JERVIS_LANGUES)."""
+    from . import langues  # import tardif : naturel reste un module sans dépendance
+
+    if langues.parle(langues.ecriture(texte)):
+        return False
     lettres = [c for c in texte if c.isalpha()]
     if len(lettres) < 3:
         return False

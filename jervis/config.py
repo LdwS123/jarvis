@@ -1,15 +1,45 @@
-"""Réglages de l'assistant. Chaque valeur peut être surchargée par une variable d'environnement."""
+"""Réglages de l'assistant. Chaque valeur peut être surchargée par une variable d'environnement.
 
+Ordre : la variable JERVIS_… si elle existe, sinon ce que tu as choisi dans la page Réglages (reglages.json,
+à côté de ce dossier, jamais dans le dépôt), sinon la valeur par défaut écrite ici."""
+
+import json
 import os
 import re
 from pathlib import Path
 
-
-def _env(name: str, default: str) -> str:
-    return os.environ.get(f"JERVIS_{name}", default)
-
+from . import langues as _langues
 
 DOSSIER = Path(__file__).resolve().parent.parent
+# JERVIS_REGLAGES=non : ignore reglages.json (les tests le font, pour ne pas dépendre de tes choix) ;
+# JERVIS_REGLAGES=/un/autre/fichier.json : le lit là.
+SANS_REGLAGES = os.environ.get("JERVIS_REGLAGES", "").lower() in {"non", "off", "0"}
+FICHIER_REGLAGES = (Path(os.environ["JERVIS_REGLAGES"]).expanduser()
+                    if os.environ.get("JERVIS_REGLAGES") and not SANS_REGLAGES else DOSSIER / "reglages.json")
+
+
+def _lire_reglages() -> dict[str, str]:
+    if SANS_REGLAGES:
+        return {}
+    try:
+        donnees = json.loads(FICHIER_REGLAGES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in donnees.items() if isinstance(v, (str, int, float))} if isinstance(donnees, dict) else {}
+
+
+_REGLAGES = _lire_reglages()
+
+
+def reglage(name: str) -> str:
+    """Ce que tu as choisi dans la page Réglages pour ce nom (« » si rien)."""
+    return _REGLAGES.get(name, "")
+
+
+def _env(name: str, default: str) -> str:
+    valeur = os.environ.get(f"JERVIS_{name}")
+    return valeur if valeur is not None else _REGLAGES.get(name, default)
+
 
 # --- Micro ----------------------------------------------------------------
 SAMPLE_RATE = 16_000          # openWakeWord et Whisper attendent du 16 kHz mono
@@ -24,15 +54,26 @@ PRENOM = _env("PRENOM", "Steve")
 # Tout ce qui ressemble à son nom dans ce que la transcription a écrit.
 _VARIANTES = {
     # Jervis, Jarvis, Gervais, Jervice…
-    "jervis": r"\b(?:d?j|g)[ae]r\s?v(?:i|ai|é|y)[sc]?e?\b",
+    "jervis": r"(?:\b(?:d?j|g)[ae]r\s?v(?:i|ai|é|y)[sc]?e?\b|贾维斯|\bჯარვის(?:ი)?\b)",  # + en chinois, en géorgien
     # Steve, Stève, Stive, Steeve, et « Стив » (sur 2 syllabes, Parakeet croit parfois entendre du russe).
     # Pas suivi d'un nom de famille (« Steve Jobs », « Steve Carell ») : là, on parle de quelqu'un d'autre.
-    "steve": r"\b(?:st[eéèi]{1,2}ve?s?|s[iy]ve?|стив)\b(?!\s+(?-i:[A-Z])\w)",  # + « Siv » (mal entendu)
+    "steve": r"(?:\b(?:st[eéèi]{1,2}ve?s?|s[iy]ve?|стив)\b(?!\s+(?-i:[A-Z])\w)"  # + « Siv » (mal entendu)
+             # Écrit dans tes autres langues (chinois, japonais, coréen : sans espaces, donc sans \b ; géorgien,
+             # arabe, hébreu, grec : avec). Whisper écrit « 史蒂夫 » ou « სტივ » quand tu parles chinois ou géorgien.
+             r"|史[蒂提]夫|斯[蒂提]夫|スティーブ|스티브|\b(?:სტივ(?:ი|ის|ს)?|ستيف|סטיב|στιβ)\b)",
 }
 _VARIANTES["jarvis"] = _VARIANTES["jervis"]
 NOM = _env("NOM", _VARIANTES.get(PRENOM.casefold(), rf"\b{re.escape(PRENOM)}\b"))
+
+# --- Langues ---------------------------------------------------------------------------------------------
+# Ta langue principale (fr, en, zh, ka, es…) : celle de ses annonces, de sa voix de tous les jours.
+LANGUE = _env("LANGUE", "fr")
+# Toutes celles que tu lui parles : il reconnaît la langue de chaque phrase et te répond dans la même, avec une
+# voix de cette langue. « fr,en,zh,ka », ou « toutes ». Par défaut, la principale seule : une vidéo en anglais
+# ou en russe n'est alors jamais prise pour toi (avec plusieurs langues, ~0,3 s de plus par phrase).
+LANGUES = _env("LANGUES", LANGUE)
 # Ce qu'il dit quand il est prêt. (« Steve en ligne. », sans verbe, sa voix locale le disait de travers.)
-ANNONCE = f"{PRENOM} est en ligne."
+ANNONCE = _langues.annonce(LANGUE, PRENOM)
 
 # --- Enregistrement de ta phrase ------------------------------------------
 SILENCE_END_S = float(_env("SILENCE_END_S", "0.8"))     # silence qui marque la fin de ta phrase
@@ -51,7 +92,6 @@ DISCUSSION_S = float(_env("DISCUSSION_S", "600"))
 
 # --- Transcription ---------------------------------------------------------
 WHISPER_MODEL = _env("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
-LANGUE = _env("LANGUE", "fr")
 
 # --- Cerveau (Claude Code, sur ton abonnement) -----------------------------
 MODELE_CLAUDE = _env("MODELE", "sonnet")
@@ -246,7 +286,7 @@ PATIENCE_S = float(_env("PATIENCE_S", "1.8"))
 # « reprends », « tu disais ? » lui fait reprendre sa réponse à la phrase coupée, sans redire le début.
 # JERVIS_REPRISE_MIN=0 pour le couper.
 REPRISE_MIN = float(_env("REPRISE_MIN", "10"))
-PHRASES_PATIENCE = [p.strip() for p in _env("PHRASES_PATIENCE", "Voyons…|Alors…|Une seconde.|Je regarde.").split("|")
+PHRASES_PATIENCE = [p.strip() for p in _env("PHRASES_PATIENCE", _langues.patiences(LANGUE)).split("|")
                     if p.strip()]
 # Quand tu commences à lui parler pendant qu'il parle, il baisse la voix (à ce volume, de 0 à 1) le temps
 # de comprendre si tu lui coupes la parole. 1 = ne baisse pas.
@@ -276,18 +316,23 @@ def _voix_choisie() -> str:
 
 
 VOIX_LOCALE = _env("VOIX_LOCALE", _voix_choisie())
-VOIX_LOCALE_LANGUE = _env("VOIX_LOCALE_LANGUE", "french")
+# Le modèle de cette langue (french, english, german, spanish, italian, portuguese, dutch). Une langue
+# principale qu'il n'a pas (chinois, géorgien…) : pas de voix locale, il parle avec la voix Microsoft.
+VOIX_LOCALE_LANGUE = _env("VOIX_LOCALE_LANGUE", _langues.modele_local(LANGUE))
 VOIX_LOCALE_VOLUME = float(_env("VOIX_LOCALE_VOLUME", "1.0"))
 # Voix neuronale Microsoft (gratuite, très naturelle, demande Internet).
 # Autres : fr-FR-HenriNeural, fr-FR-VivienneMultilingualNeural (femme), fr-FR-DeniseNeural (femme).
 # Mets JERVIS_VOIX_NEURONALE=non pour rester 100 % local avec la voix macOS.
-VOIX_NEURONALE = _env("VOIX_NEURONALE", "fr-FR-RemyMultilingualNeural")
+# Pour tes autres langues, chacune a la sienne (voir langues.py) ; JERVIS_VOIX_ZH, JERVIS_VOIX_KA… pour en changer.
+VOIX_NEURONALE = _env("VOIX_NEURONALE", _langues.LANGUES[LANGUE].neuronale if LANGUE in _langues.LANGUES else
+                      "fr-FR-RemyMultilingualNeural")
 VITESSE = _env("VITESSE", "+8%")
 # La ligne directe (jervis/ligne.py) : la connexion au service de voix est ouverte d'avance et ressert d'une
 # phrase à l'autre, et le début d'une réponse est demandé deux fois pour garder la demande la plus rapide.
 # JERVIS_VOIX_DIRECTE=non pour revenir à une connexion neuve par phrase.
 VOIX_DIRECTE = _env("VOIX_DIRECTE", "oui").lower() not in {"non", "off", "0"}
-VOIX = _env("VOIX", "Thomas")   # voix macOS de secours (sans Internet)
+VOIX = _env("VOIX", (_langues.LANGUES[LANGUE].mac or ("Thomas",))[0] if LANGUE in _langues.LANGUES
+           else "Thomas")   # voix macOS de secours (sans Internet)
 DEBIT = _env("DEBIT", "195")    # mots par minute, pour la voix macOS
 
 # Connecteurs claude.ai que Jervis garde (les autres sont coupés au démarrage pour aller plus vite).

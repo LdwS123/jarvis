@@ -30,7 +30,8 @@ class Script(pytest.File):
 
 class Lancement(pytest.Item):
     def runtest(self) -> None:
-        env = {**os.environ, "PYTHONPATH": str(RACINE)}
+        # JERVIS_REGLAGES=non : les tests ne dépendent pas de tes choix de la page Réglages (reglages.json).
+        env = {**os.environ, "PYTHONPATH": str(RACINE), "JERVIS_REGLAGES": "non"}
         try:
             fini = subprocess.run([sys.executable, str(self.path)], cwd=RACINE, env=env, capture_output=True,
                                   text=True, timeout=PATIENCE_S)

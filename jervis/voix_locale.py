@@ -44,8 +44,9 @@ erreur: str | None = None        # pourquoi elle n'est pas là, pour le journal
 
 
 def active() -> bool:
-    """Est-ce qu'on veut la voix locale ? (JERVIS_VOIX_LOCALE=non la coupe.)"""
-    return config.VOIX_LOCALE.lower() not in {"", "non", "off", "0"}
+    """Est-ce qu'on veut la voix locale ? (JERVIS_VOIX_LOCALE=non la coupe ; et il n'y en a pas dans ta langue
+    principale si Pocket TTS ne la connaît pas, chinois ou géorgien par exemple.)"""
+    return config.VOIX_LOCALE.lower() not in {"", "non", "off", "0"} and bool(config.VOIX_LOCALE_LANGUE)
 
 
 def prete() -> bool:

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="fr" data-jeton="__JETON__">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Réglages · __PRENOM__</title>
+<style nonce="__NONCE__">
+/* Les couleurs du tableau de bord : nuit, trait, cyan (ce qui est actif), glace (texte), brume (secondaire),
+   braise (à faire). Alerte seulement pour une erreur, toujours avec un mot. */
+:root {
+  --nuit: #051120; --carte: #0A1C33; --trait: #2C7FC9; --cyan: #6FE0FF; --glace: #E3F6FF; --brume: #7C9DB5;
+  --braise: #FFB25B; --alerte: #FF6B7A; --filet: rgba(44, 127, 201, .34);
+  --texte: "Avenir Next", -apple-system, system-ui, "PingFang SC", "Noto Sans Georgian", sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  min-height: 100vh; padding: 28px 16px 60px;
+  background: radial-gradient(ellipse 70% 60% at 50% 0%, #0A2340 0%, var(--nuit) 70%) var(--nuit);
+  color: var(--glace); font: 15px/1.5 var(--texte); -webkit-font-smoothing: antialiased;
+}
+main { max-width: 760px; margin: 0 auto; display: grid; gap: 18px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { font: 600 26px/1.2 var(--texte); letter-spacing: .01em; }
+h1 span { color: var(--cyan); }
+.langues-page { display: flex; gap: 6px; }
+.langues-page button { min-width: 44px; }
+section { background: var(--carte); border: 1px solid var(--filet); border-radius: 12px; padding: 18px 20px; }
+h2 { font: 600 13px/1 var(--texte); letter-spacing: .06em; text-transform: uppercase; color: var(--brume); margin-bottom: 12px; }
+.champ { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--filet); }
+.champ:first-of-type { border-top: 0; padding-top: 0; }
+label.titre { font-weight: 600; }
+.aide { color: var(--brume); font-size: 13px; }
+input[type=text], select {
+  width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--filet);
+  background: var(--nuit); color: var(--glace); font: inherit;
+}
+input[type=text]:focus, select:focus, button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.grille label {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px;
+  border: 1px solid var(--filet); cursor: pointer; font-size: 14px;
+}
+.grille label:has(input:checked) { border-color: var(--cyan); background: rgba(111, 224, 255, .08); }
+.grille small { color: var(--brume); }
+.modeles { display: flex; flex-wrap: wrap; gap: 8px; }
+.modeles label { display: flex; gap: 6px; align-items: center; padding: 7px 12px; border: 1px solid var(--filet); border-radius: 8px; cursor: pointer; }
+.modeles label:has(input:checked) { border-color: var(--cyan); }
+button {
+  padding: 9px 14px; border-radius: 8px; border: 1px solid var(--trait); background: transparent;
+  color: var(--glace); font: inherit; cursor: pointer;
+}
+button.principal { background: var(--trait); border-color: var(--trait); font-weight: 600; }
+button[aria-pressed=true] { border-color: var(--cyan); color: var(--cyan); }
+button:disabled { opacity: .5; cursor: default; }
+.claude { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.pastille { padding: 4px 10px; border-radius: 999px; font-size: 13px; border: 1px solid var(--filet); }
+.pastille.ok { color: var(--cyan); border-color: var(--cyan); }
+.pastille.non { color: var(--braise); border-color: var(--braise); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.message { font-size: 14px; }
+.message.erreur { color: var(--alerte); }
+code { font: 12.5px/1.4 ui-monospace, Menlo, monospace; background: var(--nuit); padding: 2px 6px; border-radius: 5px; word-break: break-all; }
+.note { color: var(--brume); font-size: 13px; }
+.note[data-espace] { margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span id="titre-nom">__PRENOM__</span> · <span id="t-titre">Réglages</span></h1>
+    <div class="langues-page" role="group" aria-label="Langue de la page">
+      <button type="button" data-ui="fr">FR</button><button type="button" data-ui="en">EN</button>
+      <button type="button" data-ui="zh">中文</button><button type="button" data-ui="ka">ქარ</button>
+    </div>
+  </header>
+
+  <section>
+    <h2 id="t-claude">Ton compte Claude</h2>
+    <div class="claude">
+      <span class="pastille" id="statut-claude">…</span>
+      <button type="button" class="principal" id="connecter">Se connecter</button>
+      <button type="button" id="reverifier">Revérifier</button>
+    </div>
+    <p class="note" id="t-claude-aide" data-espace></p>
+  </section>
+
+  <section>
+    <h2 id="t-assistant">Ton assistant</h2>
+    <form id="formulaire" novalidate>
+      <div class="champ"><label class="titre" for="PRENOM" data-t="PRENOM"></label>
+        <input type="text" id="PRENOM" maxlength="24" autocomplete="off"><span class="aide" data-a="PRENOM"></span></div>
+      <div class="champ"><label class="titre" for="LANGUE" data-t="LANGUE"></label>
+        <select id="LANGUE"></select><span class="aide" data-a="LANGUE"></span></div>
+      <div class="champ"><span class="titre" data-t="LANGUES"></span>
+        <div class="grille" id="LANGUES"></div><span class="aide" data-a="LANGUES"></span></div>
+      <div class="champ"><label class="titre" for="VOIX_LOCALE" data-t="VOIX_LOCALE"></label>
+        <select id="VOIX_LOCALE"></select><span class="aide" data-a="VOIX_LOCALE"></span></div>
+      <div class="champ"><label class="titre" for="VOIX_NEURONALE" data-t="VOIX_NEURONALE"></label>
+        <input type="text" id="VOIX_NEURONALE" list="voix-connues" autocomplete="off"><datalist id="voix-connues"></datalist>
+        <span class="aide" data-a="VOIX_NEURONALE"></span></div>
+      <div class="champ"><span class="titre" data-t="MODELE"></span>
+        <div class="modeles" id="MODELE"></div><span class="aide" data-a="MODELE"></span></div>
+    </form>
+  </section>
+
+  <section>
+    <div class="actions">
+      <button type="button" class="principal" id="enregistrer">Enregistrer</button>
+      <span class="message" id="message" role="status"></span>
+    </div>
+    <p class="note" id="t-relance" data-espace></p>
+    <p class="note" data-espace><code>pkill -f "Jervis.app/Contents"; pkill -f "python -m jervis"; sleep 2; open -a ~/Jervis/Jervis.app</code></p>
+  </section>
+</main>
+<script nonce="__NONCE__">
+"use strict";
+const JETON = document.documentElement.dataset.jeton;
+// Les mots de la page, dans quatre langues (les titres des réglages viennent du serveur, en français, sinon).
+const MOTS = {
+  fr: { titre: "Réglages", claude: "Ton compte Claude", assistant: "Ton assistant", connecter: "Se connecter à mon compte Claude",
+        reverifier: "Revérifier", enregistrer: "Enregistrer", toutes: "Toutes les langues", defaut: "par défaut",
+        non: "non (voix Microsoft)", connecte: "Connecté", pas: "Pas connecté", absent: "Claude Code n'est pas installé",
+        claudeAide: "Il réfléchit avec TON abonnement Claude (Pro ou Max), par Claude Code. La connexion s'ouvre dans le Terminal puis dans ton navigateur : ton mot de passe ne passe jamais par cette page.",
+        relance: "Tes choix comptent au prochain lancement. Pour le relancer :", ok: "Enregistré.", variables: "Une variable JERVIS_ l'emporte sur la page :",
+        terminal: "Le Terminal s'est ouvert : suis les étapes, puis « Revérifier »." },
+  en: { titre: "Settings", claude: "Your Claude account", assistant: "Your assistant", connecter: "Sign in to my Claude account",
+        reverifier: "Check again", enregistrer: "Save", toutes: "All languages", defaut: "default",
+        non: "no (Microsoft voice)", connecte: "Signed in", pas: "Not signed in", absent: "Claude Code is not installed",
+        claudeAide: "It thinks with YOUR Claude subscription (Pro or Max), through Claude Code. Sign-in opens in Terminal, then in your browser: your password never goes through this page.",
+        relance: "Your choices apply at the next launch. To restart it:", ok: "Saved.", variables: "A JERVIS_ variable overrides the page:",
+        terminal: "Terminal opened: follow the steps, then “Check again”.",
+        t: { PRENOM: "Its name", LANGUE: "Your main language", LANGUES: "Languages you speak to it", VOIX_LOCALE: "Its voice on the Mac",
+             VOIX_NEURONALE: "Its Microsoft voice (main language)", MODELE: "Its Claude model" },
+        a: { PRENOM: "The word that wakes it up (“Steve, …”). Short and easy to say.",
+             LANGUE: "Used for its instructions, default voice and little “Let's see…”.",
+             LANGUES: "It recognises which one at every sentence and answers in the same one, with that language's voice.",
+             VOIX_LOCALE: "Pocket TTS: offline, in French, English, German, Spanish, Italian, Portuguese or Dutch.",
+             VOIX_NEURONALE: "Only the text of its answers goes to Microsoft, never your voice. “non”: 100% local with the macOS voice.",
+             MODELE: "sonnet: fast; opus: strongest; haiku: lightest." } },
+  zh: { titre: "设置", claude: "你的 Claude 账户", assistant: "你的助手", connecter: "登录我的 Claude 账户",
+        reverifier: "重新检查", enregistrer: "保存", toutes: "所有语言", defaut: "默认",
+        non: "不用（微软语音）", connecte: "已登录", pas: "未登录", absent: "未安装 Claude Code",
+        claudeAide: "它用你自己的 Claude 订阅（Pro 或 Max）通过 Claude Code 思考。登录在终端和浏览器中进行：你的密码不会经过此页面。",
+        relance: "设置在下次启动时生效。重新启动：", ok: "已保存。", variables: "JERVIS_ 环境变量优先于此页面：",
+        terminal: "终端已打开：按步骤操作，然后点“重新检查”。",
+        t: { PRENOM: "它的名字", LANGUE: "你的主要语言", LANGUES: "你对它说的语言", VOIX_LOCALE: "Mac 上的本地语音",
+             VOIX_NEURONALE: "微软语音（主要语言）", MODELE: "Claude 模型" },
+        a: { PRENOM: "唤醒它的词（“Steve，……”）。简短、好念。", LANGUE: "用于它的指令、默认语音和“我看看”。",
+             LANGUES: "它会识别每句话的语言，并用同一种语言和对应的声音回答。",
+             VOIX_LOCALE: "Pocket TTS：离线，支持法语、英语、德语、西班牙语、意大利语、葡萄牙语、荷兰语。",
+             VOIX_NEURONALE: "只有回答的文字会发给微软，绝不会发送你的声音。“non”：完全本地，使用 macOS 语音。",
+             MODELE: "sonnet：快；opus：最强；haiku：最轻。" } },
+  ka: { titre: "პარამეტრები", claude: "შენი Claude ანგარიში", assistant: "შენი ასისტენტი", connecter: "შესვლა ჩემს Claude ანგარიშზე",
+        reverifier: "ხელახლა შემოწმება", enregistrer: "შენახვა", toutes: "ყველა ენა", defaut: "ნაგულისხმევი",
+        non: "არა (Microsoft-ის ხმა)", connecte: "შესულია", pas: "არ არის შესული", absent: "Claude Code არ არის დაყენებული",
+        claudeAide: "ის ფიქრობს შენი Claude გამოწერით (Pro ან Max), Claude Code-ის მეშვეობით. შესვლა იხსნება ტერმინალში და ბრაუზერში: შენი პაროლი ამ გვერდზე არ გადის.",
+        relance: "არჩევანი ამოქმედდება შემდეგ გაშვებაზე. ხელახლა გასაშვებად:", ok: "შენახულია.", variables: "JERVIS_ ცვლადი გვერდზე უპირატესია:",
+        terminal: "ტერმინალი გაიხსნა: მიჰყევი ნაბიჯებს, შემდეგ „ხელახლა შემოწმება“.",
+        t: { PRENOM: "მისი სახელი", LANGUE: "შენი მთავარი ენა", LANGUES: "ენები, რომლებზეც ელაპარაკები", VOIX_LOCALE: "მისი ხმა Mac-ზე",
+             VOIX_NEURONALE: "Microsoft-ის ხმა (მთავარი ენა)", MODELE: "Claude მოდელი" },
+        a: { PRENOM: "სიტყვა, რომელიც აღვიძებს („Steve, …“). მოკლე და ადვილად სათქმელი.", LANGUE: "მისი ინსტრუქციების, ნაგულისხმევი ხმისა და „ვნახოთ…“-სთვის.",
+             LANGUES: "ყოველ წინადადებაში ცნობს ენას და იმავე ენაზე, იმ ენის ხმით პასუხობს.",
+             VOIX_LOCALE: "Pocket TTS: ინტერნეტის გარეშე, ფრანგულად, ინგლისურად, გერმანულად, ესპანურად, იტალიურად, პორტუგალიურად ან ჰოლანდიურად.",
+             VOIX_NEURONALE: "Microsoft-ს მხოლოდ პასუხის ტექსტი მიდის, შენი ხმა — არასდროს. „non“: სრულად ლოკალური, macOS-ის ხმით.",
+             MODELE: "sonnet: სწრაფი; opus: ყველაზე ძლიერი; haiku: ყველაზე მსუბუქი." } },
+};
+let ui = "fr", etat = null;
+const $ = (id) => document.getElementById(id);
+const mot = (cle) => (MOTS[ui] || MOTS.fr)[cle] ?? MOTS.fr[cle];
+
+function element(balise, attributs = {}, texte = "") {
+  const e = document.createElement(balise);
+  for (const [k, v] of Object.entries(attributs)) e.setAttribute(k, v);
+  if (texte) e.textContent = texte;
+  return e;
+}
+
+function traduire() {
+  document.documentElement.lang = ui;
+  for (const b of document.querySelectorAll("[data-ui]")) b.setAttribute("aria-pressed", String(b.dataset.ui === ui));
+  $("t-titre").textContent = mot("titre"); $("t-claude").textContent = mot("claude");
+  $("t-assistant").textContent = mot("assistant"); $("connecter").textContent = mot("connecter");
+  $("reverifier").textContent = mot("reverifier"); $("enregistrer").textContent = mot("enregistrer");
+  $("t-claude-aide").textContent = mot("claudeAide"); $("t-relance").textContent = mot("relance");
+  if (!etat) return;
+  const t = (MOTS[ui] || {}).t || {}, a = (MOTS[ui] || {}).a || {};
+  for (const c of etat.champs) {
+    document.querySelector(`[data-t="${c.nom}"]`).textContent = t[c.nom] || c.titre;
+    document.querySelector(`[data-a="${c.nom}"]`).textContent = a[c.nom] || c.aide;
+  }
+  $("toutes-texte").textContent = mot("toutes");
+  remplirVoixLocales(); montrerClaude();
+}
+
+function langueChoisie() { return $("LANGUE").value || etat.en_service.LANGUE; }
+
+function remplirVoixLocales() {
+  const choix = $("VOIX_LOCALE"), garde = choix.value || etat.choisis.VOIX_LOCALE;
+  choix.replaceChildren(element("option", { value: "" }, `${mot("defaut")} (${etat.en_service.VOIX_LOCALE})`));
+  for (const v of etat.voix_locales) choix.append(element("option", { value: v }, v));
+  choix.append(element("option", { value: "non" }, mot("non")));
+  choix.value = garde;
+}
+
+function voixParDefaut() {
+  const l = etat.langues.find((x) => x.code === langueChoisie());
+  $("VOIX_NEURONALE").placeholder = `${mot("defaut")} : ${l ? l.voix : etat.en_service.VOIX_NEURONALE}`;
+}
+
+function remplir() {
+  const c = etat.choisis;
+  $("PRENOM").value = c.PRENOM; $("PRENOM").placeholder = etat.en_service.PRENOM;
+  const principale = $("LANGUE");
+  principale.replaceChildren(element("option", { value: "" }, `${mot("defaut")} (${etat.en_service.LANGUE})`));
+  for (const l of etat.langues) principale.append(element("option", { value: l.code }, `${l.natif} — ${l.nom}`));
+  principale.value = c.LANGUE;
+
+  const grille = $("LANGUES"), parlees = new Set((c.LANGUES || etat.en_service.LANGUES).split(",").map((s) => s.trim()));
+  grille.replaceChildren();
+  const toutes = element("label"), caseToutes = element("input", { type: "checkbox", id: "toutes" });
+  caseToutes.checked = parlees.has("toutes");
+  toutes.append(caseToutes, element("span", { id: "toutes-texte" }, mot("toutes")));
+  grille.append(toutes);
+  for (const l of etat.langues) {
+    const ligne = element("label"), boite = element("input", { type: "checkbox", value: l.code });
+    boite.checked = parlees.has(l.code);
+    ligne.append(boite, element("span", {}, l.natif), element("small", {}, l.code));
+    grille.append(ligne);
+  }
+  $("VOIX_NEURONALE").value = c.VOIX_NEURONALE;
+  const liste = $("voix-connues"); liste.replaceChildren();
+  for (const v of new Set(etat.langues.map((l) => l.voix).filter(Boolean))) liste.append(element("option", { value: v }));
+  const modeles = $("MODELE"); modeles.replaceChildren();
+  for (const m of ["", ...etat.modeles]) {
+    const l = element("label"), r = element("input", { type: "radio", name: "modele", value: m });
+    r.checked = (c.MODELE || "") === m;
+    l.append(r, element("span", {}, m || `${mot("defaut")} (${etat.en_service.MODELE})`));
+    modeles.append(l);
+  }
+  remplirVoixLocales(); voixParDefaut();
+}
+
+function montrerClaude() {
+  const s = etat.claude || {}, p = $("statut-claude");
+  p.className = "pastille " + (s.connecte ? "ok" : "non");
+  p.textContent = !s.installe ? mot("absent")
+    : s.connecte ? `${mot("connecte")} · ${s.methode || ""}${s.abonnement ? " · " + s.abonnement : ""}` : mot("pas");
+}
+
+async function charger() {
+  const r = await fetch("/reglages/etat", { cache: "no-store", headers: { "X-Jeton": JETON } });
+  etat = await r.json();
+  const preferee = (etat.choisis.LANGUE || etat.en_service.LANGUE);
+  if (ui === "fr" && MOTS[preferee] && !charger.fait) ui = preferee;
+  charger.fait = true;
+  remplir(); traduire();
+  if (etat.variables.length) $("message").textContent = `${mot("variables")} ${etat.variables.map((v) => "JERVIS_" + v).join(", ")}`;
+}
+
+function lire() {
+  const toutes = $("toutes").checked;
+  const codes = [...document.querySelectorAll("#LANGUES input[value]:checked")].map((b) => b.value);
+  return {
+    PRENOM: $("PRENOM").value, LANGUE: $("LANGUE").value,
+    LANGUES: toutes ? "toutes" : codes.join(","), VOIX_LOCALE: $("VOIX_LOCALE").value,
+    VOIX_NEURONALE: $("VOIX_NEURONALE").value,
+    MODELE: (document.querySelector("input[name=modele]:checked") || {}).value || "",
+  };
+}
+
+$("enregistrer").addEventListener("click", async () => {
+  const m = $("message"); m.className = "message"; m.textContent = "…";
+  try {
+    const r = await fetch("/reglages", { method: "POST", headers: { "X-Jeton": JETON, "Content-Type": "application/json" },
+                                          body: JSON.stringify(lire()) });
+    if (r.ok) { const d = await r.json(); m.textContent = `${mot("ok")} ${d.fichier}`; $("titre-nom").textContent = $("PRENOM").value || etat.en_service.PRENOM; }
+    else if (r.status === 422) { m.className = "message erreur"; m.textContent = (await r.json()).erreurs.join(" "); }
+    else { m.className = "message erreur"; m.textContent = await r.text() || r.status; }
+  } catch (e) { m.className = "message erreur"; m.textContent = String(e); }
+});
+$("connecter").addEventListener("click", async () => {
+  try { await fetch("/reglages/claude", { method: "POST", headers: { "X-Jeton": JETON } }); $("message").textContent = mot("terminal"); } catch { }
+});
+$("reverifier").addEventListener("click", () => charger());
+$("LANGUE").addEventListener("change", voixParDefaut);
+for (const b of document.querySelectorAll("[data-ui]")) b.addEventListener("click", () => { ui = b.dataset.ui; traduire(); });
+document.addEventListener("change", (e) => {  // « toutes » et la liste ne vont pas ensemble
+  if (e.target.id === "toutes" && e.target.checked) document.querySelectorAll("#LANGUES input[value]").forEach((b) => { b.checked = false; });
+  else if (e.target.closest && e.target.closest("#LANGUES") && e.target.value) $("toutes").checked = false;
+});
+charger();
+</script>
+</body>
+</html>

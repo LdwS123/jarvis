@@ -2,11 +2,13 @@
 
 # Jarvis
 
+<p align="center"><b>Français</b> · <a href="README.en.md">English</a> · <a href="README.zh.md">中文</a> · <a href="README.ka.md">ქართული</a></p>
+
 <p align="center">
   <img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000?logo=apple&logoColor=white">
   <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
   <img alt="Propulsé par Claude" src="https://img.shields.io/badge/propuls%C3%A9%20par-Claude-D97757">
-  <img alt="Langue : français" src="https://img.shields.io/badge/langue-fran%C3%A7ais-2C7FC9">
+  <img alt="Langues : français, English, 中文, ქართული et 21 autres" src="https://img.shields.io/badge/langues-fr%20%C2%B7%20en%20%C2%B7%20%E4%B8%AD%E6%96%87%20%C2%B7%20%E1%83%A5%E1%83%90%E1%83%A0%20%C2%B7%20%2B21-2C7FC9">
   <img alt="Voix locale" src="https://img.shields.io/badge/voix-locale%20%C2%B7%20sans%20cloud-6FE0FF">
 </p>
 
@@ -40,11 +42,19 @@ flowchart LR
 
 ## Installer depuis GitHub
 
-Il faut un Mac à puce Apple, Python 3.12 et un abonnement Claude (Claude Code connecté).
+Il faut un Mac à puce Apple, Python 3.12 et **ton** abonnement Claude (Pro ou Max), par Claude Code. Pas de clé API :
+chacun qui clone le dépôt branche son propre compte, et son assistant à lui.
 
     git clone https://github.com/LdwS123/jarvis.git ~/Jervis && cd ~/Jervis
     python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+    curl -fsSL https://claude.ai/install.sh | bash   # Claude Code, s'il n'est pas déjà là
+    claude auth login                                # ton compte Claude (ou le bouton de la page Réglages)
+    ./reglages.command                               # son nom, tes langues, sa voix, son modèle
     ./installer.command
+
+`reglages.command` ouvre la page Réglages dans ton navigateur (voir [La page Réglages](#la-page-réglages)) : tu
+peux l'appeler Max au lieu de Steve, lui parler chinois et anglais, choisir sa voix. Rien n'est obligatoire : sans
+réglage, il s'appelle Steve et parle français.
 
 Ses modèles (voix, oreilles) se téléchargent tout seuls au premier lancement, dans `modeles/`.
 Ta mémoire, vos conversations, son journal et ton empreinte vocale restent sur ton Mac : ils ne sont jamais dans le dépôt.
@@ -307,6 +317,40 @@ Ce qu'il faut savoir :
 - Les noms étrangers passent moins bien qu'avec Rémy (« GitHub » peut sortir « guitare »).
 - Si tu refais le `.venv` : `.venv/bin/pip install pocket-tts`. Le modèle (220 Mo, dans `modeles/`) se retélécharge
   tout seul au premier démarrage s'il manque.
+
+## Ses langues (中文, English, ქართული…)
+
+Par défaut il ne parle que français. Dis-lui les langues que tu lui parles (page Réglages, ou
+`JERVIS_LANGUES=fr,en,zh,ka`) et, **à chaque phrase**, il reconnaît laquelle tu as dite et te répond dans la même,
+avec une voix de cette langue : du chinois en chinois, de l'anglais en anglais, du géorgien en géorgien. Tu peux
+changer de langue d'une phrase à l'autre. `JERVIS_LANGUES=toutes` : n'importe laquelle des 99 de Whisper.
+
+- **Ce qu'il entend** reste sur le Mac. Whisper écoute le début de ta phrase et choisit parmi *tes* langues
+  (pas les autres : une vidéo en japonais ne lui fait pas changer de langue). Une langue que Parakeet connaît
+  (français, anglais, espagnol, allemand, russe… 25 langues d'Europe) passe par Parakeet ; les autres (chinois,
+  géorgien, japonais, arabe…) par Whisper, avec un exemple de phrase dans cette langue.
+- **Son nom** est reconnu écrit dans ces langues : « 史蒂夫 », « 斯蒂夫 », « სტივ », « Стив », « スティーブ »…
+- **Ce qu'il dit** : chaque phrase de sa réponse a sa voix. Sa voix locale (Pocket TTS) ne parle que la langue de
+  son modèle (français) ; pour le reste, la voix Microsoft de la langue, puis une voix du Mac en secours.
+
+| Langue | Voix Microsoft | Voix du Mac (secours) |
+|---|---|---|
+| 中文 chinois | `zh-CN-YunxiNeural` | Tingting, Meijia |
+| English anglais | `en-US-AndrewMultilingualNeural` | Samantha, Daniel |
+| ქართული géorgien | `ka-GE-GiorgiNeural` (femme : `ka-GE-EkaNeural`) | aucune : la tienne |
+| Español, Deutsch, Italiano, Русский, 日本語, 한국어, العربية… | une par langue (voir `jervis/langues.py`) | celle du Mac si elle est installée |
+
+Change une voix avec `JERVIS_VOIX_ZH=zh-CN-XiaoxiaoNeural`, `JERVIS_VOIX_KA=ka-GE-EkaNeural`… (le code de la langue
+après `JERVIS_VOIX_`). Plus de voix pour le Mac : Réglages Système → Accessibilité → Contenu énoncé → Voix du système.
+
+Ce que ça coûte :
+
+- **0,2 à 0,3 s de plus par phrase** (Whisper écoute d'abord la langue) et Whisper reste chargé en mémoire.
+- Ses filtres anti-vidéo sont faits pour le français : une phrase en anglais n'est plus prise pour une vidéo
+  si tu lui parles anglais. Avec `toutes`, plus aucune langue n'est suspecte ; préfère la liste de tes langues.
+- Le chinois et le géorgien passent par Microsoft pour être dits (le texte de la réponse, pas ta voix).
+  `JERVIS_VOIX_NEURONALE=non` : rien n'y part, il lit avec les voix du Mac (sans géorgien).
+- Ses consignes restent en français ; Claude répond dans ta langue quand même.
 
 ## Ce qu'il sait faire en plus
 
@@ -1112,6 +1156,23 @@ dans `ETATS`, dans `jervis/tableau.html`. Test : `PYTHONPATH=. .venv/bin/python 
 
 ## Réglages
 
+### La page Réglages
+
+Menu de l'icône → **Réglages…**, le bouton *Réglages* du tableau de bord, ou `./reglages.command` (marche aussi
+avant son premier lancement). La page est en français, English, 中文 ou ქართული.
+
+- **Ton compte Claude** : connecté ou non, et quel abonnement. *Se connecter* ouvre le Terminal sur
+  `claude auth login` : tu te connectes chez Claude, la page ne voit jamais ton mot de passe ni ton adresse.
+- **Son nom** (Steve, Max, Léa…), **ta langue principale**, **les langues que tu lui parles**, **sa voix locale**,
+  **sa voix Microsoft**, **son modèle** (sonnet, opus, haiku).
+- *Enregistrer* écrit `reglages.json` (à la racine, lisible par toi seul, jamais dans le dépôt). Relance-le ensuite.
+
+Une variable `JERVIS_…` l'emporte toujours sur la page (la page te dit lesquelles sont en place).
+`JERVIS_REGLAGES=non` ignore le fichier ; `JERVIS_REGLAGES=/chemin/autre.json` en prend un autre. Le fichier
+accepte aussi n'importe quel réglage ci-dessous sans le préfixe : `{"VITESSE": "+0%", "SEUIL_VAD": "0.3"}`.
+
+### Les variables
+
 Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 
     JERVIS_VOIX_NEURONALE=fr-FR-HenriNeural JERVIS_SEUIL_VAD=0.3 .venv/bin/python -m jervis
@@ -1126,6 +1187,10 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_VOIX_DIRECTE` | oui | garde une connexion ouverte avec la voix Microsoft pendant qu'il réfléchit (sa première phrase part plus vite) ; `non` = une connexion neuve par phrase |
 | `JERVIS_SEUIL_VAD` | 0.5 | baisse-le (0.3) s'il ne t'entend pas, monte-le (0.7) s'il réagit au bruit |
 | `JERVIS_PRENOM` | Steve | le nom auquel il répond et qu'il se donne (`Jarvis` = l'ancien) |
+| `JERVIS_LANGUE` | fr | ta langue principale : ses annonces, ses « Voyons… », sa voix de tous les jours (`en`, `zh`, `ka`, `es`…) |
+| `JERVIS_LANGUES` | ta langue principale | les langues que tu lui parles : `fr,en,zh,ka`, ou `toutes` (voir [Ses langues](#ses-langues-中文-english-ქართული)) |
+| `JERVIS_VOIX_ZH`, `JERVIS_VOIX_KA`, `JERVIS_VOIX_EN`… | une voix par langue | sa voix Microsoft dans cette langue (`zh-CN-XiaoxiaoNeural`, `ka-GE-EkaNeural`…) |
+| `JERVIS_REGLAGES` | `reglages.json` | le fichier de la page Réglages ; `non` = l'ignorer |
 | `JERVIS_TOUCHE_FN` | oui | la touche fn (🌐) le réveille sans dire son nom ; `non` l'éteint |
 | `JERVIS_MOTCLE_MODELE` | (aucun) | modèle de mot de réveil : `hey_jarvis` (fourni) ou le chemin de ton `.onnx` « Hey Steve » |
 | `JERVIS_DETECTION` | whisper | `whisper` = son nom dans la phrase transcrite ; avec un modèle de mot de réveil : `hybride` (par défaut alors) = l'un ou l'autre, `motcle` = seulement le mot de réveil |
@@ -1365,3 +1430,8 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
 - Sa voix est fabriquée sur le Mac : le texte de ses réponses ne part nulle part pour être lu. Si elle rate une
   phrase ou ne se charge pas, cette phrase-là passe par le service de synthèse de Microsoft Edge ; c'est aussi le cas
   de toutes ses phrases si tu choisis Rémy. Mets `JERVIS_VOIX_NEURONALE=non` pour que rien n'y parte jamais.
+- Avec plusieurs langues, reconnaître la langue de ta phrase se fait sur le Mac (Whisper) : ta voix ne part
+  toujours nulle part. Ses phrases en chinois, en géorgien ou en anglais passent par Microsoft Edge pour être dites
+  (sa voix locale ne parle que français) ; `JERVIS_VOIX_NEURONALE=non` les lit avec les voix du Mac à la place.
+- La page Réglages tourne sur ce Mac (127.0.0.1, avec un jeton). Elle lit l'état de ton compte Claude par
+  `claude auth status` et n'en garde que « connecté » et le type d'abonnement : ni ton adresse, ni ton organisation.

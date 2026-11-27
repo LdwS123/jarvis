@@ -5,6 +5,10 @@ Deux moteurs :
   (+ ~150 ms quand on cherche son nom et qu'il ne l'a pas reconnu du premier coup) ;
 - Whisper large-v3-turbo : ~350 ms par phrase, en secours ou avec JERVIS_STT=whisper. Il sert aussi de
   deuxième avis, en français imposé, quand Parakeet écrit en anglais une phrase de quelques mots.
+
+Quand tu lui parles plusieurs langues (JERVIS_LANGUES, voir langues.py), Whisper reconnaît d'abord la langue de
+chaque phrase, parmi les tiennes (~0,2 s). Une langue que Parakeet connaît (français, anglais, russe…) part ensuite
+chez lui ; les autres (chinois, géorgien, japonais, arabe…) chez Whisper, dans cette langue-là.
 """
 
 import os
@@ -14,13 +18,24 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from . import config
+from . import config, langues
 
 # Les modèles sont rangés dans Jervis/modeles plutôt que dans ~/.cache.
 os.environ.setdefault("HF_HOME", str(config.DOSSIER / "modeles"))
 
 # Donner un exemple à Whisper lui apprend à écrire son nom (« Jervis », et pas « Gervais » ou « service »).
 INDICE = f"Salut {config.PRENOM}, ouvre Cursor. {config.PRENOM}, j'ai rendez-vous avec qui demain ?"
+_INDICES = {"en": "Hey {p}, open Cursor. {p}, what's on my calendar tomorrow?",
+            "zh": "{p}，打开音乐。{p}，我明天有什么安排？", "ka": "{p}, ჩართე მუსიკა. {p}, ხვალ რა მაქვს?",
+            "es": "Hola {p}, abre Cursor. {p}, ¿qué tengo mañana?", "de": "Hallo {p}, öffne Cursor. {p}, was habe ich morgen?",
+            "ru": "Привет, {p}, открой Cursor. {p}, что у меня завтра?"}
+
+
+def indice(langue: str) -> str:
+    """L'exemple soufflé à Whisper, dans la langue qu'il va écrire (un exemple en français le pousserait à traduire)."""
+    if langue == "fr":
+        return INDICE
+    return _INDICES[langue].format(p=config.PRENOM) if langue in _INDICES else f"{config.PRENOM}."
 
 _moteur = config.STT
 _parakeet = None
@@ -77,12 +92,13 @@ def _whisper_en_cache() -> bool:
         return False
 
 
-def _deuxieme_avis(audio_int16: np.ndarray, texte: str) -> str:
-    """Parakeet a écrit de l'anglais pour une phrase courte : Whisper, à qui on impose le français, la réécoute."""
-    if not config.DEUXIEME_AVIS or not semble_anglais(texte) or not _whisper_en_cache():
+def _deuxieme_avis(audio_int16: np.ndarray, texte: str, langue: str = "fr") -> str:
+    """Parakeet a écrit de l'anglais pour une phrase courte : Whisper, à qui on impose le français, la réécoute.
+    Seulement pour une phrase en français : si tu lui parles aussi anglais, c'est la langue reconnue qui décide."""
+    if langue != "fr" or not config.DEUXIEME_AVIS or not semble_anglais(texte) or not _whisper_en_cache():
         return texte
     try:
-        return _transcrire_whisper(audio_int16, False) or texte
+        return _transcrire_whisper(audio_int16, False, "fr") or texte
     except Exception:
         return texte
 
@@ -110,7 +126,7 @@ def _fin_du_caractere(resultat, position: int) -> float:
     return resultat.tokens[-1].end
 
 
-def _transcrire_parakeet(audio_int16: np.ndarray, nom: bool) -> str:
+def _transcrire_parakeet(audio_int16: np.ndarray, nom: bool, langue: str = config.LANGUE) -> str:
     import mlx.core as mx
     from parakeet_mlx import boost, from_pretrained
     from parakeet_mlx.audio import get_logmel
@@ -130,14 +146,14 @@ def _transcrire_parakeet(audio_int16: np.ndarray, nom: bool) -> str:
     mel = get_logmel(mx.array(_flottant(audio_int16)), _parakeet.preprocessor_config)
     simple = _parakeet.generate(mel)[0]
     if not nom or NOM.search(simple.text) or config.BOOST_NOM <= 0:
-        return _deuxieme_avis(audio_int16, sans_inconnus(simple.text))
+        return _deuxieme_avis(audio_int16, sans_inconnus(simple.text), langue)
     # Parakeet a raté son nom (pour « Jervis », il entend « J'ai vu », « Jeremy »…). Deuxième écoute en lui soufflant
     # le mot ; mais cette recherche en faisceau rogne parfois la fin des phrases (« Non, annu »), alors on
     # garde son début jusqu'au nom, et la suite vient de la première écoute, recollée grâce aux horodatages.
     souffle = _parakeet.generate(mel, decoding_config=_avec_nom)[0]
     m = NOM.search(souffle.text)
     if not m:
-        return _deuxieme_avis(audio_int16, sans_inconnus(simple.text))
+        return _deuxieme_avis(audio_int16, sans_inconnus(simple.text), langue)
     t = _fin_du_caractere(souffle, m.end())
     suite = [j.text for j in simple.tokens if (j.start + j.end) / 2 > t]
     while suite and suite[0][:1].isalnum():  # la fin du mot mal compris à la place du nom (« J'ai v|u »)
@@ -145,19 +161,42 @@ def _transcrire_parakeet(audio_int16: np.ndarray, nom: bool) -> str:
     return sans_inconnus(souffle.text[:m.end()] + "".join(suite))
 
 
-def _transcrire_whisper(audio_int16: np.ndarray, indice: bool) -> str:
+def _transcrire_whisper(audio_int16: np.ndarray, avec_indice: bool, langue: str | None = None) -> str:
     import mlx_whisper  # import tardif : le chargement prend ~1 s
 
+    langue = langue or config.LANGUE
+    exemple = indice(langue)
     resultat = mlx_whisper.transcribe(
         _flottant(audio_int16),
         path_or_hf_repo=config.WHISPER_MODEL,
-        language=config.LANGUE,
-        initial_prompt=INDICE if indice else None,
+        language=langue,
+        initial_prompt=exemple if avec_indice else None,
         condition_on_previous_text=False,
         temperature=0.0,  # plus rapide, et évite les inventions
     )
     texte = resultat["text"].strip()
-    return "" if texte.strip(" .") == INDICE.strip(" .") else texte  # il recopie parfois l'exemple
+    return "" if texte.strip(" .。") == exemple.strip(" .。") else texte  # il recopie parfois l'exemple
+
+
+def choisir_langue(probas: dict[str, float]) -> str | None:
+    """Parmi les langues que Whisper croit entendre, la plus probable de celles que tu parles."""
+    tiennes = {code: p for code, p in probas.items() if langues.parle(code)}
+    return max(tiennes, key=tiennes.get) if tiennes else None
+
+
+def _langue_entendue(audio_int16: np.ndarray) -> str | None:
+    """La langue de cette phrase, reconnue par Whisper sur le Mac (une passe de son encodeur, ~0,2 s).
+    None si Whisper n'est pas encore là (il se télécharge au démarrage quand tu parles plusieurs langues)."""
+    if len(audio_int16) < config.SAMPLE_RATE // 4 or not _whisper_en_cache():
+        return None
+    import mlx.core as mx
+    from mlx_whisper.audio import N_FRAMES, N_SAMPLES, log_mel_spectrogram, pad_or_trim
+    from mlx_whisper.transcribe import ModelHolder
+
+    modele = ModelHolder.get_model(config.WHISPER_MODEL, mx.float16)
+    mel = log_mel_spectrogram(_flottant(audio_int16), n_mels=modele.dims.n_mels, padding=N_SAMPLES)
+    _, probas = modele.detect_language(pad_or_trim(mel, N_FRAMES, axis=-2).astype(mx.float16))
+    return choisir_langue(probas)
 
 
 def transcrire(audio_int16: np.ndarray, nom: bool = False) -> str:
@@ -166,10 +205,21 @@ def transcrire(audio_int16: np.ndarray, nom: bool = False) -> str:
     return _sur_le_fil_mlx(_transcrire, audio_int16, nom)
 
 
+def langue_de(audio_int16: np.ndarray) -> str:
+    """Dans quelle langue tu viens de parler : ta langue principale, sauf si tu lui en parles plusieurs."""
+    if not langues.plusieurs():
+        return config.LANGUE
+    try:
+        return _langue_entendue(audio_int16) or config.LANGUE
+    except Exception:  # Whisper absent ou en panne : on fait comme avant, dans ta langue principale
+        return config.LANGUE
+
+
 def _transcrire(audio_int16: np.ndarray, nom: bool) -> str:
-    if _moteur == "parakeet":
-        return _transcrire_parakeet(audio_int16, nom)
-    return _transcrire_whisper(audio_int16, nom)
+    langue = langues.derniere = langue_de(audio_int16)  # ses « Voyons… » suivront
+    if _moteur == "parakeet" and langue in langues.PARAKEET:
+        return _transcrire_parakeet(audio_int16, nom, langue)
+    return _transcrire_whisper(audio_int16, nom, langue)
 
 
 def nom_moteur() -> str:
@@ -185,6 +235,16 @@ def prechauffer() -> None:
 def _prechauffer() -> None:
     global _moteur
     silence = np.zeros(config.SAMPLE_RATE, dtype=np.int16)
+    if langues.plusieurs() or config.LANGUE not in langues.PARAKEET:
+        # Il faut Whisper pour reconnaître la langue (ou pour l'écrire) : il se charge ici, et se télécharge
+        # la première fois (1,6 Go), plutôt qu'au milieu de ta première phrase.
+        try:
+            _transcrire_whisper(silence, False, config.LANGUE)
+        except Exception as e:
+            print(f"   ⚠️  Whisper indisponible ({type(e).__name__}: {e}) : il t'entendra dans ta langue principale.",
+                  flush=True)
+    if _moteur == "parakeet" and config.LANGUE not in langues.PARAKEET and not langues.plusieurs():
+        _moteur = "whisper"  # ta langue, Parakeet ne la connaît pas : Whisper fera tout
     if _moteur == "parakeet":
         try:
             transcrire(silence)
