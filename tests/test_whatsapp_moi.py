@@ -87,7 +87,8 @@ ecoutes: list[Path] = []
 
 def faux_transcrire(chemin: Path) -> str:
     ecoutes.append(chemin)
-    return {"q.opus": "quelle heure est-il", "tard.opus": "mets un réveil", "vide.opus": ""}.get(chemin.name, "bonjour")
+    return {"q.opus": "quelle heure est-il", "tard.opus": "mets un réveil", "vide.opus": "",
+            "redit.opus": "il est dix heures"}.get(chemin.name, "bonjour")
 
 
 envois: list[tuple[str, str, str]] = []   # (texte ou vocal, numéro, texte)
@@ -195,6 +196,11 @@ verifier("réponse vocale : un lien dedans → le texte suit", vu["vocal_lien_en
 verifier("réponse vocale : ratée → par écrit", vu["vocal_rate_envois"], ["vocal", "texte"])
 n = len(ecoutes)
 verifier("ses vocaux : revenus dans ta discussion, jamais transcrits", (boite.lire(), len(ecoutes) - n), ([], 0))
+ecrire(SESSION, None, genre=distance.WHATSAPP_SON, chemin=son("redit.opus"), date=maintenant() + 100)
+verifier("ses vocaux : une bulle en retard qui redit ses mots reste la sienne",
+         (boite._redit("Il est dix heures."), boite._redit("Dix heures, mets un réveil à neuf heures demain"),
+          boite._redit("oui")), (True, False, False))
+verifier("ses vocaux : lue, elle n'est pas une demande", boite.lire(), [])
 ecrire(SESSION, None, genre=distance.WHATSAPP_SON, chemin=son("q.opus"), date=maintenant() + 120)
 verifier("ses vocaux : le tien, après, l'est", boite.lire(), ["(message vocal) quelle heure est-il"])
 
@@ -314,6 +320,17 @@ verifier("consignes : un rapport de ronde venu par WhatsApp reste un rapport",
 verifier("garde : pendant une question, envoyer_whatsapp attend",
          [permissions.peut_ecrire_dans_messages(o) for o in ("mcp__jervis__envoyer_whatsapp",
                                                             "mcp__jervis__envoyer_vocal_whatsapp")], [True, True])
+
+verifier("garde : pas de WhatsApp par un script (AppleScript, son adresse, wa.me ouvert)",
+         [permissions.envoie_par_messages("Bash", {"command": c}) for c in (
+             "osascript -e 'tell application \"WhatsApp\" to activate' -e 'keystroke \"oui\"'",
+             "open 'whatsapp://send?phone=33612345678&text=oui'",
+             "open https://wa.me/33612345678?text=oui",
+             "osascript -l JavaScript -e 'Application(\"net.whatsapp.WhatsApp\")'",
+             "echo 'WhatsApp: +33 6 12' >> notes.txt",
+             "ls ~/Library/Group\\ Containers")], [True, True, True, True, False, False])
+verifier("garde : pas de gestes dans la fenêtre de WhatsApp",
+         permissions._vise_messages("type", {"app": "WhatsApp", "text": "oui"}, []), True)
 
 lien.close()
 print(f"\n{'✅' if not echecs else '❌'} whatsapp « moi » : {total - len(echecs)}/{total} vérifications OK", flush=True)

@@ -582,13 +582,15 @@ message : il la voit dans les 30 s.
   45 s : il te le dit (« renvoie-le, ou écris-le-moi »).
 - **Ses vocaux** : faits comme un vocal WhatsApp à quelqu'un (il appuie sur le micro de l'app et dit sa réponse par
   les enceintes, voir plus bas) : pendant ce temps, le Mac parle tout haut. Ses vocaux revenus dans la discussion ne
-  sont jamais transcrits comme une demande de toi. Un vocal raté : il répond par écrit ; un lien dedans : le texte
+  sont jamais pris pour une demande de toi (reconnus à leur heure, et à leurs mots s'ils arrivent en retard). Un vocal raté : il répond par écrit ; un lien dedans : le texte
   suit. `JERVIS_IMESSAGE_VOCAL=non` : toujours par écrit, ici aussi.
 - **Qui il écoute** : seulement ta discussion avec toi-même. Tout ce que tu y écris lui est adressé (n'y range plus
   tes notes perso). Les messages des autres, les groupes, les photos ne sont jamais des ordres ; ses 🤖 et ❓, et tout
   ce qu'il vient d'envoyer, ne sont jamais relus comme une demande ; les messages déjà là au démarrage sont ignorés.
-  Les mêmes protections que sur iMessage tiennent (page piégée, question en attente : aucun de ses agents n'écrit
-  dans WhatsApp d'ici ta réponse).
+  Les mêmes protections que sur iMessage tiennent : il n'écrit jamais dans WhatsApp par un script (AppleScript,
+  `whatsapp://`, un `open` de wa.me) ni par des gestes dans sa fenêtre, seulement par ses outils
+  (`envoyer_whatsapp`, `envoyer_vocal_whatsapp`), qui notent ce qui part ; et pendant qu'une question ❓ attend ta
+  réponse, aucun de ses agents n'écrit dans WhatsApp.
 - **Le répondeur** te raconte ses réponses là où tu lui as écrit en dernier (iMessage ou WhatsApp ; WhatsApp si tu
   ne lui as encore rien écrit).
 - `JERVIS_WHATSAPP_MOI=non` coupe WhatsApp seul ; `JERVIS_IMESSAGE=non` coupe iMessage seul (WhatsApp reste).

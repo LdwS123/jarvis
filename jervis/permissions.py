@@ -1026,15 +1026,18 @@ def lu_dehors_depuis() -> float:
     return time.monotonic() - _lu_dehors_a
 
 
-# Écrire dans Messages autrement que par envoyer_imessage : refusé. Ce que l'outil envoie est noté
-# (distance.noter_envoi) et n'est jamais relu comme un ordre de toi ; un script ou un geste à l'écran, si : c'est la
-# porte par laquelle une page piégée se ferait passer pour toi dans ta conversation avec toi-même. Toute mention de
-# l'app dans un script (AppleScript, JXA, Python/ScriptingBridge), ses identifiants, ses adresses imessage:/sms:.
+# Écrire dans Messages ou WhatsApp autrement que par leurs outils (envoyer_imessage, envoyer_whatsapp,
+# envoyer_vocal_whatsapp) : refusé. Ce que les outils envoient est noté (distance.noter_envoi) et n'est jamais relu
+# comme un ordre de toi ; un script ou un geste à l'écran, si : c'est la porte par laquelle une page piégée se ferait
+# passer pour toi dans ta conversation (ou ta discussion WhatsApp) avec toi-même. Toute mention de l'app dans un
+# script (AppleScript, JXA, Python/ScriptingBridge), ses identifiants, ses adresses imessage:/sms:/whatsapp://, et
+# un `open` de wa.me.
 _MESSAGES_PAR_SCRIPT = re.compile(
-    r"""\bcom\.apple\.(?:iChat|MobileSMS|Messages)\b"""
-    r"""|\bapp(?:lication)?\s*(?:id\s+)?\(?\s*["']?Messages\b"""
-    r"""|\b(?:SBApplication|NSRunningApplication|NSWorkspace)\b[^\n]*\bMessages\b"""
-    r"""|\b(?:imessage|sms|messages)://|(?:^|[\s"'(=])(?:imessage|sms):""",
+    r"""\bcom\.apple\.(?:iChat|MobileSMS|Messages)\b|\bnet\.whatsapp\.WhatsApp\b"""
+    r"""|\bapp(?:lication)?\s*(?:id\s+)?\(?\s*["']?(?:Messages|WhatsApp)\b"""
+    r"""|\b(?:SBApplication|NSRunningApplication|NSWorkspace)\b[^\n]*\b(?:Messages|WhatsApp)\b"""
+    r"""|\b(?:imessage|sms|messages|whatsapp)://|(?:^|[\s"'(=])(?:imessage|sms):"""
+    r"""|\bopen\b[^\n]*\b(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)/""",
     re.IGNORECASE)
 # Ce qui pilote d'autres apps (des frappes, des clics, des scripts d'app) : après un texte venu d'ailleurs, toujours
 # demandé, quel que soit le mode. Un « keystroke » dans la fenêtre de Messages enverrait un faux toi.
@@ -1425,14 +1428,15 @@ GESTES_VERS_MESSAGES = GESTES_MAC | {"hotkey", "key", "press_key", "drag", "swip
 
 
 def _vise_messages(action: str, entree: dict[str, Any], apps_vues: Iterable[str]) -> bool:
-    """Un geste (taper, cliquer, coller, ⌘V…) qui arriverait dans la fenêtre de Messages. Sans app ni pid nommés,
+    """Un geste (taper, cliquer, coller, ⌘V…) qui arriverait dans la fenêtre de Messages ou de WhatsApp. Sans app
+    ni pid nommés,
     il va aussi à l'app du premier plan : celle-là compte toujours, même si see en a regardé une autre."""
     if action not in GESTES_VERS_MESSAGES:
         return False
     apps = cibles_mac(action, entree, apps_vues)
     if not entree.get("pid") and not entree.get("app"):
         apps = apps | {_app_devant() or INCONNUE}
-    return any(re.fullmatch(r"messages", a.strip(), re.IGNORECASE) for a in apps)
+    return any(re.fullmatch(r"messages|whatsapp", a.strip(), re.IGNORECASE) for a in apps)
 
 
 # ── Mémoire des refus : pourquoi il a bloqué, et tes règles 📌 « autorise ça désormais » ──
@@ -1847,9 +1851,10 @@ class Gardien:
             await attendre_les_questions()  # une question ❓ attend sa réponse par iMessage : on attend avec
         if envoie_par_messages(outil, entree) or (
                 outil.startswith("mcp__mac__") and _vise_messages(nom_action(outil), entree, self._apps_vues)):
-            return PermissionResultDeny(message="Pas de Messages par un script ni par des gestes à l'écran : pour un "
-                                                "iMessage, utilise l'outil envoyer_imessage (ce qu'il envoie est noté, "
-                                                "et jamais relu comme un ordre de lui).")
+            return PermissionResultDeny(message="Pas de Messages ni de WhatsApp par un script ni par des gestes à "
+                                                "l'écran : utilise l'outil envoyer_imessage, envoyer_whatsapp ou "
+                                                "envoyer_vocal_whatsapp (ce qu'il envoie est noté, et jamais relu "
+                                                "comme un ordre de lui).")
         if outil == "mcp__mac__see":
             self._noter_vue(entree)
         decision = politique(outil, entree, self._apps_vues)

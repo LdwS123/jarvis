@@ -479,6 +479,9 @@ ATTENTE_SON_WHATSAPP_S = 45  # le son d'un vocal que WhatsApp n'a pas encore té
 SES_VOCAUX_S = 30            # sa bulle de vocal apparaît dans la base jusqu'à 30 s après l'envoi
 
 
+_MOTS = re.compile(r"\w{2,}")
+
+
 def whatsapp_a_moi(reglage: str | None = None, groupe: Path | None = None) -> set[str]:
     """Tes identifiants WhatsApp (« 336…@s.whatsapp.net », et « …@lid » s'il y en a un) : ton numéro donné dans
     config.WHATSAPP_MOI, sinon lus dans les réglages de WhatsApp (plutil : plistlib ne lit pas ce fichier-là)."""
@@ -531,6 +534,7 @@ class BoiteWhatsApp(Boite):
         self._sessions: list[int] = []                 # ta discussion avec toi-même (Z_PK), parfois deux
         self._en_attente: dict[int, tuple[float, float]] = {}  # vocal sans son encore : Z_PK → (vu à, sa date)
         self._ses_vocaux: list[list[float]] = []       # [début, fin (0 tant qu'il l'envoie), bulles encore à sauter]
+        self._dits: deque[tuple[set[str], float]] = deque(maxlen=20)  # les mots de ses vocaux, et quand
 
     @staticmethod
     async def _pas_par_messages(_adresse: str, _texte: str) -> tuple[int, str]:
@@ -620,7 +624,18 @@ class BoiteWhatsApp(Boite):
         if not texte:
             self._journal("   📱 Message vocal : je n'ai rien entendu.")
             return ""
+        if self._redit(texte):
+            self._journal("   📱 Vocal WhatsApp : c'est l'un des siens (mêmes mots), pas une demande de toi.")
+            return ""
         return VOCAL + texte
+
+    def _redit(self, texte: str) -> bool:
+        """Deuxième garde, par le contenu : une bulle qui redit l'un de ses vocaux (presque tous ses mots), arrivée
+        en retard ou datée hors de sa fenêtre, reste la sienne. Jamais relue comme un ordre de toi."""
+        mots = set(_MOTS.findall(texte.casefold()))
+        maintenant = time.time()
+        return len(mots) >= 3 and any(maintenant - quand < ENVOYES_S and len(mots & dits) >= 0.7 * len(mots)
+                                      for dits, quand in self._dits)
 
     def _de_lui(self, quand: float) -> bool:
         """Une bulle de vocal datée de pendant qu'il en envoyait un (ou juste après) : la sienne, une par envoi."""
@@ -663,6 +678,7 @@ class BoiteWhatsApp(Boite):
             return False
         envoi = [time.time(), 0.0, 1]
         self._ses_vocaux.append(envoi)  # avant l'envoi : sa bulle peut être lue pendant qu'il l'envoie
+        self._dits.append((set(_MOTS.findall(en_clair(texte).casefold())), time.time()))
         try:
             statut, detail = await self._envoyer_vocal(self.adresse, en_clair(texte))
         except Exception as e:
