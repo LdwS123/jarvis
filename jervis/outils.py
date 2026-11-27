@@ -343,6 +343,42 @@ on run argv
 end run
 """
 
+# Sa réponse dans ta conversation avec toi-même : dans le fil exact où tu as écrit (item 3, son identifiant dans
+# la base : « iMessage;-;+336… »), sinon (fil inconnu, vieux macOS) à ton adresse, comme _IMESSAGE.
+_IMESSAGE_FIL = """
+on run argv
+  tell application "Messages"
+    if (item 3 of argv) is not "" then
+      try
+        send (item 2 of argv) to chat id (item 3 of argv)
+        return "envoyé"
+      end try
+    end if
+    set compte to 1st account whose service type = iMessage
+    send (item 2 of argv) to participant (item 1 of argv) of compte
+  end tell
+  return "envoyé"
+end run
+"""
+
+# Son vocal (un fichier audio) dans ce même fil : item 2 est le chemin du fichier.
+_IMESSAGE_SON = """
+on run argv
+  set piece to POSIX file (item 2 of argv)
+  tell application "Messages"
+    if (item 3 of argv) is not "" then
+      try
+        send piece to chat id (item 3 of argv)
+        return "envoyé"
+      end try
+    end if
+    set compte to 1st account whose service type = iMessage
+    send piece to participant (item 1 of argv) of compte
+  end tell
+  return "envoyé"
+end run
+"""
+
 # Un groupe : la discussion dont le nom est exactement celui-là (Messages ignore la casse). Aucune, ou plusieurs
 # du même nom : rien ne part (on ne devine pas lequel).
 _IMESSAGE_GROUPE = """

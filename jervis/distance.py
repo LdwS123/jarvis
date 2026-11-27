@@ -16,7 +16,12 @@ toi (`suspect`, Cerveau.lu_dehors). Et pendant qu'une question ❓ attend ta ré
 dans Messages ne tourne (permissions.QuestionEnCours) : ton « oui » ne peut venir que de toi.
 
 Un message vocal (le micro dans Messages) : transcrit sur le Mac, comme ce que tu lui dis (Whisper, dans ta langue),
-puis fait comme un message écrit, marqué « (message vocal) ». Le son ne quitte pas le Mac.
+puis fait comme un message écrit, marqué « (message vocal) ». Le son ne quitte pas le Mac. Tu lui as parlé : il te
+répond par un vocal, dit avec sa voix (IMESSAGE_VOCAL). Ses vocaux portent son nom de fichier (SON_PREFIXE) et leur
+taille est notée : ils ne sont jamais transcrits comme une demande de toi.
+
+Il répond dans le fil exact où tu as écrit (son identifiant dans la base, `chat id` pour Messages) : ton numéro et
+ton adresse iCloud ne se mélangent pas en deux conversations.
 
 Il faut l'Accès complet au disque pour « Jervis » (comme pour les codes reçus par SMS).
 """
@@ -45,6 +50,11 @@ ENVOYES_S = 900             # ce qu'il a envoyé lui-même pendant 15 min : jama
 VOCAL = "(message vocal) "   # le début d'une demande dictée en message vocal
 ATTENTE_SON_S = 15          # le fichier d'un vocal pas encore téléchargé : attendu jusqu'à 15 s
 SONS = (".caf", ".m4a", ".amr", ".aac", ".mp3", ".wav", ".opus")
+SON_PREFIXE = "jervis-vocal-"  # le nom de ses vocaux : jamais relus comme un des tiens
+VOCAUX_GARDES_S = 86400       # ses vocaux envoyés : effacés du Mac au bout d'un jour
+
+# Ses vocaux envoyés : (taille du fichier, quand). La copie qui revient dans ton fil a la même taille.
+_sons_envoyes: deque[tuple[int, float]] = deque(maxlen=50)
 
 # Ce qu'il a envoyé par iMessage (ses réponses, et tout envoyer_imessage) : (texte réduit, quand).
 _envoyes: deque[tuple[str, float]] = deque(maxlen=200)
@@ -64,6 +74,39 @@ def vient_de_lui(texte: str) -> bool:
         return True
     t, maintenant = _reduit(texte), time.monotonic()
     return any(t == e and maintenant - quand < ENVOYES_S for e, quand in _envoyes)
+
+
+def noter_son(chemin: Path) -> None:
+    taille = chemin.stat().st_size if chemin.exists() else 0
+    _sons_envoyes.append((taille, time.monotonic()))
+
+
+def son_de_lui(chemin: Path, taille: int) -> bool:
+    """Un vocal qu'il t'a envoyé lui-même (son nom, ou la taille d'un de ses vocaux récents)."""
+    if chemin.name.startswith(SON_PREFIXE):
+        return True
+    maintenant = time.monotonic()
+    return bool(taille) and any(taille == t and maintenant - quand < ENVOYES_S for t, quand in _sons_envoyes)
+
+
+def dossier_vocaux() -> Path:
+    """Où il range ses vocaux avant de les envoyer : là où Messages peut les prendre (ses pièces jointes), sinon
+    dans Images. Ceux de plus d'un jour sont effacés."""
+    reglage = config.IMESSAGE_VOCAUX_DOSSIER.strip()
+    for dossier in ([Path(os.path.expanduser(reglage))] if reglage else
+                    [Path.home() / "Library/Messages/Attachments/Jervis", Path.home() / "Pictures/Jervis"]):
+        try:
+            dossier.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        for vieux in dossier.glob(SON_PREFIXE + "*"):
+            try:
+                if time.time() - vieux.stat().st_mtime > VOCAUX_GARDES_S:
+                    vieux.unlink()
+            except OSError:
+                pass
+        return dossier
+    return Path(tempfile.gettempdir())
 
 
 def cle(adresse: str | None) -> str:
@@ -166,8 +209,12 @@ class Boite:
     def __init__(self, envoyer: Callable[[str, str], Awaitable[tuple[int, str]]], base: Path | None = None,
                  adresses: str | None = None, accord: Callable[[str], bool | None] = accord_simple,
                  journal: Callable[[str], None] = print, suspect: Callable[[], bool] | None = None,
-                 transcrire: Callable[[Path], str] = transcrire_vocal) -> None:
+                 transcrire: Callable[[Path], str] = transcrire_vocal,
+                 envoyer_son: Callable[[str, Path], Awaitable[tuple[int, str]]] | None = None,
+                 dire: Callable[[str, Path], Awaitable[bool]] | None = None) -> None:
         self._envoyer = envoyer
+        self._envoyer_son = envoyer_son  # (adresse, fichier) : son vocal part (AppleScript dans Steve)
+        self._dire = dire                # (texte, fichier) : sa réponse dite dans un fichier (tts.vocal_en_fichier)
         self._transcrire = transcrire
         self._suspect = suspect or (lambda: False)
         self._base = base or comptes.CHAT_DB
@@ -181,6 +228,8 @@ class Boite:
         self._fils_lus = 0.0
         self._connus: set[int] = set()        # tous les fils de la base à la dernière lecture (les tiens et les autres)
         self.adresse = ""                     # où répondre : le fil de ton dernier message
+        self.fil = ""                         # ce fil-là pour Messages (« iMessage;-;+336… ») ; "" s'il ne le dit pas
+        self._guids: dict[int, str] = {}      # ROWID du fil → son identifiant pour Messages
         self._vus: deque[tuple[str, float]] = deque(maxlen=20)
         self._question: asyncio.Future | None = None
         # (ton texte, arrivé pendant qu'il lisait une page ou un mail ?) : alors il te demande si c'est bien toi
@@ -196,12 +245,18 @@ class Boite:
         """Tes adresses (celles où tu reçois tes messages) et tes conversations avec toi-même."""
         a_moi = adresses_a_moi(lien, self._donnees)
         try:
-            fils = lien.execute("SELECT ROWID, chat_identifier, COALESCE(style, 45) FROM chat").fetchall()
+            fils = lien.execute("SELECT ROWID, chat_identifier, COALESCE(style, 45), COALESCE(guid, '') "
+                                "FROM chat").fetchall()
         except sqlite3.Error:
-            fils = [(r, a, 45) for r, a in lien.execute("SELECT ROWID, chat_identifier FROM chat")]
+            try:
+                fils = [(r, a, s, "") for r, a, s in lien.execute(
+                    "SELECT ROWID, chat_identifier, COALESCE(style, 45) FROM chat")]
+            except sqlite3.Error:
+                fils = [(r, a, 45, "") for r, a in lien.execute("SELECT ROWID, chat_identifier FROM chat")]
         self._a_moi = a_moi
-        self._fils = [(r, a) for r, a, style in fils if style != 43 and cle(a) in a_moi]  # 43 = un groupe
-        self._connus = {r for r, _, _ in fils}
+        self._fils = [(r, a) for r, a, style, _ in fils if style != 43 and cle(a) in a_moi]  # 43 = un groupe
+        self._guids = {r: g for r, _, _, g in fils if g}
+        self._connus = {r for r, _, _, _ in fils}
         self._fils_lus = time.monotonic()
 
     def _fil_nouveau(self, lien: sqlite3.Connection, apres: int, jusqua: int) -> bool:
@@ -244,7 +299,7 @@ class Boite:
         finally:
             lien.close()
         textes = []
-        for texte, corps, date, de_moi, qui, fil, numero in lignes:
+        for texte, corps, date, de_moi, qui, fil, numero, rang in lignes:
             if not de_moi and cle(qui) not in self._a_moi:
                 continue  # quelqu'un d'autre dans le fil : jamais un ordre
             quand = date / 1e9 if date > 1e11 else float(date)  # en nanosecondes depuis macOS 10.13
@@ -256,7 +311,7 @@ class Boite:
             if any(t == texte and abs(quand - q) < DOUBLE_S for t, q in self._vus):
                 continue  # la copie « reçue » du message que ton iPhone vient d'envoyer
             self._vus.append((texte, quand))
-            self.adresse = fil
+            self.adresse, self.fil = fil, self._guids.get(rang, "")
             textes.append(texte)
         return textes
 
@@ -273,7 +328,7 @@ class Boite:
                                   (*fils, apres, jusqua)).fetchall()
         except sqlite3.Error:
             lignes = lien.execute(base + " ORDER BY m.ROWID", (*fils, apres, jusqua)).fetchall()
-        return [(*l[:5], fils[l[5]], l[6]) for l in lignes]
+        return [(*l[:5], fils[l[5]], l[6], l[5]) for l in lignes]
 
     def _sons(self, lien: sqlite3.Connection, messages: list[int]) -> dict[int, tuple[Path, int]]:
         """{message : (le fichier son, sa taille)} pour les messages sans texte qui portent un son."""
@@ -287,7 +342,7 @@ class Boite:
         except sqlite3.Error:
             return {}  # une base sans pièces jointes (ou d'une autre forme) : pas de vocal
         return {m: (Path(os.path.expanduser(f)), taille) for m, f, mime, uti, taille in lignes
-                if f and est_un_son(f, mime, uti)}
+                if f and est_un_son(f, mime, uti) and not son_de_lui(Path(f), taille)}  # ses vocaux : jamais
 
     def _ecouter(self, chemin: Path, taille: int, quand: float) -> str:
         """Le message vocal transcrit, une seule fois (la copie reçue du même son, quelques secondes après, est
@@ -350,7 +405,28 @@ class Boite:
         """Te raconter quelque chose sur l'iPhone (ce que le répondeur a fait), même si tu ne lui as pas encore
         écrit depuis son démarrage : dans ta conversation avec toi-même."""
         if not self.adresse and self._fils:
-            self.adresse = self._fils[0][1]
+            self.adresse, self.fil = self._fils[0][1], self._guids.get(self._fils[0][0], "")
+        return await self.envoyer(texte)
+
+    async def envoyer_vocal(self, texte: str) -> bool:
+        """Sa réponse en vocal (tu lui as parlé) : dite avec sa voix dans un fichier, qui part dans ton fil.
+        Un lien dedans : le texte suit (un lien ne se dit pas). Sans voix, ou si le vocal ne part pas : le texte."""
+        if not (self.adresse and self._envoyer_son and self._dire):
+            return await self.envoyer(texte)
+        son = dossier_vocaux() / f"{SON_PREFIXE}{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 10**9:09d}.m4a"
+        try:
+            pret = await self._dire(en_clair(texte), son)
+        except Exception as e:
+            self._journal(f"   📱 Vocal pas fabriqué ({type(e).__name__}: {e}) : je réponds par écrit.")
+            pret = False
+        if pret:
+            noter_son(son)
+            code, sortie = await self._envoyer_son(self.adresse, son)
+            if not code:
+                if re.search(r"https?://", texte):
+                    await self.envoyer(texte)
+                return True
+            self._journal(f"   📱 Vocal pas parti ({sortie[:150]}) : je réponds par écrit.")
         return await self.envoyer(texte)
 
     async def demander(self, question: str, delai: float | None = None) -> bool:
@@ -419,4 +495,7 @@ async def servir(boite: Boite, demander: Callable[..., Awaitable[str]], relire: 
             reponse = f"⚠️ Je n'ai pas pu le faire ({e!r})."
         reponse = reponse or "OK."
         journal(f"🤖 {config.PRENOM} (iPhone) : " + " ⏎ ".join(l.strip() for l in reponse.splitlines() if l.strip()))
-        await boite.envoyer(reponse)
+        if texte.startswith(VOCAL) and config.IMESSAGE_VOCAL.lower() not in {"non", "off", "0"}:
+            await boite.envoyer_vocal(reponse)  # tu lui as parlé : il te répond de vive voix
+        else:
+            await boite.envoyer(reponse)

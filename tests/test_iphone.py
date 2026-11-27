@@ -9,6 +9,7 @@ et Claude est remplacé par une fonction qui répond tout de suite.
 import asyncio
 import os
 import sqlite3
+import subprocess
 import tempfile
 import threading
 import time
@@ -365,6 +366,125 @@ lien.execute("INSERT INTO attachment VALUES (?, ?, ?, ?, ?)", (99, str(TMP / "IM
 lien.execute("INSERT INTO message_attachment_join VALUES (?, ?)", (n_message, 99))
 lien.commit()
 verifier("vocal : une photo seule n'est pas un message vocal", oreille.lire(), [])
+
+# --- Le fil exact, et un vocal en retour -------------------------------------------------------------------
+verifier("fil : une base sans identifiant de fil → il répond à ton adresse", oreille.fil, "")
+lien.execute("ALTER TABLE chat ADD COLUMN guid TEXT")
+lien.execute("UPDATE chat SET guid = 'iMessage;-;' || chat_identifier")
+lien.commit()
+oreille._trouver_fils(lien)
+ecrire(1, "Et demain ?", 1, 1)
+verifier("fil : il répond dans le fil exact où tu as écrit", (oreille.lire(), oreille.fil),
+         (["Et demain ?"], f"iMessage;-;{MOI}"))
+config.IMESSAGE_VOCAUX_DOSSIER = str(TMP / "vocaux")
+verifier("vocaux : rangés dans le dossier réglé", distance.dossier_vocaux(), TMP / "vocaux")
+vieux = TMP / "vocaux" / f"{distance.SON_PREFIXE}vieux.m4a"
+vieux.write_bytes(b"x")
+os.utime(vieux, (time.time() - 2 * distance.VOCAUX_GARDES_S,) * 2)
+distance.dossier_vocaux()
+verifier("vocaux : ceux de plus d'un jour sont effacés", vieux.exists(), False)
+
+sons_partis: list[tuple[str, str, bool]] = []
+dits: list[str] = []
+voix = {"marche": True, "part": True}
+
+
+async def faux_envoi_son(adresse: str, son: Path) -> tuple[int, str]:
+    sons_partis.append((adresse, son.name, son.exists()))
+    return (0, "") if voix["part"] else (1, "Messages a refusé")
+
+
+async def faux_dire(texte: str, son: Path) -> bool:
+    dits.append(texte)
+    if voix["marche"]:
+        son.write_bytes(b"m4a" + b"\0" * 3000)
+    return voix["marche"]
+
+
+async def vocal_en_retour() -> dict:
+    vu: dict = {}
+    parle = distance.Boite(faux_envoi, base=base, adresses="auto", journal=journal.append, transcrire=faux_transcrire,
+                           envoyer_son=faux_envoi_son, dire=faux_dire)
+    parle.lire()
+    config.IMESSAGE_RELEVE_S = 0.05
+    config.IMESSAGE_PATIENCE_S = 0
+    releve = asyncio.create_task(parle.relever())
+
+    async def cerveau(texte: str, **kw) -> str:
+        return "Voici la fiche : https://exemple.fr/a" if "lien" in texte else "**Demain** : soleil."
+    sert = asyncio.create_task(distance.servir(parle, cerveau, journal=journal.append))
+    envois.clear()
+    paroles["texte"] = "Quel temps demain"
+    vocal(1, 1, 1, "Audio Message 2.caf", 4100)
+    await asyncio.sleep(0.4)
+    vu["vocal → vocal"] = ([(a, n.startswith(distance.SON_PREFIXE), e) for a, n, e in sons_partis], dits[-1:],
+                           [t for _, t in envois])
+    # Son vocal revient dans ton fil (sa copie envoyée, puis reçue, du même fichier) : jamais transcrit.
+    entendus.clear()
+    vocal(1, 1, 1, sons_partis[-1][1], 3003)
+    vocal(1, 0, 1, "Audio Message 3.caf", 3003)   # même taille qu'un de ses vocaux : la copie reçue
+    await asyncio.sleep(0.3)
+    vu["ses vocaux pas relus"] = (list(entendus), len(sons_partis))
+    envois.clear()
+    ecrire(1, "Quel temps demain par écrit", 1, 1)
+    await asyncio.sleep(0.3)
+    vu["écrit → écrit"] = ([t for _, t in envois], len(sons_partis))
+    envois.clear()
+    paroles["texte"] = "Envoie-moi le lien"
+    vocal(1, 1, 1, "Audio Message 4.caf", 4200)
+    await asyncio.sleep(0.4)
+    vu["un lien : vocal puis texte"] = (len(sons_partis), [t for _, t in envois])
+    envois.clear()
+    voix["marche"] = False
+    paroles["texte"] = "Et après-demain"
+    vocal(1, 1, 1, "Audio Message 5.caf", 4300)
+    await asyncio.sleep(0.4)
+    vu["pas de voix → écrit"] = (len(sons_partis), [t for _, t in envois])
+    envois.clear()
+    voix.update(marche=True, part=False)
+    paroles["texte"] = "Et dimanche"
+    vocal(1, 1, 1, "Audio Message 6.caf", 4400)
+    await asyncio.sleep(0.4)
+    vu["vocal refusé → écrit"] = ([t for _, t in envois], any("Vocal pas parti" in l for l in journal))
+    envois.clear()
+    voix["part"] = True
+    config.IMESSAGE_VOCAL = "non"
+    paroles["texte"] = "Et lundi"
+    vocal(1, 1, 1, "Audio Message 7.caf", 4500)
+    await asyncio.sleep(0.4)
+    vu["réglage non → écrit"] = [t for _, t in envois]
+    config.IMESSAGE_VOCAL = "oui"
+    sert.cancel()
+    releve.cancel()
+    return vu
+
+
+vu = asyncio.run(vocal_en_retour())
+verifier("vocal en retour : tu lui parles, il te répond par un vocal dans ton fil (et pas d'écrit)",
+         vu["vocal → vocal"], ([(MOI, True, True)], ["Demain : soleil."], []))
+verifier("vocal en retour : ses vocaux qui reviennent dans le fil ne sont jamais transcrits",
+         vu["ses vocaux pas relus"], ([], 1))
+verifier("vocal en retour : tu lui écris, il t'écrit", vu["écrit → écrit"], (["🤖 Demain : soleil."], 1))
+verifier("vocal en retour : un lien dans la réponse → le vocal, puis le texte", vu["un lien : vocal puis texte"],
+         (2, ["🤖 Voici la fiche : https://exemple.fr/a"]))
+verifier("vocal en retour : pas de voix → il répond par écrit", vu["pas de voix → écrit"], (2, ["🤖 Demain : soleil."]))
+verifier("vocal en retour : Messages refuse le vocal → par écrit, et le journal le dit", vu["vocal refusé → écrit"],
+         (["🤖 Demain : soleil."], True))
+verifier("vocal en retour : JERVIS_IMESSAGE_VOCAL=non → toujours par écrit", vu["réglage non → écrit"],
+         ["🤖 Demain : soleil."])
+verifier("vocal en retour : un vocal à son nom n'est pas de toi", distance.son_de_lui(Path("jervis-vocal-1.m4a"), 0),
+         True)
+verifier("vocal en retour : ton vocal à toi, si", distance.son_de_lui(Path("Audio Message.caf"), 12345), False)
+
+# Le vrai fichier, fabriqué sur le Mac avec une voix du Mac (ni Internet ni sa voix locale ici) : un .m4a qui dure.
+from jervis import tts  # noqa: E402
+config.VOIX_NEURONALE, config.VOIX_LOCALE = "non", "non"
+fichier = TMP / f"{distance.SON_PREFIXE}vrai.m4a"
+fait = asyncio.run(tts.vocal_en_fichier("**Demain** : soleil. Bonne journée !", fichier))
+duree = subprocess.run(["afinfo", str(fichier)], capture_output=True, text=True).stdout if fait else ""
+verifier("vocal en retour : un vrai .m4a, fabriqué sur le Mac", (fait, "aac" in duree, "estimated duration" in duree),
+         (True, True, True))
+verifier("vocal en retour : rien à dire → pas de fichier", asyncio.run(tts.vocal_en_fichier(" ** ", TMP / "v.m4a")), False)
 
 # --- Le tableau de bord et les consignes ------------------------------------------------------------------
 echanges = tableau.lire_journal(f"🧑 Toi (iPhone) : Météo demain\n🤖 {config.PRENOM} (iPhone) : Soleil ⏎ 18°\n")

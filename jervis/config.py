@@ -247,6 +247,8 @@ IMESSAGE_PATIENCE_S = float(_env("IMESSAGE_PATIENCE_S", "20"))  # pas fini en 20
 # Un iMessage arrivé pendant qu'il lit une page ou un mail, ou moins de 20 s après : il te demande si c'est bien toi.
 IMESSAGE_MEFIANCE_S = float(_env("IMESSAGE_MEFIANCE_S", "20"))
 QUESTION_IMESSAGE_S = float(_env("QUESTION_IMESSAGE_S", "600"))  # une question sans réponse en 10 min vaut non
+IMESSAGE_VOCAL = _env("IMESSAGE_VOCAL", "oui")              # un vocal de toi : il te répond par un vocal (non = écrit)
+IMESSAGE_VOCAUX_DOSSIER = _env("IMESSAGE_VOCAUX_DOSSIER", "")  # où ranger ses vocaux avant l'envoi (vide = auto)
 
 # --- Répondre à ta place (reponses.py) ------------------------------------------------------------------
 # « Steve, réponds à tous mes messages » : iMessage et WhatsApp, dans ton style avec chaque personne.

@@ -1184,7 +1184,12 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         from . import distance
         def noter(ligne: str) -> None:
             print(ligne, flush=True)  # le journal : le tableau de bord y relit l'échange
-        boite = distance.Boite(envoyer=lambda adresse, texte: outils._applescript(outils._IMESSAGE, adresse, texte),
+        # Dans le fil exact où tu as écrit (boite.fil) ; un vocal de toi reçoit un vocal dit avec sa voix.
+        boite = distance.Boite(envoyer=lambda adresse, texte: outils._applescript(outils._IMESSAGE_FIL, adresse, texte,
+                                                                                 boite.fil),
+                               envoyer_son=lambda adresse, son: outils._applescript(outils._IMESSAGE_SON, adresse,
+                                                                                    str(son), boite.fil),
+                               dire=tts.vocal_en_fichier,
                                accord=lambda t: a if (a := lire_accord(t)) is not None else distance.accord_simple(t),
                                journal=noter, suspect=cerveau.lu_dehors)  # (accord_simple connaît le 👍 tapé)
         iphone = [asyncio.create_task(boite.relever()), asyncio.create_task(distance.servir(

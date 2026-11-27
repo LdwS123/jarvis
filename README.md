@@ -24,7 +24,7 @@ Le code vit dans le paquet Python `jervis`.
 | 📝 | **Compte rendu de réunion** : transcrit chaque passage dans sa langue, puis résumé et actions à faire dans Notes | transcription sur le Mac, résumé par Claude |
 | 🪟 | Fenêtres, **modes** (« mode travail »), musique, texte sélectionné, **dossiers rangés** (et annulables), **santé du Mac** | sur le Mac |
 | 🔎 | « Retrouve le PDF du devis de mars » : **cherche dans le contenu** de tes fichiers | Spotlight, sur le Mac |
-| 📱 | Un **message vocal** envoyé de l'iPhone devient une tâche sur le Mac | transcrit sur le Mac |
+| 📱 | Un **message vocal** envoyé de l'iPhone devient une tâche sur le Mac, et il te **répond par un vocal** | transcrit et dit sur le Mac |
 | 📌 | **Il apprend de toi** : quand tu le corriges, il retient la règle pour toujours | son carnet, `lecons.md` |
 | 🤖 | Mails, agenda, navigateur, apps du Mac, agents de fond en parallèle, tableau de bord | Claude (ton abonnement) |
 
@@ -265,7 +265,7 @@ temps est passé ; la plus grosse part est presque toujours Claude (sa première
 - le ménage se fait entre deux demandes, en fond : couper les connecteurs arrivés en retard, et après une longue
   pause (`JERVIS_OUBLI_MIN`) remettre la conversation à zéro, qui prenait 2 s au début de ta phrase suivante.
 
-Pour aller encore plus vite : `JERVIS_MODELE=haiku` (moins malin), ou `JERVIS_REFLEXION=non`.
+Il reste sur Sonnet (le modèle par défaut) : la vitesse vient de tout ça, pas d'un modèle moins malin.
 
 **Tu peux lui chuchoter** (quand les autres dorment). Trois choses, toutes sur le Mac :
 
@@ -482,7 +482,11 @@ demande longue (une recherche) reçoit d'abord « Je m'en occupe… », puis la 
 **À quoi ça ressemble (c'est normal que ce soit bizarre)** : ce n'est pas une discussion avec quelqu'un d'autre.
 Steve répond depuis ton Mac, donc avec **ton** compte : sur l'iPhone, ses réponses s'affichent de ton côté, en bleu
 à droite, comme si tu les avais écrites (et selon la version d'iOS, un message apparaît parfois en double, une fois
-envoyé et une fois reçu). Ce qui distingue Steve, c'est le 🤖 au début de ses bulles et le ❓ de ses questions. Un
+envoyé et une fois reçu). **Sur le Mac, chaque bulle apparaît deux fois** (en bleu, puis en gris), les tiennes
+comme les siennes : c'est Messages qui montre un message à toi-même une fois parti et une fois arrivé, parce que
+le Mac est à la fois celui qui envoie et celui qui reçoit. Steve, lui, ne lit et ne répond qu'une fois (les
+copies sont sautées) ; il répond dans le **fil exact** où tu as écrit, pour que ton numéro et ton adresse iCloud ne
+fassent pas deux conversations. Ce qui distingue Steve, c'est le 🤖 au début de ses bulles et le ❓ de ses questions. Un
 message de toi à toi ne fait souvent **ni son ni bannière** : reste dans la conversation quelques secondes, sa
 réponse y arrive. Tu as effacé la conversation et recommencé, ou tu t'écris à une autre de tes adresses ? Il lit la
 nouvelle tout de suite (le journal dit `📱 Nouvelle conversation avec toi-même vue…`). Au démarrage, le journal dit
@@ -497,7 +501,14 @@ nouvelle tout de suite (le journal dit `📱 Nouvelle conversation avec toi-mêm
 - **Un message vocal** (le micro dans Messages, toujours dans ta conversation avec toi-même) : Steve le transcrit
   **sur le Mac** (Whisper ou Parakeet, rien ne part ailleurs) et le traite comme une demande écrite : « (message
   vocal) mets un rappel demain 9 h » devient une tâche. Les vocaux des autres ne sont ni lus ni transcrits ; un
-  vocal de plus de `JERVIS_VOCAL_MAX_S` (5 min) est coupé.
+  vocal de plus de `JERVIS_VOCAL_MAX_S` (5 min) est coupé. **Tu lui parles, il te répond par un vocal** : sa
+  réponse dite avec sa voix (sa voix locale, sinon celle de Microsoft, sinon une voix du Mac), fabriquée sur le
+  Mac en .m4a, part dans ton fil comme une pièce jointe audio. Un lien dans sa réponse : le texte suit le vocal (un
+  lien ne se dit pas). Sans voix, ou si Messages refuse le fichier : il répond par écrit. Ses vocaux portent son
+  nom (`jervis-vocal-…`) et ne sont jamais transcrits comme une demande de toi ; ils sont rangés dans
+  `~/Library/Messages/Attachments/Jervis` (sinon `~/Pictures/Jervis`) et effacés au bout d'un jour.
+  `JERVIS_IMESSAGE_VOCAL=non` : toujours par écrit.
+- **Une réaction** (« A réagi à ces images », un ❤️) n'est pas une demande : il n'y répond pas.
 - **Ses réponses dans tes AirPods** : iPhone → Réglages → Notifications → Annoncer les notifications → Messages.
   (Selon la version d'iOS, un message que tu reçois de toi-même ne fait pas toujours sonner l'iPhone : si rien ne
   s'annonce, ses réponses sont quand même dans le fil.)
@@ -1272,7 +1283,7 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_APPRENDRE_VOIX` | oui | il apprend ta voix tout seul (4 phrases où tu dis son nom), puis l'affine à chaque phrase de toi |
 | `JERVIS_SEUIL_APPRENDRE` | 0.65 | il n'affine ta voix qu'avec les phrases où il est au moins aussi sûr que c'est toi |
 | `JERVIS_CONFIRMATION_VOIX` | oui | un « oui » sensible doit être de ta voix (si elle est apprise) ; `non` pour couper |
-| `JERVIS_MODELE` | sonnet | modèle Claude (`haiku` pour encore plus rapide) |
+| `JERVIS_MODELE` | sonnet | modèle Claude (`sonnet` conseillé ; `opus` plus fort mais plus lent) |
 | `JERVIS_REFLEXION` | oui | `non` = il ne réfléchit plus avant de répondre (un peu plus rapide, moins malin) |
 | `JERVIS_EFFORT` | low | `low` = le plus rapide à l'oral (sa première phrase arrive 0,2 à 0,3 s plus tôt) ; `medium`, `high` = réfléchit plus. Les grosses tâches partent chez l'expert, qui garde son effort |
 | `JERVIS_DEBUT_TOT_CARACTERES` | 35 | une longue première phrase part à la voix dès sa première virgule (après au moins ce nombre de caractères et 6 mots) au lieu d'attendre le point ; `0` = il attend toujours le point |
@@ -1342,6 +1353,8 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_IMESSAGE_PATIENCE_S` | 20 | une demande plus longue que ça : « Je m'en occupe… » part d'abord (0 = jamais) |
 | `JERVIS_IMESSAGE_MEFIANCE_S` | 20 | un iMessage arrivé pendant une page ou un mail lus, ou ce temps-là après : il te demande si c'est bien toi |
 | `JERVIS_QUESTION_IMESSAGE_S` | 600 | une question ❓ restée sans réponse ce temps-là : c'est non |
+| `JERVIS_IMESSAGE_VOCAL` | oui | un vocal de toi par iMessage : il te répond par un vocal dit avec sa voix ; `non` = toujours par écrit |
+| `JERVIS_IMESSAGE_VOCAUX_DOSSIER` | (auto) | où il range ses vocaux avant de les envoyer (auto : `~/Library/Messages/Attachments/Jervis`, sinon `~/Pictures/Jervis`) |
 | `JERVIS_REPONSES_HEURES` | 72 | « réponds à mes messages » : il regarde les conversations de ces dernières heures |
 | `JERVIS_REPONSES_MAX` | 15 | conversations en attente montrées au plus à la fois |
 | `JERVIS_MODELE_REPONSES` | sonnet | modèle qui écrit les réponses du répondeur (sans outils) |

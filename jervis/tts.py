@@ -285,6 +285,48 @@ async def precharger(phrases: list[str]) -> None:
     await asyncio.gather(*(une(_nettoyer(p)) for p in phrases))
 
 
+_SILENCE_VOCAL = np.zeros(int(0.2 * 48000), dtype=np.float32)
+
+
+async def _son_de(phrase: str, langue: str | None) -> np.ndarray | None:
+    """Une phrase en échantillons 48 kHz, avec la même voix que quand il parle : sa voix locale, sinon la voix
+    Microsoft de cette langue, sinon une voix du Mac."""
+    if local := await _en_local(phrase, langue):
+        local[0].unlink(missing_ok=True)
+        return local[1]
+    fichier = await _synthetiser(phrase, langue=langue) or await _say_vers_fichier(phrase, langue)
+    if not fichier:
+        return None
+    try:
+        return _rogner(await _decoder(fichier))
+    finally:
+        fichier.unlink(missing_ok=True)
+
+
+async def vocal_en_fichier(texte: str, chemin: Path) -> bool:
+    """Sa réponse dite à voix haute, rangée dans un fichier audio (.m4a, AAC) : le vocal qu'il te renvoie par
+    iMessage. Rien n'est joué sur le Mac. Faux s'il n'y a rien à dire ou si aucune voix n'a marché."""
+    phrases = _phrases(_nettoyer(texte))
+    if not phrases:
+        return False
+    voix_locale.demarrer()
+    await asyncio.to_thread(voix_locale.attendre, 10)  # au démarrage : le temps qu'elle se charge, pas plus
+    sons = await asyncio.gather(*(_son_de(p, l) for p, l in zip(phrases, _langues_des(phrases))))
+    morceaux = [m for son in sons if son is not None and len(son) for m in (son, _SILENCE_VOCAL)]
+    if not morceaux:
+        return False
+    wav = _nouveau_fichier(".wav")
+    _ecrire_wav(wav, np.concatenate([_SILENCE_VOCAL, *morceaux]))
+    try:
+        proc = await asyncio.create_subprocess_exec("afconvert", "-f", "m4af", "-d", "aac", "-b", "64000", str(wav),
+                                                    str(chemin), stdout=subprocess.DEVNULL,
+                                                    stderr=subprocess.DEVNULL)
+        await proc.wait()
+    finally:
+        wav.unlink(missing_ok=True)
+    return proc.returncode == 0 and chemin.exists() and chemin.stat().st_size > 0
+
+
 def _ranger(fabrication: asyncio.Task) -> None:
     """Efface le fichier d'une phrase anticipée qu'il ne dira finalement pas."""
     def effacer(t: asyncio.Task) -> None:
