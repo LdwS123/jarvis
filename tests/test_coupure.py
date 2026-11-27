@@ -8,6 +8,7 @@ qui note ce qu'on lui demande, et le statut du compte Claude est joué à la mai
 
 import asyncio
 import http.client
+import http.server
 import json
 import os
 import queue
@@ -256,6 +257,23 @@ verifier("/reglages/fini, compte connecté : 200", reglages.traiter("POST", "/re
 STATUT.update(connecte=False, illisible=True)
 verifier("/reglages/fini, statut illisible : ne bloque pas",
          reglages.traiter("POST", "/reglages/fini", installation=True)[0], 200)
+
+# Ses serveurs (réglages, tableau de bord) écoutent tout de suite, sans chercher d'abord le nom du Mac
+# (socket.getfqdn : 30 s et plus quand le DNS est lent)
+vrai_getfqdn = socket.getfqdn
+socket.getfqdn = lambda *a: (_ for _ in ()).throw(AssertionError("getfqdn appelé"))
+try:
+    serveur_essai = reglages.ServeurLocal(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+    serveur_essai.server_close()
+    sans_nom = True
+except AssertionError:
+    sans_nom = False
+except OSError:
+    sans_nom = None
+finally:
+    socket.getfqdn = vrai_getfqdn
+if sans_nom is not None:
+    verifier("les serveurs écoutent sans chercher le nom du Mac (DNS lent)", sans_nom, True)
 
 # servir(installation=True) se ferme tout seul après « Terminer et lancer », et le dit (True)
 with socket.socket() as s:

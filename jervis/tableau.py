@@ -26,7 +26,7 @@ import statistics
 import subprocess
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Callable
 
@@ -580,7 +580,7 @@ class Tableau:
                     self._repondre(204)
 
         try:
-            serveur = ThreadingHTTPServer(("127.0.0.1", port), Requete)
+            serveur = reglages.ServeurLocal(("127.0.0.1", port), Requete)
         except OSError as e:
             print(f"   ⚠️  Tableau de bord indisponible (port {port} : {e}). Change JERVIS_TABLEAU_PORT.", flush=True)
             return False

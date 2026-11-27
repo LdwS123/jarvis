@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -289,13 +290,23 @@ def traiter(methode: str, chemin: str, corps: bytes = b"", installation: bool = 
     return 404, b"", "text/plain"
 
 
+class ServeurLocal(ThreadingHTTPServer):
+    """Un serveur sur 127.0.0.1 qui écoute tout de suite. HTTPServer cherche d'abord le nom de la machine
+    (socket.getfqdn) : sur un Mac au DNS lent, la page mettait 30 s ou plus à s'ouvrir, pour un nom jamais utilisé."""
+
+    def server_bind(self) -> None:
+        import socketserver
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def servir(port: int = 8766, ouvrir_page: bool = True, installation: bool = False) -> bool:
     """La page seule, sans lui : pour régler ton assistant avant son premier lancement.
     En mode installation, elle se ferme toute seule quand tu cliques « Terminer et lancer » (compte Claude connecté) :
     renvoie True dans ce cas, False si on l'a fermée avant (ctrl-C)."""
     import hmac
     import threading
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from http.server import BaseHTTPRequestHandler
 
     fini = threading.Event()
 
@@ -350,7 +361,7 @@ def servir(port: int = 8766, ouvrir_page: bool = True, installation: bool = Fals
                     fini.set()
                     threading.Thread(target=serveur.shutdown, daemon=True).start()
 
-    serveur = ThreadingHTTPServer(("127.0.0.1", port), Requete)
+    serveur = ServeurLocal(("127.0.0.1", port), Requete)
     adresse = f"http://127.0.0.1:{port}/"
     if installation:
         print(f"Installation : {adresse}  connecte ton compte Claude, choisis ses réglages, puis « Terminer et lancer ».",

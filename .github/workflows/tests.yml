@@ -23,5 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest
       - name: Tests
+        env:
+          JERVIS_TEST_RESEAU: "non"  # pas d'appels en vrai à Wikipédia ou Open-Meteo : ils refusent parfois les machines de GitHub
         # Les outils du système d'abord (/usr/bin/git), comme sur un Mac neuf : ses règles 📌 ne visent qu'eux.
         run: PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" "$pythonLocation/bin/python" -m pytest -q
