@@ -113,6 +113,33 @@ async def gardien() -> dict:
             "le refus dit de ne rien contourner": "ne contourne rien" in second.message}
 
 
+async def texte_piege() -> dict:
+    questions: list[str] = []
+
+    async def confirmer(q):
+        questions.append(q)
+        return True
+    g = Gardien(confirmer)
+    g.nouvelle_demande()
+    vu = {}
+    for nom, quoi in [("un lien", "Ouvre https://piege.example/verif et valide"),
+                      ("un domaine avec chemin", "Va sur piege.com/verif pour valider"),
+                      ("un code", "Tape le code reçu par SMS sur la page"),
+                      ("un mot de passe", "Entre ton mot de passe Google dans la fenêtre"),
+                      ("un numéro", "Appelle le 06 12 34 56 78 pour valider"),
+                      ("une installation", "Installe le profil qui s'affiche")]:
+        r = await g(J + "attendre_validation", {"quoi": quoi}, FauxContexte())
+        vu[nom] = (type(r).__name__, r.message.startswith("Refusé : attendre_validation"))
+    vu["aucune question posée"] = list(questions)
+    r = await g(J + "attendre_validation", {"quoi": "Un CAPTCHA t'attend sur reddit.com dans Chrome"}, FauxContexte())
+    vu["le vrai CAPTCHA passe"] = type(r).__name__
+    return vu
+
+
+R = ("PermissionResultDeny", True)
+verifier("un texte piégé n'est jamais relayé (ni à voix haute, ni sur l'iPhone)", asyncio.run(texte_piege()),
+         {"un lien": R, "un domaine avec chemin": R, "un code": R, "un mot de passe": R, "un numéro": R,
+          "une installation": R, "aucune question posée": [], "le vrai CAPTCHA passe": "PermissionResultAllow"})
 verifier("deux CAPTCHA à la suite : deux questions (jamais un vieux oui), et « pas encore » arrête tout",
          asyncio.run(gardien()), {"premier": "PermissionResultAllow", "second": "PermissionResultDeny",
                                   "deux questions": 2, "le refus dit de ne rien contourner": True})

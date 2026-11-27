@@ -1155,7 +1155,9 @@ en est). **Tu n'es pas devant le Mac** (pas de réponse à voix haute, et ni cla
 (iMessage ou WhatsApp « Message à moi-même »), et tu réponds « ok » de là-bas. Ça vaut aussi pour les questions de ses
 agents de fond et pour toutes ses confirmations ; deux questions en même temps partent l'une après l'autre, jamais
 mêlées. Sans réponse en `JERVIS_QUESTION_IMESSAGE_S` secondes, c'est non. Jamais pour un mot de passe, un code, un
-paiement ni une décision : seulement pour « c'est fait ». `JERVIS_RELAIS_IPHONE=non` garde les questions à voix haute.
+paiement ni une décision : seulement pour « c'est fait ». Un texte de question qui contient un lien, une
+adresse, un numéro, ou parle de mot de passe, de code, de carte, de paiement ou d'installation est refusé d'office
+(une page piégée ne peut pas te faire ouvrir un lien ou donner un code par ce canal sûr). `JERVIS_RELAIS_IPHONE=non` garde les questions à voix haute.
 
 ### Ce qu'il te demande encore
 
