@@ -78,7 +78,7 @@ Pour ton code, il connaît tes projets git : il lance leurs tests et te dit le r
 et ta CI GitHub, libère un port, lance ton serveur de dev et ouvre un projet dans Cursor.
 Il lit ton Google Drive, agit dans des milliers d'apps via Zapier, et clique ou tape dans n'importe quelle app du Mac.
 Il fait les grosses tâches en arrière-plan pendant que tu continues à lui parler, te fait un point le matin,
-te prévient à l'heure dite, et se souvient de vos conversations (et, avec screenpipe, de ce qui est passé sur ton écran).
+le bilan de ta journée à 22 h (en vocal sur ton iPhone si tu n'es pas devant le Mac), te prévient à l'heure dite, et se souvient de vos conversations (et, avec screenpipe, de ce qui est passé sur ton écran).
 Il travaille comme un bras droit : il fait sa ronde de lui-même (mails, agenda, rappels) et ne te dérange que si
 ça vaut le coup, il tient un carnet de ce qu'il apprend en travaillant pour toi, relie ce qu'il sait de toi dans un graphe daté, et tu peux aussi lui écrire au lieu
 de lui parler, depuis son tableau de bord.
@@ -91,7 +91,7 @@ Double-clique `installer.command` (ou lance `./installer.command` dans le Termin
 - Une icône apparaît en haut à droite : ⏳ démarrage, 🎙 veille, 👂 il t'écoute, 💭 il réfléchit, 🗣 il parle, ⏸ micro en pause, ⚠️ problème (voir le journal).
 - Il redémarre tout seul à chaque ouverture de session.
 - Le menu de l'icône permet de mettre le micro en pause (il ne te dérange plus : ses annonces attendent),
-  d'ouvrir sa mémoire, vos conversations, ton briefing du matin, le journal technique (`jervis.log`), et de quitter.
+  d'ouvrir sa mémoire, vos conversations, ton briefing du matin, ton bilan du soir, le journal technique (`jervis.log`), et de quitter.
 - Après une mise à jour du code, relance `installer.command`.
 - Pour qu'il ne démarre plus tout seul : `./installer.command --retirer`.
 - S'il démarre sans compte Claude connecté (déconnecté entre-temps, autre session du Mac), il ne démarre plus à
@@ -963,6 +963,29 @@ après midi. Tu choisis ce qu'il contient en écrivant dans `briefing.md` (menu 
 « commence par les mails de mon boss », « dis-moi le cours du bitcoin »… `JERVIS_BRIEFING_HEURE=08:15` change l'heure,
 `JERVIS_BRIEFING=non` le coupe.
 
+### Le bilan du soir (il te rappelle à 22 h)
+
+Tous les soirs à 22 h, il te fait le bilan de la journée en 4 ou 5 phrases : ce qu'il a fait pour toi (ses tâches et
+ses processus de fond), ce qui attend encore (une tâche en cours, une question sans réponse, un mail important), tes
+rendez-vous de demain, où en sont tes chantiers. Il finit en te demandant s'il y a quelque chose à préparer pour
+demain.
+
+- **Devant le Mac** : il te le dit à voix haute, et tu lui réponds comme d'habitude.
+- **Pas devant le Mac** (clavier et souris pas touchés depuis 2 minutes) : il attend 10 minutes que tu reviennes, puis
+  il te l'envoie en **message vocal, dit avec sa voix**, sur ton iPhone : là où tu lui as écrit en dernier (WhatsApp
+  « Message à moi-même » d'abord, sinon iMessage). Tu lui réponds là-bas, par écrit ou en vocal (« oui, prépare-moi
+  le mail pour Paul »). Il le prépare avec les règles d'une demande venue de l'iPhone, et ses questions y partent
+  aussi. Si l'envoi rate, il te le dira quand tu reviendras devant le Mac.
+- **Une fois par soir.** Le Mac éteint à 22 h et rallumé plus d'1 h 30 après : il laisse tomber pour ce soir.
+
+Tu choisis ce qu'il contient dans `bilan_soir.md` (menu → « Mon bilan du soir ») : « dis-moi aussi mes dépenses du
+jour », « pas de mails »… `JERVIS_BILAN_SOIR_HEURE=21:30` change l'heure, `JERVIS_BILAN_SOIR_IPHONE=non` le garde
+au Mac, `JERVIS_BILAN_SOIR=non` le coupe.
+
+Pourquoi un vocal et pas un vrai appel : un appel FaceTime de ton Mac vers ton propre iPhone (le même compte Apple des
+deux côtés) ne sonne pas de façon fiable, et Steve ne parle pas encore dans un appel (il lui faudrait un câble audio
+virtuel comme BlackHole). Le vocal arrive comme un message de quelqu'un, avec sa voix, et tu y réponds quand tu veux.
+
 ### Le briefing avant réunion
 
 **5 minutes avant un rendez-vous avec d'autres gens**, il te résume en deux à quatre phrases où vous en êtes : tes
@@ -1496,6 +1519,11 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_GRAPHE_PARALLELE` | 3 | lectures en même temps pour le graphe (chacune lance un petit Claude) |
 | `JERVIS_BRIEFING` | oui | `non` = pas de briefing du matin |
 | `JERVIS_BRIEFING_HEURE` | 07:30 | à partir de quelle heure il fait le briefing |
+| `JERVIS_BILAN_SOIR` | oui | `non` = pas de bilan du soir |
+| `JERVIS_BILAN_SOIR_HEURE` | 22:00 | l'heure du bilan du soir |
+| `JERVIS_BILAN_SOIR_ATTENTE_MIN` | 10 | pas devant le Mac à l'heure : combien de minutes il t'attend avant de l'envoyer sur l'iPhone |
+| `JERVIS_BILAN_SOIR_RETARD_MIN` | 90 | au-delà de ce retard sur l'heure (Mac éteint), il laisse tomber pour ce soir |
+| `JERVIS_BILAN_SOIR_IPHONE` | oui | `non` = jamais sur l'iPhone : il attend que tu reviennes devant le Mac |
 | `JERVIS_INITIATIVE` | oui | `non` = pas de ronde : il ne te dit plus rien de lui-même (hors briefing et rappels) |
 | `JERVIS_INITIATIVE_MIN` | 60 | minutes entre deux rondes |
 | `JERVIS_PROCESSUS_MAX` | 8 | processus de fond (runners) en même temps, au plus |

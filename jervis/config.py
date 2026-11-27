@@ -176,6 +176,17 @@ GRAPHE_PARALLELE = int(_env("GRAPHE_PARALLELE", "3"))   # lectures en même temp
 # Ce qu'il dit est dans briefing.md (modifie-le comme tu veux). JERVIS_BRIEFING=non pour le couper.
 BRIEFING = _env("BRIEFING", "oui").lower() not in {"non", "off", "0"}
 BRIEFING_HEURE = _env("BRIEFING_HEURE", "07:30")
+# Le bilan du soir : à cette heure, il te fait le point de la journée (ce qu'il a fait, ce qui attend, demain).
+# Devant le Mac : à voix haute. Pas là au bout de BILAN_SOIR_ATTENTE_MIN minutes : un message vocal, dit avec sa
+# voix, sur ton iPhone (là où tu lui as écrit en dernier ; WhatsApp d'abord), et tu lui réponds là-bas. Sans iPhone
+# branché, il attend que tu reviennes devant le Mac. Plus tard que BILAN_SOIR_RETARD_MIN après l'heure (le Mac
+# était éteint), il laisse tomber pour ce soir. Ce qu'il dit est dans bilan_soir.md. JERVIS_BILAN_SOIR=non pour le
+# couper ; JERVIS_BILAN_SOIR_IPHONE=non pour qu'il ne te l'envoie jamais sur l'iPhone.
+BILAN_SOIR = _env("BILAN_SOIR", "oui").lower() not in {"non", "off", "0"}
+BILAN_SOIR_HEURE = _env("BILAN_SOIR_HEURE", "22:00")
+BILAN_SOIR_ATTENTE_MIN = float(_env("BILAN_SOIR_ATTENTE_MIN", "10"))
+BILAN_SOIR_RETARD_MIN = float(_env("BILAN_SOIR_RETARD_MIN", "90"))
+BILAN_SOIR_IPHONE = _env("BILAN_SOIR_IPHONE", "oui").lower() not in {"non", "off", "0"}
 # Avant une réunion : BRIEFING_REUNION_MIN minutes avant un rendez-vous avec d'autres personnes, il te résume tes
 # derniers mails avec elles, tes comptes rendus et ce qu'il sait d'elles (un agent en lecture seule). Il relève
 # ton agenda toutes les RELEVE_AGENDA_MIN minutes, entre INITIATIVE_DEBUT et INITIATIVE_FIN, quand tu es devant
@@ -199,6 +210,7 @@ CODE_SMS_MINUTES = int(_env("CODE_SMS_MINUTES", "10"))   # jusqu'où il remonte 
 PAIEMENTS = _env("PAIEMENTS", "non").lower() in {"oui", "on", "1"}
 
 FICHIER_BRIEFING = DOSSIER / "briefing.md"
+FICHIER_BILAN_SOIR = DOSSIER / "bilan_soir.md"
 PRESENT_S = float(_env("PRESENT_S", "120"))   # tu es « devant le Mac » si tu as touché clavier ou souris depuis ça
 
 # --- Son initiative : une ronde discrète pendant la journée ------------------------

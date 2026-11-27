@@ -418,12 +418,21 @@ class Boite:
             self._journal(f"   📱 Réponse iMessage pas partie : {sortie[:150]}")
         return not code
 
+    def _un_fil(self) -> None:
+        """Pas encore de message de toi depuis son démarrage : il répond dans ta conversation avec toi-même."""
+        if not self.adresse and self._fils:
+            self.adresse, self.fil = self._fils[0][1], self._guids.get(self._fils[0][0], "")
+
     async def raconter(self, texte: str) -> bool:
         """Te raconter quelque chose sur l'iPhone (ce que le répondeur a fait), même si tu ne lui as pas encore
         écrit depuis son démarrage : dans ta conversation avec toi-même."""
-        if not self.adresse and self._fils:
-            self.adresse, self.fil = self._fils[0][1], self._guids.get(self._fils[0][0], "")
+        self._un_fil()
         return await self.envoyer(texte)
+
+    async def raconter_vocal(self, texte: str) -> bool:
+        """Comme raconter, mais de vive voix (le bilan du soir) : un vocal dit avec sa voix, le texte s'il ne part pas."""
+        self._un_fil()
+        return await self.envoyer_vocal(texte)
 
     async def envoyer_vocal(self, texte: str) -> bool:
         """Sa réponse en vocal (tu lui as parlé) : dite avec sa voix dans un fichier, qui part dans ton fil.

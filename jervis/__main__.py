@@ -1244,6 +1244,21 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         print(f"   📱 Pas de réponse à voix haute : je te pose la question sur l'iPhone ({question[:120]})", flush=True)
         return await distance.la_derniere(boites).demander(question, delai)
     standard.relais = relayer
+
+    async def bilan_au_loin(consigne: str) -> bool:
+        """Le bilan du soir quand tu n'es pas devant le Mac : il le prépare comme une demande venue de l'iPhone
+        (mêmes règles, et ses questions y partent aussi), puis te l'envoie en vocal, dit avec sa voix, là où tu
+        lui as écrit en dernier. Tu lui réponds là-bas, comme d'habitude. False : rien n'est parti."""
+        if not boites:
+            return False
+        boite = distance.la_derniere(boites)
+        reponse = await cerveau.demander(consigne, ecrit=lambda _morceau: None, confirmer_ecrit=boite.demander,
+                                         origine=boite.origine)
+        if not reponse.strip():
+            return False
+        noter(f"🤖 {config.PRENOM} (iPhone) : " + " ⏎ ".join(l.strip() for l in reponse.splitlines() if l.strip()))
+        return await boite.raconter_vocal(reponse)
+    programmateur.au_loin = bilan_au_loin
     for canal in boites:
         iphone += [asyncio.create_task(canal.relever()),
                    asyncio.create_task(distance.servir(canal, cerveau.demander, journal=noter, relire=relire_apres))]
@@ -1472,6 +1487,8 @@ def mode_barre() -> None:
         rumps.MenuItem("Nos conversations", callback=lambda _: ouvrir(outils.JOURNAL)),
         rumps.MenuItem("Mon briefing du matin", callback=lambda _: (fond.lire_briefing(),
                                                                      ouvrir(config.FICHIER_BRIEFING))),
+        rumps.MenuItem("Mon bilan du soir", callback=lambda _: (fond.lire_bilan_soir(),
+                                                                 ouvrir(config.FICHIER_BILAN_SOIR))),
         rumps.MenuItem("Ce qu'il surveille pour moi (sa ronde)", callback=lambda _: (fond.lire_initiative(),
                                                                                     ouvrir(config.FICHIER_INITIATIVE))),
         rumps.MenuItem("Ce qu'il a appris (son carnet)", callback=lambda _: ouvrir(lecons.preparer())),

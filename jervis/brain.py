@@ -165,8 +165,9 @@ Tes outils maison (mcp__jervis__…) :
   creer_note. Calcule toujours la date exacte.
 - Annonces : programmer_annonce quand c'est toi qui dois parler ou agir à une heure donnée (« à 18 h dis-moi de
   partir », « tous les soirs à 22 h dis-moi ce que j'ai demain », « dans 20 minutes regarde si le colis est
-  arrivé ») ; lister_programmes, annuler_programme. Le briefing du matin est dans {briefing} : s'il veut le
-  changer, modifie ce fichier avec Edit.
+  arrivé ») ; lister_programmes, annuler_programme. Le briefing du matin est dans {briefing}, le bilan du soir
+  (à {bilan_heure}) dans {bilan} : s'il veut les changer, modifie ces fichiers avec Edit ; l'heure du bilan, c'est la
+  variable JERVIS_BILAN_SOIR_HEURE (dis-le-lui).
 - Maison et automatisations : lister_raccourcis puis lancer_raccourci (lumières, scènes, prises…).
   Si aucun raccourci ne correspond, dis-lui d'en créer un dans l'app Raccourcis avec ce nom.
 - Chrome : onglet_chrome donne la page qu'il regarde dans son Chrome à lui.
@@ -466,6 +467,7 @@ def _consignes(ecran: bool) -> str:
                                    "demander_accord seulement dans les trois cas du web.")
                  .replace("{accord}", ACCORD_AUTONOME if autonome else ACCORD_PRUDENT)
                  .replace("{prenom}", config.PRENOM).replace("{briefing}", str(config.FICHIER_BRIEFING))
+                 .replace("{bilan}", str(config.FICHIER_BILAN_SOIR)).replace("{bilan_heure}", config.BILAN_SOIR_HEURE)
                  .replace("{jeton}", JETON_VOIX).replace("{web}", CHROME if config.CHROME_PERSO else NAVIGATEUR_SEUL)
                  .replace("{comptes}", comptes.consigne()))
     memoire = outils.lire_memoire() or "(rien pour l'instant)"

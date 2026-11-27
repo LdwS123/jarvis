@@ -377,7 +377,7 @@ noms = {o.name for o in outils.OUTILS}
 for outil in ("ecrire_dans_cursor", "mettre_a_la_corbeille", "effacer_memoire", "memoire_du_mac", "verifier_autorisations"):
     verifier(f"{outil} : branché et expliqué dans ses consignes", (outil in noms, outil in consignes), (True, True))
 verifier("consignes : plus de « Oui, vas-y. » sur un début de phrase", "Oui, vas-y" in consignes, False)
-verifier("consignes : aucun champ oublié", [c for c in ("{prenom}", "{briefing}", "{web}") if c in consignes], [])
+verifier("consignes : aucun champ oublié", [c for c in ("{prenom}", "{briefing}", "{bilan}", "{bilan_heure}", "{web}") if c in consignes], [])
 verifier("autorisations : seulement des volets connus", set(outils.autorisations_manquantes()) <= set(outils.VOLETS), True)
 verifier("tableau de bord : le nom de l'outil en clair", tableau.nommer_outil(CORBEILLE), (config.PRENOM, "à la corbeille"))
 script = config.DOSSIER / "outils" / "autorisations.command"
