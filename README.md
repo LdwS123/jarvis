@@ -577,6 +577,11 @@ message : il la voit dans les 30 s.
   avec l'**Accès complet au disque** (pour lire la base de WhatsApp, en lecture seule) et l'**Accessibilité** (il
   répond en écrivant dans l'app, comme `envoyer_whatsapp`). Ton numéro est lu dans les réglages de WhatsApp ; sinon,
   donne-le : `JERVIS_WHATSAPP_MOI=+33612345678`.
+- **Il ne te prend pas l'écran** : WhatsApp n'a rien pour envoyer sans son app, alors il écrit dans l'app du
+  Mac, **derrière** ce que tu fais : la discussion s'ouvre en arrière-plan, le texte et la touche Entrée vont à
+  WhatsApp seul (jamais dans l'app où tu tapes), et si WhatsApp passe quand même devant, l'app où tu étais
+  revient aussitôt. Pour un vocal, il essaie aussi derrière ; seulement si WhatsApp refuse d'enregistrer en
+  arrière-plan, il la passe devant le temps du vocal, puis te rend l'écran.
 - **Tes vocaux** : transcrits sur le Mac, comme sur iMessage. Il faut que WhatsApp du Mac les **télécharge tout
   seul** (Réglages → Stockage et données → Téléchargement auto → Audio : toujours). Un vocal pas arrivé au bout de
   45 s : il te le dit (« renvoie-le, ou écris-le-moi »).

@@ -300,6 +300,12 @@ class FauxPilote:
     def effacer(self):
         self.texte = ""
 
+    def app_devant(self):
+        return 4242  # l'app où tu étais
+
+    def rendre_devant(self, avant):
+        self.ordre.append(f"rend l'écran à {avant}")
+
 
 async def deux_envois() -> list[str]:
     pilote = FauxPilote()
@@ -309,8 +315,51 @@ async def deux_envois() -> list[str]:
 
 
 ordre = asyncio.run(deux_envois())
-verifier("un à la fois : chaque texte dans la discussion qu'il vient d'ouvrir",
-         ordre, [f"ouvre {LEA}", "écrit pour Léa", f"ouvre {MOI}", "écrit pour toi"])
+verifier("un à la fois : chaque texte dans la discussion qu'il vient d'ouvrir, et l'écran rendu après chacun",
+         ordre, [f"ouvre {LEA}", "écrit pour Léa", "rend l'écran à 4242",
+                 f"ouvre {MOI}", "écrit pour toi", "rend l'écran à 4242"])
+
+
+class FauxMicro:
+    """Le bouton du micro, derrière : `demarre_derriere` dit si WhatsApp enregistre sans être devant."""
+
+    def __init__(self, demarre_derriere: bool):
+        self.demarre_derriere, self.devant_ = demarre_derriere, False
+        self.gestes: list[str] = []
+        self.enregistre = False
+
+    def sortir_du_dock(self):
+        self.gestes.append("sort du Dock")
+
+    def devant(self):
+        self.gestes.append("devant")
+        self.devant_ = True
+
+    def existe(self, identifiant):
+        return self.enregistre if identifiant == vocal.ENVOYER else not self.enregistre
+
+    def appuyer(self, identifiant):
+        self.gestes.append(identifiant)
+        if identifiant == vocal.MICRO and (self.demarre_derriere or self.devant_):
+            self.enregistre = True
+        return True
+
+
+async def enregistrer(pilote):
+    from jervis import tts
+    vrai, tts.jouer_tel_quel = tts.jouer_tel_quel, (lambda son, sortie: asyncio.sleep(0, True))
+    try:
+        await vocal._enregistrer(pilote, None, {"enregistre": False, "envoye": False})
+    finally:
+        tts.jouer_tel_quel = vrai
+    return pilote.gestes
+
+
+verifier("vocal : enregistré derrière, sans passer WhatsApp devant toi",
+         asyncio.run(enregistrer(FauxMicro(True))), ["sort du Dock", vocal.MICRO, vocal.ENVOYER])
+verifier("vocal : WhatsApp n'enregistre pas derrière → devant, une seconde fois",
+         asyncio.run(enregistrer(FauxMicro(False))),
+         ["sort du Dock", vocal.MICRO, "devant", vocal.MICRO, vocal.ENVOYER])
 
 # --- Les consignes et les gardes ----------------------------------------------------------------------------
 c = brain._consignes(ecran=False)

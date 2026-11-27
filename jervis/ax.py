@@ -10,6 +10,7 @@ l'autorisation, tout renvoie None / False : rien ne plante.
 from __future__ import annotations
 
 import ctypes
+import re
 import subprocess
 from collections import deque
 from typing import Callable, Iterator
@@ -177,6 +178,18 @@ def pid_de(processus: str) -> int | None:
         return None
     pids = [int(p) for p in sortie.split() if p.isdigit()]
     return min(pids) if pids else None
+
+
+def pid_devant() -> int | None:
+    """Le pid de l'app au premier plan, ou None si macOS ne répond pas."""
+    try:
+        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        sortie = subprocess.run(["lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True,
+                                timeout=5).stdout if asn else ""
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r'"pid"\s*=\s*(\d+)', sortie)
+    return int(m.group(1)) if m else None
 
 
 def application(pid: int, patience: float = 2.0) -> Element | None:

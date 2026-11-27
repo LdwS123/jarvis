@@ -222,15 +222,20 @@ class WhatsApp:
         element = self._trouver(identifiant)
         return element is not None and element.appuyer()
 
-    def devant(self) -> None:
-        """Sort ses fenêtres du Dock et la met au premier plan : une fenêtre réduite annule le brouillon."""
+    def sortir_du_dock(self) -> None:
+        """Sort ses fenêtres du Dock, sans la passer devant : une fenêtre réduite annule le brouillon."""
         app = self._app()
         if app is None:
             return
         for fenetre in app.liste("AXWindows"):
             if fenetre.booleen("AXMinimized"):
                 fenetre.mettre("AXMinimized", False)
-        app.mettre("AXFrontmost", True)
+
+    def devant(self) -> None:
+        """Sort ses fenêtres du Dock et la met au premier plan."""
+        self.sortir_du_dock()
+        if (app := self._app()) is not None:
+            app.mettre("AXFrontmost", True)
 
     def ouvrir(self, numero: str, patience: float = 12.0) -> None:
         """Ouvre la discussion de ce numéro. Pour être sûr que le bouton du micro est celui de CETTE discussion
@@ -243,7 +248,9 @@ class WhatsApp:
                 time.sleep(0.15)
             ancien = self._trouver(MICRO)
         try:
-            subprocess.run(["open", f"whatsapp://send?phone={numero.lstrip('+')}"], capture_output=True, timeout=10)
+            # -g : la discussion s'ouvre derrière, sans passer WhatsApp devant ce que tu fais.
+            subprocess.run(["open", "-g", f"whatsapp://send?phone={numero.lstrip('+')}"], capture_output=True,
+                           timeout=10)
         except (OSError, subprocess.SubprocessError) as e:
             raise Echec(f"WhatsApp ne s'ouvre pas ({e})") from None
         fin, fenetre_demandee = time.monotonic() + patience, False
@@ -259,6 +266,18 @@ class WhatsApp:
             raise Echec("je ne suis pas sûr que la bonne discussion WhatsApp soit ouverte : je n'envoie rien")
         raise Echec("la discussion WhatsApp ne s'est pas ouverte (ce numéro a-t-il WhatsApp ? WhatsApp est-il "
                     "connecté sur le Mac ?)")
+
+    def app_devant(self) -> int | None:
+        return ax.pid_devant()
+
+    def rendre_devant(self, avant: int | None) -> None:
+        """Après un envoi : si WhatsApp a pris le premier plan, l'app où tu étais y revient. Pas si tu as changé
+        d'app toi-même entre-temps, ni si tu étais déjà dans WhatsApp."""
+        pid = ax.pid_de(self.PROCESSUS)
+        if not avant or not pid or avant == pid or ax.pid_devant() != pid:
+            return
+        if (app := ax.application(avant)) is not None:
+            app.mettre("AXFrontmost", True)
 
     def ouverte(self) -> str:
         """Le nom de la discussion ouverte (l'en-tête : un groupe, ou quelqu'un)."""
@@ -383,10 +402,16 @@ def _appel_en_cours() -> list[str]:
 async def _enregistrer(pilote, son: np.ndarray, etat: dict) -> None:
     """Micro, sa phrase, Envoyer. `etat` dit où on en est, pour le `finally` de qui l'appelle."""
     from . import tts
-    await asyncio.to_thread(pilote.devant)
+    derriere = hasattr(pilote, "sortir_du_dock")  # d'abord sans passer WhatsApp devant ce que tu fais
+    await asyncio.to_thread(pilote.sortir_du_dock if derriere else pilote.devant)
     if not await asyncio.to_thread(pilote.appuyer, MICRO):
         raise Echec("je ne trouve pas le bouton du vocal dans la discussion")
     etat["enregistre"] = True
+    if not await _attendre(lambda: pilote.existe(ENVOYER), 3.0) and derriere:
+        # Derrière, WhatsApp n'a pas lancé l'enregistrement : devant, une seconde fois (l'écran est rendu après).
+        await asyncio.to_thread(pilote.devant)
+        if await asyncio.to_thread(pilote.existe, MICRO):
+            await asyncio.to_thread(pilote.appuyer, MICRO)
     if not await _attendre(lambda: pilote.existe(ENVOYER), 3.0):
         raise Echec("WhatsApp n'a pas commencé l'enregistrement (a-t-il le droit d'utiliser le micro ?)")
     await asyncio.sleep(0.4)  # l'enregistrement démarre vraiment
@@ -424,11 +449,23 @@ def _tour() -> asyncio.Lock:
     return _tours.setdefault(asyncio.get_running_loop(), asyncio.Lock())
 
 
+async def _sans_prendre_l_ecran(envoi, contact: str, texte: str, pilote, groupe: str) -> tuple[str, str]:
+    """Un envoi à la fois, et l'écran rendu : ce que tu faisais sur le Mac reste devant (WhatsApp travaille
+    derrière ; s'il est passé devant, l'app où tu étais revient)."""
+    async with _tour():
+        pilote = pilote or WhatsApp()
+        avant = await asyncio.to_thread(getattr(pilote, "app_devant", lambda: None))
+        try:
+            return await envoi(contact, texte, pilote, groupe)
+        finally:
+            if hasattr(pilote, "rendre_devant"):
+                await asyncio.to_thread(pilote.rendre_devant, avant)
+
+
 async def envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
     """(« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », le détail en clair). `groupe` : le nom exact d'un groupe, à la place
     de `contact`."""
-    async with _tour():
-        return await _envoyer(contact, texte, pilote, groupe)
+    return await _sans_prendre_l_ecran(_envoyer, contact, texte, pilote, groupe)
 
 
 async def _envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
@@ -482,8 +519,7 @@ async def _envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> t
 
 async def envoyer_texte(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
     """Un message écrit WhatsApp, à quelqu'un ou dans un groupe : (« ENVOYÉ » | « INCERTAIN » | « ÉCHEC », détail)."""
-    async with _tour():
-        return await _envoyer_texte(contact, texte, pilote, groupe)
+    return await _sans_prendre_l_ecran(_envoyer_texte, contact, texte, pilote, groupe)
 
 
 async def _envoyer_texte(contact: str, texte: str, pilote=None, groupe: str = "") -> tuple[str, str]:
