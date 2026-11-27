@@ -476,14 +476,77 @@ verifier("vocal en retour : un vocal à son nom n'est pas de toi", distance.son_
          True)
 verifier("vocal en retour : ton vocal à toi, si", distance.son_de_lui(Path("Audio Message.caf"), 12345), False)
 
-# Le vrai fichier, fabriqué sur le Mac avec une voix du Mac (ni Internet ni sa voix locale ici) : un .m4a qui dure.
+# Le vrai fichier, avec SA voix (ici une fausse voix locale : un la de 0,4 s par phrase). Les phrases se font l'une
+# après l'autre, jamais avec la voix du Mac ; une phrase que sa voix rate deux fois, et il n'y a pas de vocal.
+import numpy as np  # noqa: E402
+
 from jervis import tts  # noqa: E402
-config.VOIX_NEURONALE, config.VOIX_LOCALE = "non", "non"
-fichier = TMP / f"{distance.SON_PREFIXE}vrai.m4a"
-fait = asyncio.run(tts.vocal_en_fichier("**Demain** : soleil. Bonne journée !", fichier))
-duree = subprocess.run(["afinfo", str(fichier)], capture_output=True, text=True).stdout if fait else ""
-verifier("vocal en retour : un vrai .m4a, fabriqué sur le Mac", (fait, "aac" in duree, "estimated duration" in duree),
-         (True, True, True))
+vl = tts.voix_locale
+vrais = (vl.active, vl.prete, vl.attendre, vl.dire, tts._synthetiser, tts._say_vers_fichier, tts._decoder)
+LA = (0.3 * np.sin(np.arange(int(0.4 * 48000)) * 2 * np.pi * 440 / 48000)).astype(np.float32)
+trace = {"dites": [], "en_meme_temps": 0, "au_plus": 0, "mac": 0, "microsoft": 0, "ratees": {}}
+
+
+def fausse_dire(phrase):
+    trace["en_meme_temps"] += 1
+    trace["au_plus"] = max(trace["au_plus"], trace["en_meme_temps"])
+    time.sleep(0.05)
+    trace["en_meme_temps"] -= 1
+    if trace["ratees"].get(phrase, 0) > 0:
+        trace["ratees"][phrase] -= 1
+        return None
+    trace["dites"].append(phrase)
+    return LA
+
+
+async def faux_microsoft(phrase, en_tete=False, langue=None):
+    trace["microsoft"] += 1
+    return (TMP / "microsoft.mp3") if trace.get("microsoft_marche") else None
+
+
+async def faux_mac(phrase, langue=None):
+    trace["mac"] += 1
+    return TMP / "mac.aiff"
+
+
+async def faux_decoder(fichier):
+    return LA
+
+
+vl.active = vl.prete = lambda: True
+vl.attendre = lambda delai: True
+vl.dire, tts._synthetiser, tts._say_vers_fichier, tts._decoder = fausse_dire, faux_microsoft, faux_mac, faux_decoder
+config.VOIX_LOCALE_LANGUE = config.VOIX_LOCALE_LANGUE or "fr"
+try:
+    fichier = TMP / f"{distance.SON_PREFIXE}vrai.m4a"
+    texte = "**Demain** : soleil. Bonne journée ! Prends une veste. Il fera frais le soir. Bonne nuit."
+    fait = asyncio.run(tts.vocal_en_fichier(texte, fichier))
+    infos = subprocess.run(["afinfo", str(fichier)], capture_output=True, text=True).stdout if fait else ""
+    verifier("vocal en retour : un vrai .m4a, fabriqué sur le Mac", (fait, "aac" in infos, "estimated duration" in infos),
+             (True, True, True))
+    verifier("vocal en retour : chaque phrase dite par sa voix, l'une après l'autre, dans l'ordre",
+             (len(trace["dites"]), trace["dites"][0].startswith("Demain"), trace["au_plus"]), (5, True, 1))
+    verifier("vocal en retour : ni la voix du Mac ni une autre au milieu de la sienne",
+             (trace["mac"], trace["microsoft"]), (0, 0))
+
+    trace["ratees"] = {"Prends une veste.": 1}
+    verifier("vocal en retour : une phrase ratée une fois est redemandée à sa voix",
+             asyncio.run(tts.vocal_en_fichier("Bonjour. Prends une veste.", TMP / "v1.m4a")), True)
+    trace["ratees"] = {"Prends une veste.": 2}
+    verifier("vocal en retour : ratée deux fois → pas de vocal (il répondra par écrit), jamais la voix du Mac",
+             (asyncio.run(tts.vocal_en_fichier("Bonjour. Prends une veste.", TMP / "v2.m4a")), trace["mac"],
+              trace["microsoft"]), (False, 0, 0))
+
+    vl.prete = lambda: False
+    vl.attendre = lambda delai: False
+    trace["microsoft_marche"] = True
+    verifier("vocal en retour : sans sa voix locale, la voix Microsoft (celle avec laquelle il parle alors)",
+             (asyncio.run(tts.vocal_en_fichier("Bonjour.", TMP / "v3.m4a")), trace["microsoft"] > 0), (True, True))
+    trace["microsoft_marche"] = False
+    verifier("vocal en retour : ni sa voix ni Microsoft → pas de vocal, pas la voix du Mac",
+             (asyncio.run(tts.vocal_en_fichier("Bonjour.", TMP / "v4.m4a")), trace["mac"]), (False, 0))
+finally:
+    vl.active, vl.prete, vl.attendre, vl.dire, tts._synthetiser, tts._say_vers_fichier, tts._decoder = vrais
 verifier("vocal en retour : rien à dire → pas de fichier", asyncio.run(tts.vocal_en_fichier(" ** ", TMP / "v.m4a")), False)
 
 # --- Le tableau de bord et les consignes ------------------------------------------------------------------

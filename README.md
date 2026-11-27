@@ -502,9 +502,11 @@ nouvelle tout de suite (le journal dit `📱 Nouvelle conversation avec toi-mêm
   **sur le Mac** (Whisper ou Parakeet, rien ne part ailleurs) et le traite comme une demande écrite : « (message
   vocal) mets un rappel demain 9 h » devient une tâche. Les vocaux des autres ne sont ni lus ni transcrits ; un
   vocal de plus de `JERVIS_VOCAL_MAX_S` (5 min) est coupé. **Tu lui parles, il te répond par un vocal** : sa
-  réponse dite avec sa voix (sa voix locale, sinon celle de Microsoft, sinon une voix du Mac), fabriquée sur le
-  Mac en .m4a, part dans ton fil comme une pièce jointe audio. Un lien dans sa réponse : le texte suit le vocal (un
-  lien ne se dit pas). Sans voix, ou si Messages refuse le fichier : il répond par écrit. Ses vocaux portent son
+  réponse dite avec **sa voix locale** (la même qu'à voix haute), phrase après phrase, fabriquée sur le Mac en
+  .m4a, part dans ton fil comme une pièce jointe audio. Jamais la voix du Mac, ni une autre voix au milieu de la
+  sienne : une phrase qu'elle rate est redemandée, ratée deux fois il répond par écrit. Seules une phrase dans une
+  langue que sa voix locale ne parle pas (du chinois), ou une voix locale coupée, passent par la voix Microsoft. Un lien dans sa réponse : le texte suit le vocal (un
+  lien ne se dit pas). Si le vocal n'a pas pu être fait, ou si Messages refuse le fichier : il répond par écrit. Ses vocaux portent son
   nom (`jervis-vocal-…`) et ne sont jamais transcrits comme une demande de toi ; ils sont rangés dans
   `~/Library/Messages/Attachments/Jervis` (sinon `~/Pictures/Jervis`) et effacés au bout d'un jour.
   `JERVIS_IMESSAGE_VOCAL=non` : toujours par écrit.
