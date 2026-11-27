@@ -436,18 +436,45 @@ async def signaler_captcha(args: dict[str, Any]) -> dict[str, Any]:
     await _lancer("osascript", "-e", script, config.PRENOM,
                   f"Un CAPTCHA t'attend sur {site}. Fais-le, puis dis-moi « c'est bon ».", delai=5)
     return _texte(f"Il est prévenu. Arrête-toi là, ne touche plus à la page, et appelle tout de suite "
-                  f"attendre_validation avec quoi = « Un CAPTCHA t'attend sur {site} dans Chrome » : reprends où tu en "
-                  "étais quand il dit « c'est bon » (à voix haute, ou depuis son iPhone s'il n'est pas là).")
+                  f"attendre_validation avec geste = « captcha » et site = « {domaine(args.get('site')) or 'le domaine de la page'} » : "
+                  "reprends où tu en étais quand il dit « c'est bon » (à voix haute, ou depuis son iPhone s'il n'est "
+                  "pas là).")
+
+
+# Ce que attendre_validation peut lui dire, mot pour mot : Claude choisit le geste et donne le site, le code écrit la
+# phrase. Elle part par un canal qu'il croit (sa voix, son iPhone) : aucun texte libre de Claude, qui a peut-être lu
+# une page piégée, ne doit y passer (« ouvre ce lien et tape le code reçu »). Le site : un vrai nom de domaine, en
+# lettres simples (pas de xn--, qui écrirait « gοogle.com » avec un ο grec).
+GESTES_A_VALIDER = {
+    "captcha": "Un CAPTCHA t'attend sur {site} dans Chrome",
+    "telephone": "{site} te demande sur ton téléphone si c'est bien toi : approuve la demande",
+    "macos": "Une autorisation de macOS t'attend sur le Mac (une fenêtre, ou Réglages Système, Confidentialité)",
+}
+
+
+def texte_validation(args: dict[str, Any]) -> str | None:
+    """La phrase d'attendre_validation, écrite par le code (None : geste inconnu ou site douteux)."""
+    modele = GESTES_A_VALIDER.get(str(args.get("geste") or "").strip().lower())
+    if modele is None or "{site}" not in modele:
+        return modele
+    site = domaine(brut := str(args.get("site") or ""))
+    if not site or "@" in brut or site.startswith("xn--") or ".xn--" in site:  # ni « moi@… », ni punycode
+        return None
+    return modele.format(site=site)
 
 
 @tool("attendre_validation", "Un geste que lui seul peut faire te bloque : un CAPTCHA (après signaler_captcha), "
       "« c'est bien vous ? » ou une notification à approuver sur son téléphone, un lien de confirmation à ouvrir, "
       "une autorisation macOS à cocher. Il te dit « c'est fait » à voix haute ; s'il ne répond pas et n'est pas devant "
-      "le Mac, la question part sur son iPhone (iMessage ou WhatsApp) et son « ok » là-bas te fait reprendre. `quoi` "
-      "= ce qu'il doit faire, en une phrase (« Un CAPTCHA t'attend sur canva.com dans Chrome »). Jamais pour lui "
-      "demander un mot de passe ou un code (le code, tu le lis avec chercher_code_recu ou dans Gmail), jamais pour "
-      "un paiement (c'est demander_accord), et jamais pour une décision : c'est un « préviens-moi quand c'est fait ».",
-      {"quoi": str})
+      "le Mac, la question part sur son iPhone (iMessage ou WhatsApp) et son « ok » là-bas te fait reprendre. `geste` "
+      "= « captcha » (un CAPTCHA dans son Chrome), « telephone » (« c'est bien vous ? » à approuver sur son "
+      "téléphone) ou « macos » (une autorisation macOS) ; `site` = le domaine de la page (« canva.com »), pour "
+      "captcha et telephone. La phrase qu'il entend est écrite pour toi, rien d'autre. Un lien de confirmation, un "
+      "code reçu : tu les lis toi-même (Gmail, chercher_code_recu). Jamais pour un paiement (c'est demander_accord) "
+      "ni pour une décision : c'est un « préviens-moi quand c'est fait ».",
+      {"type": "object",
+       "properties": {"geste": {"type": "string", "enum": sorted(GESTES_A_VALIDER)}, "site": {"type": "string"}},
+       "required": ["geste"]})
 async def attendre_validation(args: dict[str, Any]) -> dict[str, Any]:
     # Arrivé ici, le gardien t'a posé la question et tu as dit oui (permissions.py) : c'est fait de ton côté.
     return _texte("Il dit que c'est fait : regarde de nouveau la page (ou l'app) et reprends où tu en étais. Si c'est "
@@ -533,12 +560,12 @@ CONSIGNE = """\
   3. Un compte à lui : clique dans le champ et laisse le remplissage automatique du navigateur (ou son
      gestionnaire de mots de passe) proposer l'identifiant et le mot de passe ; valide la suggestion, sans la lire.
   4. Si une double vérification arrive (code sur son téléphone, « c'est bien vous ? », notification), arrête-toi
-     et appelle attendre_validation en disant laquelle ; tu reprends à son « c'est fait » (à voix haute, ou sur
+     et appelle attendre_validation (geste telephone, et le site) ; tu reprends à son « c'est fait » (à voix haute, ou sur
      son iPhone s'il n'est pas là). Un code reçu par SMS ou par mail, tu le lis toi-même (chercher_code_recu, Gmail).
   Ne tape jamais un mot de passe que tu aurais lu ou deviné, et ne le demande pas dans la conversation.
 - Un CAPTCHA (« je ne suis pas un robot », images à cocher, puzzle) : tu ne le résous pas, tu ne le contournes
   jamais (ni service qui le résout, ni astuce). signaler_captcha avec le site, puis attendre_validation
-  (« Un CAPTCHA t'attend sur … dans Chrome ») ; à son « c'est fait », reprends où tu en étais.
+  (geste captcha, le même site) ; à son « c'est fait », reprends où tu en étais.
 {payer}- Faire connaître un de ses projets (« fais connaître Oko », « mets Oko sur des annuaires ») : d'abord
   ta liste de publications (plus bas dans tes consignes, ou lister_publications) : jamais deux fois au même
   endroit, et jamais de recherche dans Gmail ou sur le web pour savoir ce qui est fait ; chaque site traité, publié

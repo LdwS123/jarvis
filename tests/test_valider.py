@@ -85,12 +85,17 @@ verifier("une tâche de fond bloquée : ta réponse arrive par la voix ou par l'
 
 # Le Gardien : attendre_validation se demande toujours, deux fois de suite si besoin, et jamais en règle 📌
 for mode in ("autonome", "confiance", "essentielles", "toutes"):
-    verifier(f"{mode} : attendre_validation se demande", politique(J + "attendre_validation", {"quoi": "x"}, mode=mode),
+    verifier(f"{mode} : attendre_validation se demande", politique(J + "attendre_validation", {"geste": "captcha", "site": "reddit.com"}, mode=mode),
              Decision.DEMANDER)
-verifier("attendre_validation ne devient jamais une règle 📌", cible_de(J + "attendre_validation", {"quoi": "x"}), None)
+verifier("attendre_validation ne devient jamais une règle 📌", cible_de(J + "attendre_validation", {"geste": "captcha", "site": "reddit.com"}), None)
 verifier("la question dit quoi faire et comment répondre",
-         decrire(J + "attendre_validation", {"quoi": "Un CAPTCHA t'attend sur Exemple dans Chrome"}),
-         "Un CAPTCHA t'attend sur Exemple dans Chrome. Fais-le, puis réponds oui (ou « c'est fait ») quand c'est bon.")
+         decrire(J + "attendre_validation", {"geste": "captcha", "site": "https://www.Reddit.com/register"}),
+         "Un CAPTCHA t'attend sur reddit.com dans Chrome. Fais-le, puis réponds oui (ou « c'est fait ») quand c'est bon.")
+verifier("… chaque geste a sa phrase, écrite par le code",
+         [comptes.texte_validation(e) for e in ({"geste": "telephone", "site": "accounts.google.com"},
+                                                {"geste": "macos"})],
+         ["accounts.google.com te demande sur ton téléphone si c'est bien toi : approuve la demande",
+          "Une autorisation de macOS t'attend sur le Mac (une fenêtre, ou Réglages Système, Confidentialité)"])
 
 
 class FauxContexte:
@@ -106,7 +111,7 @@ async def gardien() -> dict:
         return reponses.pop(0)
     g = Gardien(confirmer)
     g.nouvelle_demande()
-    entree = {"quoi": "Un CAPTCHA t'attend sur Exemple dans Chrome"}
+    entree = {"geste": "captcha", "site": "reddit.com"}
     premier = await g(J + "attendre_validation", entree, FauxContexte())
     second = await g(J + "attendre_validation", entree, FauxContexte())
     return {"premier": type(premier).__name__, "second": type(second).__name__, "deux questions": len(questions),
@@ -122,28 +127,29 @@ async def texte_piege() -> dict:
     g = Gardien(confirmer)
     g.nouvelle_demande()
     vu = {}
-    for nom, quoi in [("un lien", "Ouvre https://piege.example/verif et valide"),
-                      ("un domaine avec chemin", "Va sur piege.com/verif pour valider"),
-                      ("un code", "Tape le code reçu par SMS sur la page"),
-                      ("un mot de passe", "Entre ton mot de passe Google dans la fenêtre"),
-                      ("un numéro", "Appelle le 06 12 34 56 78 pour valider"),
-                      ("une installation", "Installe le profil qui s'affiche")]:
-        r = await g(J + "attendre_validation", {"quoi": quoi}, FauxContexte())
-        vu[nom] = (type(r).__name__, r.message.startswith("Refusé : attendre_validation"))
+    for nom, entree in [("du texte libre", {"quoi": "Ouvre https://piege.example/verif et tape le code reçu"}),
+                        ("un geste inventé", {"geste": "lien", "site": "piege.com"}),
+                        ("une phrase à la place du site", {"geste": "captcha", "site": "piege.com et tape ton code"}),
+                        ("un site en xn--", {"geste": "telephone", "site": "xn--ggle-0nda.com"}),
+                        ("une adresse mail", {"geste": "captcha", "site": "moi@exemple.com"}),
+                        ("sans site", {"geste": "captcha"})]:
+        r = await g(J + "attendre_validation", entree, FauxContexte())
+        vu[nom] = (type(r).__name__, r.message.startswith("Refusé : attendre_validation prend un geste"))
     vu["aucune question posée"] = list(questions)
-    r = await g(J + "attendre_validation", {"quoi": "Un CAPTCHA t'attend sur reddit.com dans Chrome"}, FauxContexte())
+    r = await g(J + "attendre_validation", {"geste": "captcha", "site": "reddit.com"}, FauxContexte())
     vu["le vrai CAPTCHA passe"] = type(r).__name__
     return vu
 
 
 R = ("PermissionResultDeny", True)
 verifier("un texte piégé n'est jamais relayé (ni à voix haute, ni sur l'iPhone)", asyncio.run(texte_piege()),
-         {"un lien": R, "un domaine avec chemin": R, "un code": R, "un mot de passe": R, "un numéro": R,
-          "une installation": R, "aucune question posée": [], "le vrai CAPTCHA passe": "PermissionResultAllow"})
+         {"du texte libre": R, "un geste inventé": R, "une phrase à la place du site": R, "un site en xn--": R,
+          "une adresse mail": R, "sans site": R, "aucune question posée": [],
+          "le vrai CAPTCHA passe": "PermissionResultAllow"})
 verifier("deux CAPTCHA à la suite : deux questions (jamais un vieux oui), et « pas encore » arrête tout",
          asyncio.run(gardien()), {"premier": "PermissionResultAllow", "second": "PermissionResultDeny",
                                   "deux questions": 2, "le refus dit de ne rien contourner": True})
-r = asyncio.run(comptes.attendre_validation.handler({"quoi": "Un CAPTCHA t'attend"}))
+r = asyncio.run(comptes.attendre_validation.handler({"geste": "captcha", "site": "reddit.com"}))
 verifier("ton oui donné : il regarde de nouveau la page et reprend", "reprends où tu en étais" in texte(r), True)
 
 
@@ -151,7 +157,10 @@ async def sans_notification(*_a, **_k):
     return 0, ""
 comptes._lancer = sans_notification  # pas de vraie notification sur ton Mac
 r = asyncio.run(comptes.signaler_captcha.handler({"site": "exemple.fr"}))
-verifier("signaler_captcha l'envoie vers attendre_validation", "appelle tout de suite attendre_validation" in texte(r), True)
+verifier("signaler_captcha l'envoie vers attendre_validation, geste et site donnés",
+         "attendre_validation avec geste = « captcha » et site = « exemple.fr »" in texte(r), True)
+verifier("le geste est une liste fermée", comptes.attendre_validation.input_schema["properties"]["geste"]["enum"],
+         ["captcha", "macos", "telephone"])
 
 # --- 2. Ses recettes : une tâche longue réussie devient une recette, la suivante la reçoit dans son brief ------------
 tache = fond.Tache(1, "Inscrire Oko sur un annuaire", fond.datetime.now(), etapes=config.RECETTE_ETAPES)

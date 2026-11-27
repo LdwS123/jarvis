@@ -1147,17 +1147,19 @@ rapide à chaque fois.
 
 ### Valider depuis l'iPhone
 
-Un CAPTCHA, un « c'est bien vous ? » sur ton téléphone, un lien de confirmation, une case macOS : un geste que toi
-seul peux faire. Il s'arrête, te le dit à voix haute (outil `attendre_validation`), et reprend quand tu réponds
+Un CAPTCHA, un « c'est bien vous ? » sur ton téléphone, une autorisation macOS : un geste que toi seul peux faire
+(un lien de confirmation reçu par mail, il l'ouvre lui-même). Il s'arrête, te le dit à voix haute (outil `attendre_validation`), et reprend quand tu réponds
 « c'est fait » (ou « oui », « c'est réglé », « done » ; « pas encore » = non, il ne touche plus à rien et te dit où il
 en est). **Tu n'es pas devant le Mac** (pas de réponse à voix haute, et ni clavier ni souris touchés depuis
 `JERVIS_PRESENT_S` secondes) : la même question part sur ton iPhone, dans la dernière conversation où tu lui as écrit
 (iMessage ou WhatsApp « Message à moi-même »), et tu réponds « ok » de là-bas. Ça vaut aussi pour les questions de ses
 agents de fond et pour toutes ses confirmations ; deux questions en même temps partent l'une après l'autre, jamais
 mêlées. Sans réponse en `JERVIS_QUESTION_IMESSAGE_S` secondes, c'est non. Jamais pour un mot de passe, un code, un
-paiement ni une décision : seulement pour « c'est fait ». Un texte de question qui contient un lien, une
-adresse, un numéro, ou parle de mot de passe, de code, de carte, de paiement ou d'installation est refusé d'office
-(une page piégée ne peut pas te faire ouvrir un lien ou donner un code par ce canal sûr). `JERVIS_RELAIS_IPHONE=non` garde les questions à voix haute.
+paiement ni une décision : seulement pour « c'est fait ». La phrase ne vient jamais de lui : il choisit
+un geste dans une liste fermée (`captcha`, `telephone`, `macos`) et donne le domaine de la page (« reddit.com », en
+lettres simples, ni adresse mail ni nom en `xn--`), et c'est le code qui écrit la question (« Un CAPTCHA t'attend sur
+reddit.com dans Chrome »). Tout le reste est refusé d'office, sans question : une page piégée ne peut pas te faire
+ouvrir un lien ou donner un code par ce canal sûr. `JERVIS_RELAIS_IPHONE=non` garde les questions à voix haute.
 
 ### Ce qu'il te demande encore
 
