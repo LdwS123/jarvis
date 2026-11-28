@@ -248,6 +248,11 @@ open("cage.txt", "w").write(", ".join(vu))
 """)
 CASSE = DOC / "casse.py"
 CASSE.write_text('import json, os\nv = json.loads(os.environ["COFFRE"])\nraise ValueError(v["iban"][::-1])\n')
+FAUX = DOC / "faux.py"
+FAUX.write_text(f'import sys\nprint(\'  File "{FAUX}", line 7630006\')\nprint("FR7630006Error: x")\nsys.exit(1)\n')
+(DOC / "json.py").write_text("raise SystemExit('un json.py posé à côté a été chargé')\n")
+VOISIN = DOC / "voisin.py"
+VOISIN.write_text('import json\nopen("voisin.txt", "w").write(json.dumps(1))\n')
 verifier("remplir_document : pas de script, un nom inconnu, un script dans son code, une empreinte fausse → erreur",
          [asyncio.run(coffre.remplir_document.handler(a)).get("is_error") for a in (
              {"script": str(DOC / "absent.py"), "noms": ["iban"]}, {"script": str(SCRIPT), "noms": ["rien"]},
@@ -267,6 +272,13 @@ if Path(permissions.CAGE_EXEC).exists():
     verifier("remplir_document en erreur : seulement le nom de l'erreur et sa ligne, jamais son message",
              (r.get("is_error"), "ValueError, ligne 3 de casse.py" in texte(r), IBAN[::-1] in texte(r)),
              (True, True, False))
+    r = asyncio.run(coffre.remplir_document.handler({"script": str(FAUX), "noms": ["iban"]}))
+    verifier("remplir_document : une fausse ligne d'erreur (un numéro trop grand, un faux nom) est écartée",
+             (texte(r).split("(")[1].split(")")[0], "7630006" in texte(r)), ("une erreur", False))
+    r = asyncio.run(coffre.remplir_document.handler({"script": str(VOISIN), "noms": ["iban"]}))
+    verifier("remplir_document : un module posé à côté du script n'est pas chargé à la place du vrai",
+             (r.get("is_error"), (DOC / "voisin.txt").read_text() if (DOC / "voisin.txt").exists() else None),
+             (None, "1"))
 
 
 # --- Le Gardien : où coller -----------------------------------------------------------------------------------
@@ -420,6 +432,10 @@ async def gardien_document():
     reponse[0] = False
     vu["tu dis non : non"] = (await decide(g, remplir, entree))[0]
     reponse[0] = True
+    n = len(questions)
+    vu["question due, script illisible : non, sans question"] = (
+        (await decide(g, remplir, {"script": str(DOC / "absent.py"), "noms": ["iban"]}))[0], len(questions) - n)
+    reponse[0] = True
     g.conversation_neuve()
     g.nouvelle_demande()
     n = len(questions)
@@ -445,6 +461,7 @@ verifier("gardien : tes secrets dans un document", asyncio.run(gardien_document(
     "après une page : une question avec le script, son oui lié à son contenu": (A, True, True),
     "le même script : pas redemandé ; changé ensuite : redemandé": 1,
     "tu dis non : non": D,
+    "question due, script illisible : non, sans question": (D, 0),
     "une donnée trouvée toute seule : à reconnaître une fois, avec d'où elle vient": (A, True, True),
     "reconnue : plus de question": (A, 0),
     "coller une donnée trouvée pas encore reconnue : question": (A, True, True),

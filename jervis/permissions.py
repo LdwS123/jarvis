@@ -2012,8 +2012,8 @@ class Gardien:
         script = str(entree.get("script") or "")
         try:
             vu = coffre.empreinte(Path(os.path.expanduser(script)).resolve().read_bytes())
-        except (OSError, RuntimeError, ValueError):
-            return PermissionResultAllow(updated_input=entree)  # l'outil dira lui-même ce qui manque
+        except (OSError, RuntimeError, ValueError):  # une question est due : sans script lisible, c'est non
+            return PermissionResultDeny(message="Ce script ne se lit pas : écris-le d'abord (Write), puis recommence.")
         montre = script.replace(str(Path.home()), "~", 1)
         question = (" ".join(self._question_trouve(n) for n in trouves)
                     + f" Je vais mettre ton {', ton '.join(f'« {n} »' for n in noms)} dans un document, avec le script "

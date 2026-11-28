@@ -569,8 +569,10 @@ async def oublier_secret(args: dict[str, Any]) -> dict[str, Any]:
 PYTHON_DOCUMENT = "/usr/bin/python3"  # celui du Mac (PyMuPDF, reportlab y sont, s'il les a installés)
 # Le script lancé est exactement celui que le gardien a vu (son empreinte) : lu une fois, passé à python par
 # l'environnement, jamais relu sur le disque entre la question et le lancement.
-_LANCEUR = ("import os, sys; __file__ = sys.argv[1]; "
-            "exec(compile(os.environ.pop('COFFRE_SCRIPT'), sys.argv[1], 'exec'))")
+# Ni le dossier courant ni celui du script dans sys.path : un « fitz.py » posé à côté, que le gardien n'a pas vu,
+# ne remplace pas la vraie bibliothèque (pas -I : il couperait les paquets installés avec pip --user).
+_LANCEUR = ("import os, sys; sys.path[:] = [p for p in sys.path if p not in ('', '.', os.getcwd())]; "
+            "__file__ = sys.argv[1]; exec(compile(os.environ.pop('COFFRE_SCRIPT'), sys.argv[1], 'exec'))")
 _ERREURS = {n for n in dir(builtins) if isinstance(getattr(builtins, n), type)
             and issubclass(getattr(builtins, n), BaseException)}
 
@@ -592,10 +594,13 @@ def confirmer_fiche(nom: str) -> None:
         _ecrire(donnees)
 
 
-def _ce_qui_a_casse(sortie: str, script: Path) -> str:
+def _ce_qui_a_casse(sortie: str, script: Path, nb_lignes: int) -> str:
     """D'un script en erreur, seulement la ligne de son script et le nom d'une erreur de Python : rien de ce qu'il
-    affiche (une valeur retournée, en base64 ou découpée, passerait le masquage)."""
-    lignes = re.findall(rf'File "{re.escape(str(script))}", line (\d+)', sortie)
+    affiche (une valeur retournée, en base64 ou découpée, passerait le masquage). Le script peut imiter ces lignes :
+    un numéro au-delà de sa longueur, ou un nom qui n'est pas une erreur de Python, est écarté (il ne peut glisser
+    là que quelques bits, jamais une valeur)."""
+    lignes = [n for n in re.findall(rf'File "{re.escape(str(script))}", line (\d+)', sortie)
+              if 0 < int(n) <= nb_lignes]
     derniere = next((l for l in reversed(sortie.strip().splitlines()) if l.strip()), "")
     nom = re.match(r"([A-Za-z_][\w.]*)", derniere)
     nom = nom.group(1).rsplit(".", 1)[-1] if nom else ""
@@ -656,7 +661,7 @@ async def remplir_document(args: dict[str, Any]) -> dict[str, Any]:
         proc.kill()
         return _erreur(f"Le script n'a pas fini en {config.COFFRE_DOCUMENT_S} secondes : arrêté.")
     if proc.returncode:
-        return _erreur(f"Le script s'est arrêté en erreur ({_ce_qui_a_casse(brut.decode(errors='replace'), script)})."
+        return _erreur(f"Le script s'est arrêté en erreur ({_ce_qui_a_casse(brut.decode(errors='replace'), script, code.count(chr(10)) + 1)})."
                        " Ce qu'il affiche ne te revient pas : corrige-le d'après ton code, puis relance.")
     return _texte(f"Le script a tourné avec {', '.join(f'« {n} »' for n in valeurs)}, sans Internet (ce qu'il "
                   "affiche ne te revient pas). Relis le document pour vérifier : tu y verras [🔒 nom] à la place de "
