@@ -21,6 +21,10 @@ from jervis import __main__ as m  # noqa: E402
 from jervis.naturel import (avis_limite, corriger_transcription, decoder_epellation, epellation_en_cours,  # noqa: E402
                             hesite, hors_alphabet, nettoyer, recoller)
 
+# Les vérifications supposent qu'il ne parle que français : ton propre JERVIS_LANGUES (« toutes », de l'anglais…)
+# ne doit pas les changer.
+config.LANGUE, config.LANGUES = "fr", "fr"
+
 echecs: list[str] = []
 total = 0
 

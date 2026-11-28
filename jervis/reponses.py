@@ -124,6 +124,89 @@ def _nom(adresse: str) -> str:
     return carnet().get(distance.cle(adresse), "") or adresse
 
 
+def _etiquette(brute: str | None) -> str:
+    return re.sub(r"_\$!<(.+?)>!\$_", r"\1", brute or "").strip()   # « _$!<Mobile>!$_ » → « Mobile »
+
+
+def fiches_locales(nom: str, maximum: int = 5) -> str:
+    """Les fiches des gens dont le nom contient `nom`, lues sur le disque, sans l'app Contacts ni Apple Events (que
+    macOS peut refuser à Steve) : ton carnet de Contacts s'il est lisible, puis celui de ton téléphone tel que
+    WhatsApp l'a recopié (ContactsV2.sqlite : des noms que TU as donnés, jamais celui qu'un inconnu se choisit).
+    Même format que l'app Contacts : « Nom | tél +33… (Mobile) | mail … », une ligne par personne ; vide sinon."""
+    voulu = _simple(nom)
+    if not voulu:
+        return ""
+    gens: dict[str, dict[str, list[str]]] = {}   # nom → tél / mail (dans l'ordre, sans doublon)
+
+    def ajouter(qui: str, genre: str, valeur: str, etiquette: str = "") -> None:
+        qui = " ".join((qui or "").split())
+        if not qui or voulu not in _simple(qui) or not (valeur or "").strip():
+            return
+        fiche = gens.setdefault(qui, {"tél": [], "mail": []})
+        if any(distance.cle(v.split(" (")[0]) == distance.cle(valeur) for v in fiche[genre]):
+            return
+        fiche[genre].append(valeur.strip() + (f" ({etiquette})" if etiquette else ""))
+
+    for base in _bases_contacts():
+        try:
+            lien = _ouvrir(base)
+        except sqlite3.Error:
+            continue
+        try:
+            for table, colonne, genre in (("ZABCDPHONENUMBER", "ZFULLNUMBER", "tél"),
+                                          ("ZABCDEMAILADDRESS", "ZADDRESS", "mail")):
+                lignes = []
+                for etiquette in ("t.ZLABEL", "NULL"):  # une vieille base sans étiquettes : les numéros quand même
+                    try:
+                        lignes = lien.execute(f"SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZORGANIZATION, t.{colonne}, "
+                                              f"{etiquette} FROM {table} t JOIN ZABCDRECORD r ON t.ZOWNER = r.Z_PK"
+                                              ).fetchall()
+                        break
+                    except sqlite3.Error:
+                        continue
+                for prenom, nom_, societe, valeur, etiquette in lignes:
+                    ajouter(" ".join(x for x in (prenom, nom_) if x) or societe or "", genre, valeur or "",
+                            _etiquette(etiquette))
+        finally:
+            lien.close()
+    try:
+        lien = _ouvrir(WHATSAPP_DB.with_name("ContactsV2.sqlite"))
+        try:
+            lignes = lien.execute("SELECT ZFULLNAME, ZPHONENUMBER, ZPHONENUMBERLABEL FROM ZWAADDRESSBOOKCONTACT "
+                                  "WHERE ZFULLNAME IS NOT NULL AND ZFULLNAME != ''").fetchall()
+        finally:
+            lien.close()
+    except sqlite3.Error:
+        lignes = []
+    for qui, numero, etiquette in lignes:
+        if (numero or "").startswith("+"):   # un numéro sans indicatif : WhatsApp ne saurait pas à qui
+            ajouter(qui, "tél", numero, _etiquette(etiquette))
+    lignes = [" | ".join([qui, *(f"tél {t}" for t in f["tél"]), *(f"mail {m}" for m in f["mail"])])
+              for qui, f in gens.items()]
+    return "\n".join(lignes[:maximum])
+
+
+def groupes_whatsapp(nom: str) -> list[str]:
+    """Les groupes WhatsApp qui s'appellent exactement `nom` (casse et accents à part), tels qu'écrits dans WhatsApp.
+    Que des groupes : le nom d'une discussion à deux est celui que l'autre s'est choisi (n'importe qui peut
+    s'appeler « Maman »). Et que ceux où tu as déjà écrit : un inconnu peut t'ajouter à un groupe qu'il a nommé
+    « Maman », il n'en recevra rien tant que tu n'y as pas parlé toi-même."""
+    voulu = _simple(nom)
+    if not voulu:
+        return []
+    try:
+        lien = _ouvrir(WHATSAPP_DB)
+        try:
+            lignes = lien.execute("SELECT DISTINCT s.ZPARTNERNAME FROM ZWACHATSESSION s WHERE s.ZCONTACTJID LIKE "
+                                  "'%@g.us' AND s.ZPARTNERNAME IS NOT NULL AND EXISTS (SELECT 1 FROM ZWAMESSAGE m "
+                                  "WHERE m.ZCHATSESSION = s.Z_PK AND m.ZISFROMME = 1)").fetchall()
+        finally:
+            lien.close()
+    except sqlite3.Error:
+        return []
+    return sorted({n.strip() for (n,) in lignes if _simple(n) == voulu})
+
+
 # --- iMessage (chat.db) --------------------------------------------------------------------------------------
 
 def _personne(identifiant: str) -> bool:

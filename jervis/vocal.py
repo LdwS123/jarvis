@@ -16,6 +16,10 @@ Tout est rétabli dans un `finally`, et le drapeau expire seul au bout du maximu
 
 Jamais de repli : si le vocal ne peut pas partir, il le dit (ÉCHEC + la raison). Pas de texte, pas de fichier.
 
+Le numéro d'un nom : d'abord tes carnets lus sur le disque (Contacts, et celui du téléphone tel que WhatsApp l'a),
+sans Apple Events ; l'app Contacts seulement s'ils ne le trouvent pas (un refus de macOS ne bloque plus rien). Un
+nom qui n'est celui de personne mais d'un seul groupe WhatsApp devient ce groupe.
+
 Un groupe (ou quelqu'un sans numéro dans Contacts) : il ouvre la discussion qui porte exactement ce nom dans la
 liste de WhatsApp (en la cherchant si elle n'y est pas), vérifie que l'en-tête de la discussion ouverte dit bien ce
 nom, et refuse s'il y en a plusieurs. Le même chemin sert au texte (envoyer_whatsapp) : le texte est posé dans la
@@ -158,6 +162,46 @@ def choisir_numero(fiches: str, nom: str) -> str:
     return re.sub(r"\s*\(.*\)$", "", portable).strip()
 
 
+async def _numero_du_nom(nom: str) -> str:
+    """Le numéro d'un nom : d'abord tes carnets lus sur le disque (Contacts, celui du téléphone via WhatsApp), sans
+    Apple Events ; l'app Contacts seulement s'ils ne le trouvent pas. Un refus de macOS pour Contacts ne bloque
+    donc plus un envoi à quelqu'un qui est dans ton téléphone."""
+    from . import outils, reponses  # (outils importe ce module : on le prend au moment de s'en servir)
+    doute = None
+    if locales := await asyncio.to_thread(reponses.fiches_locales, nom):
+        try:
+            return choisir_numero(locales, nom)
+        except Echec as e:
+            doute = e  # plusieurs personnes, ou pas le nom exact : l'app Contacts tranchera peut-être
+    code, fiches = await outils._applescript(outils._CONTACT, nom)
+    if code:
+        raise doute or Echec(f"« {nom} » n'est pas dans le carnet de ton téléphone, et Contacts ne répond pas "
+                             f"({fiches[:120]})")
+    return choisir_numero(re.sub(r"_\$!<(.+?)>!\$_", r"\1", fiches), nom)
+
+
+async def destinataire(contact: str, groupe: str) -> tuple[str | None, str]:
+    """(numéro, groupe) : une personne par son numéro ; un nom qui n'est celui de personne mais d'un groupe
+    WhatsApp (« envoie un vocal à Famille ») devient ce groupe, s'il n'y en a qu'un de ce nom et que tu y as déjà
+    écrit. Jamais quand une personne de tes carnets porte ce nom (deux Inès : il demande, pas de groupe « Inès »)."""
+    if groupe.strip():
+        return None, groupe
+    try:
+        return await numero_de(contact), ""
+    except Echec as e:
+        from . import reponses
+        if len(re.sub(r"\D", "", contact)) >= 6 or "@" in contact:
+            raise
+        if await asyncio.to_thread(reponses.fiches_locales, contact):
+            raise  # quelqu'un de ce nom existe : le doute porte sur la personne, pas sur un groupe
+        groupes = await asyncio.to_thread(reponses.groupes_whatsapp, contact)
+        if len(groupes) == 1:
+            return None, groupes[0]
+        if len(groupes) > 1:
+            raise Echec(f"{len(groupes)} groupes WhatsApp s'appellent « {contact} » : je ne sais pas lequel") from e
+        raise
+
+
 async def numero_de(contact: str) -> str:
     """Le numéro international (+33…) de `contact` : un numéro tel quel, ou un nom cherché dans Contacts."""
     from . import distance
@@ -165,11 +209,7 @@ async def numero_de(contact: str) -> str:
     if "@" in contact:
         raise Echec("WhatsApp a besoin d'un numéro de téléphone, pas d'une adresse mail")
     if len(re.sub(r"\D", "", contact)) < 6:
-        from . import outils  # (outils importe ce module : on le prend au moment de s'en servir)
-        code, fiches = await outils._applescript(outils._CONTACT, contact)
-        if code:
-            raise Echec(f"Contacts ne répond pas ({fiches[:120]})")
-        contact = choisir_numero(re.sub(r"_\$!<(.+?)>!\$_", r"\1", fiches), contact)
+        contact = await _numero_du_nom(contact)
     numero = distance.cle(contact)
     if not numero.startswith("+"):
         raise Echec(f"le numéro « {contact} » n'a pas d'indicatif (+33…) : WhatsApp ne saurait pas à qui l'envoyer")
@@ -475,7 +515,7 @@ async def _envoyer(contact: str, texte: str, pilote=None, groupe: str = "") -> t
         if appels := await asyncio.to_thread(_appel_en_cours):
             from . import reunion
             raise Echec(f"tu es en appel ({reunion.noms(appels)}) : je ne joue pas un vocal dans ton appel")
-        numero = None if groupe.strip() else await numero_de(contact)
+        numero, groupe = await destinataire(contact, groupe)
         son = await asyncio.to_thread(fabriquer, texte)
         duree = len(son) / 48000
         if duree > config.VOCAL_WHATSAPP_MAX_S - 5:
@@ -528,7 +568,7 @@ async def _envoyer_texte(contact: str, texte: str, pilote=None, groupe: str = ""
         _qui(contact, groupe)
         if not texte.strip():
             raise Echec("le message est vide")
-        numero = None if groupe.strip() else await numero_de(contact)
+        numero, groupe = await destinataire(contact, groupe)
         pilote = pilote or WhatsApp()
         if raison := pilote.pret():
             raise Echec(raison)
@@ -556,8 +596,9 @@ async def _envoyer_texte(contact: str, texte: str, pilote=None, groupe: str = ""
 
 
 @tool("envoyer_whatsapp", "Envoie un message ÉCRIT WhatsApp, à quelqu'un ou dans un groupe : « écris sur le groupe "
-      "Famille que j'arrive », « dis à Mamad sur WhatsApp… ». Soit `contact` = son nom dans Contacts ou son numéro "
-      "(+33…), soit `groupe` = le nom exact du groupe (ou de la discussion) tel qu'il est dans WhatsApp ; `texte` = le "
+      "Famille que j'arrive », « dis à Mamad sur WhatsApp… ». Soit `contact` = son nom (cherché dans "
+      "ton carnet, même quand l'app Contacts ne répond pas, puis parmi les groupes) ou son numéro (+33…), soit "
+      "`groupe` = le nom exact du groupe (ou de la discussion) tel qu'il est dans WhatsApp ; `texte` = le "
       "message ; `nom` = le prénom (ou le groupe) à prononcer quand tu demandes confirmation.",
       {"type": "object",
        "properties": {"contact": {"type": "string"}, "groupe": {"type": "string"}, "texte": {"type": "string"},
@@ -574,7 +615,8 @@ async def envoyer_whatsapp(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool("envoyer_vocal_whatsapp", "Envoie un VRAI message vocal WhatsApp (une bulle de voix, dite avec ta voix) : "
       "« envoie-lui un vocal », « dis-le à Mamad en vocal », « un vocal sur le groupe Famille ». Soit `contact` = son "
-      "nom dans Contacts ou son numéro (+33…), soit `groupe` = le nom exact du groupe tel qu'il est dans WhatsApp ; "
+      "nom (cherché dans ton carnet, même quand l'app Contacts ne répond pas, puis parmi les groupes) ou son numéro "
+      "(+33…), soit `groupe` = le nom exact du groupe tel qu'il est dans WhatsApp ; "
       "`texte` = ce que tu dis dans le vocal, à la première personne, comme tu le dirais ; `nom` = le "
       "prénom à prononcer quand tu demandes confirmation. Jamais de texte ni de fichier à la place, même si ça rate. "
       "« INCERTAIN » : ne le renvoie pas, dis-lui de regarder WhatsApp.",

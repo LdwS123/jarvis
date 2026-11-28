@@ -50,6 +50,10 @@ with sqlite3.connect(carnet) as c:
 reponses.CARNETS = [carnet]
 verifier("contacts : un numéro écrit à la française", reponses.carnet().get(LEA), "Léa Martin")
 verifier("contacts : une entreprise, par son nom", reponses.carnet().get("+33611111111"), "Garage Dupont")
+vrai_wa, reponses.WHATSAPP_DB = reponses.WHATSAPP_DB, TMP / "pas-de-whatsapp" / "ChatStorage.sqlite"  # pas le tien
+verifier("contacts : ses fiches lues sur le disque, sans l'app (une vieille base sans étiquettes aussi)",
+         reponses.fiches_locales("lea"), "Léa Martin | tél 06 98 76 54 32")
+reponses.WHATSAPP_DB = vrai_wa
 
 # --- Messages (chat.db) --------------------------------------------------------------------------------------
 messages_db = TMP / "chat.db"

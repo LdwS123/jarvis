@@ -324,10 +324,15 @@ end run
 
 
 @tool("chercher_contact", "Cherche une personne dans Contacts par son nom ou prénom (ou « maman », « papa » s'il "
-      "l'a nommée ainsi). Renvoie ses numéros et adresses mail.", {"nom": str})
+      "l'a nommée ainsi). Renvoie ses numéros et adresses mail. Si macOS refuse l'app Contacts, il lit ses carnets "
+      "sur le disque (Contacts, celui du téléphone via WhatsApp) : ce n'est pas un blocage.", {"nom": str})
 async def chercher_contact(args: dict[str, Any]) -> dict[str, Any]:
     code, sortie = await _applescript(_CONTACT, args["nom"])
     if code:
+        # macOS refuse Contacts à Steve : ses carnets lus sur le disque (Contacts, celui du téléphone via WhatsApp)
+        from . import reponses
+        if locales := await asyncio.to_thread(reponses.fiches_locales, str(args.get("nom") or "")):
+            return _texte(locales + "\n(lu dans tes carnets sur le disque : l'app Contacts ne répond pas)")
         return _echec_app("Contacts", sortie, "Contacts inaccessible")
     sortie = re.sub(r"_\$!<(.+?)>!\$_", r"\1", sortie)  # « _$!<Mobile>!$_ » : l'étiquette du numéro, en clair
     return _texte(sortie or "Personne de ce nom dans les contacts.")

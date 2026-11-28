@@ -351,6 +351,78 @@ except vocal.Echec as e:
     verifier("une adresse mail : WhatsApp a besoin d'un numéro", "numéro" in str(e), True)
 verifier("un numéro tel quel : au format international", asyncio.run(NUMERO_DE("+33 6 12 34 56 78")), "+33612345678")
 
+# --- Contacts refusé par macOS : ses carnets lus sur le disque ------------------------------------------------
+print("\n📇 Sans l'app Contacts")
+import sqlite3  # noqa: E402
+import tempfile  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from jervis import reponses  # noqa: E402
+
+DOSSIER = Path(tempfile.mkdtemp(prefix="vocal-carnets-"))
+with sqlite3.connect(DOSSIER / "ContactsV2.sqlite") as c:   # le carnet du téléphone, tel que WhatsApp l'a
+    c.executescript("""
+        CREATE TABLE ZWAADDRESSBOOKCONTACT (Z_PK INTEGER PRIMARY KEY, ZFULLNAME TEXT, ZPHONENUMBER TEXT,
+                                            ZPHONENUMBERLABEL TEXT);
+        INSERT INTO ZWAADDRESSBOOKCONTACT VALUES (1, 'Jessy Durand', '+33611223344', 'mobile'),
+                                                 (2, 'Inès A', '+33600000001', NULL), (3, 'Inès B', '+33600000002', NULL),
+                                                 (4, 'Sans Indicatif', '0611223344', NULL);
+    """)
+with sqlite3.connect(DOSSIER / "ChatStorage.sqlite") as c:   # ses discussions : des groupes et des inconnus
+    c.executescript("""
+        CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZCONTACTJID TEXT, ZPARTNERNAME TEXT);
+        INSERT INTO ZWACHATSESSION VALUES (1, '120363@g.us', 'Famille'), (2, '33655555555@s.whatsapp.net', 'Maman'),
+                                          (3, '120364@g.us', 'Foot'), (4, '120365@g.us', 'foot'),
+                                          (5, '120366@g.us', 'Papa'), (6, '120367@g.us', 'Inès');
+        CREATE TABLE ZWAMESSAGE (Z_PK INTEGER PRIMARY KEY, ZCHATSESSION INTEGER, ZISFROMME INTEGER);
+        INSERT INTO ZWAMESSAGE VALUES (1, 1, 1), (2, 3, 1), (3, 4, 1), (4, 6, 1), (5, 5, 0), (6, 2, 1);
+    """)
+CARNETS_AVANT, WA_AVANT, SCRIPT_AVANT = reponses.CARNETS, reponses.WHATSAPP_DB, outils._applescript
+reponses.CARNETS, reponses.WHATSAPP_DB = [], DOSSIER / "ChatStorage.sqlite"
+SCRIPTS: list = []
+
+
+async def contacts_refuse(script, *args):
+    SCRIPTS.append(args)
+    return 1, "execution error: Non autorisé à envoyer des évènements Apple à Contacts. (-1743)"
+
+
+def echec_de(coro) -> str:
+    try:
+        return f"pas d'échec : {asyncio.run(coro)}"
+    except vocal.Echec as e:
+        return str(e)
+
+
+outils._applescript, vocal.numero_de = contacts_refuse, NUMERO_DE  # le vrai, cette fois
+try:
+    verifier("Contacts refusé : le numéro vient du carnet du téléphone", asyncio.run(NUMERO_DE("Jessy")), "+33611223344")
+    verifier("… sans même demander à l'app Contacts", SCRIPTS, [])
+    verifier("le format des fiches est celui de Contacts (étiquette comprise)", reponses.fiches_locales("jessy"),
+             "Jessy Durand | tél +33611223344 (mobile)")
+    verifier("un numéro sans indicatif n'est pas proposé", reponses.fiches_locales("Sans Indicatif"), "")
+    verifier("deux Inès et Contacts muet : il ne choisit pas au hasard", "2 contacts" in echec_de(NUMERO_DE("Inès")),
+             True)
+    verifier("personne de ce nom : il dit que Contacts ne répond pas", "Contacts ne répond pas" in
+             echec_de(NUMERO_DE("Zorro")), True)
+    verifier("un nom qui est celui d'un groupe : ce groupe", asyncio.run(vocal.destinataire("famille", "")),
+             (None, "Famille"))
+    verifier("un groupe donné : tel quel", asyncio.run(vocal.destinataire("", "Boulot")), (None, "Boulot"))
+    verifier("deux groupes du même nom : il ne choisit pas", "2 groupes" in echec_de(vocal.destinataire("Foot", "")),
+             True)
+    verifier("un groupe « Papa » où tu n'as jamais écrit (un inconnu t'y a ajouté) : pas lui",
+             "Contacts ne répond pas" in echec_de(vocal.destinataire("Papa", "")), True)
+    verifier("deux Inès dans le carnet et un groupe « Inès » : il demande, pas le groupe",
+             "2 contacts" in echec_de(vocal.destinataire("Inès", "")), True)
+    verifier("le pseudo d'une discussion à deux (« Maman ») ne vaut rien", "Contacts ne répond pas" in
+             echec_de(vocal.destinataire("Maman", "")), True)
+    r = asyncio.run(outils.chercher_contact.handler({"nom": "Jessy"}))
+    verifier("chercher_contact : Contacts refusé, le carnet du téléphone répond",
+             ("Jessy Durand | tél +33611223344" in r["content"][0]["text"], bool(r.get("is_error"))), (True, False))
+finally:
+    reponses.CARNETS, reponses.WHATSAPP_DB, outils._applescript = CARNETS_AVANT, WA_AVANT, SCRIPT_AVANT
+    vocal.numero_de = faux_numero
+
 # --- Le gardien, les consignes ----------------------------------------------------------------------------------
 print("\n🛡  Le gardien et les consignes")
 OUTIL = "mcp__jervis__envoyer_vocal_whatsapp"

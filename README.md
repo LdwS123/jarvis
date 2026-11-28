@@ -132,7 +132,9 @@ nouvelle autorisation qu'au lancement suivant). Si « Jervis » n'est pas dans u
 
 Si macOS refuse une app (erreur -1743 : « Contacts », Messages, Notes ou Rappels n'ont pas l'autorisation
 Automatisation), Steve ne répond pas « erreur » : il te dit laquelle, ouvre le bon volet des Réglages et te
-guide (« allume Jervis dans Automatisation, puis redis-moi la même chose »).
+guide (« allume Jervis dans Automatisation, puis redis-moi la même chose »). Pour Contacts, il fait d'abord sans :
+un numéro ou un mail se lit dans tes carnets sur le disque (celui du Mac et les contacts du téléphone que WhatsApp
+garde), donc « envoie un WhatsApp à Léa » ou « quel est le numéro de Léa » marchent même sans l'autorisation.
 
 Au démarrage, une ligne `🔐 Autorisations de macOS à me donner : …` dans le journal dit ce qui manque encore. Tu peux
 aussi lui demander « Steve, vérifie tes autorisations » : il te dit lesquelles manquent et ouvre le bon volet. Il ne
@@ -699,9 +701,12 @@ pourquoi.
   est mis à la corbeille si l'enregistrement avait commencé), ou `INCERTAIN` (il a appuyé sur Envoyer mais ne voit
   pas la bulle : il ne le renvoie pas, regarde WhatsApp).
 - **Une fois** : l'app WhatsApp du Mac connectée, le micro autorisé pour WhatsApp, l'autorisation **Accessibilité**
-  de Jervis, et la voix locale allumée (`JERVIS_VOIX_LOCALE`). Le contact : son nom dans Contacts (le portable
-  d'abord ; si deux fiches se ressemblent, il demande) ou son numéro en +33…. Un groupe : son nom exact
-  (« envoie un vocal au groupe Famille »).
+  de Jervis, et la voix locale allumée (`JERVIS_VOIX_LOCALE`). Le contact : son nom (le portable d'abord ; si
+  deux fiches se ressemblent, il demande) ou son numéro en +33…. Le nom est cherché d'abord dans tes carnets sur le
+  disque (celui du Mac et les contacts du téléphone que WhatsApp garde, numéros en +…), donc **même si macOS refuse
+  l'app Contacts** (erreur -1743) l'envoi part. Un groupe : son nom exact (« envoie un vocal au groupe Famille ») ;
+  un nom qui n'est dans aucun carnet mais qui est celui d'**un seul** groupe WhatsApp part à ce groupe (deux groupes
+  du même nom : il demande). Le nom qu'un inconnu se donne sur WhatsApp ne sert jamais à trouver un destinataire.
 - **Si le vocal est muet ou très faible** : le micro de WhatsApp peut gommer ce qui sort des enceintes (son
   anti-écho). Installe BlackHole (`brew install blackhole-2ch`), mets `JERVIS_VOCAL_WHATSAPP_SORTIE="BlackHole 2ch"`
   et choisis « BlackHole 2ch » comme micro dans WhatsApp (menu Appel → Micro) : sa voix entre alors dans le vocal
