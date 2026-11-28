@@ -1004,8 +1004,11 @@ comme avant (s'il s'arrête en plein appel, au redémarrage suivant). Pendant l'
 prend pas FaceTime pour une réunion.
 
 Ce qui change au téléphone : ta voix y passe par le téléphone et les haut-parleurs, elle n'est donc **ni vérifiée ni
-apprise** (`voix.npy` reste intacte) ; un « oui » à une action sensible demandée pendant l'appel est refusé, comme
-une voix qu'il ne reconnaît pas (fais-le devant le Mac, ou par écrit). Si tu raccroches le premier, il s'en rend
+apprise** (`voix.npy` reste intacte). Comme quelqu'un près du Mac pourrait lui parler à ta place, il y suit les règles
+« entendu pendant un appel » : il lit, cherche et te répond librement, mais **toute action** (envoyer, modifier,
+lancer…) attend ton **oui par écrit sur ton iPhone** (là où tu lui as écrit en dernier) ; jamais un oui dit dans
+l'appel. Ses réponses, elles, ne partent que dans l'appel : personne dans la pièce ne les entend. Il ne te croit
+décroché qu'à un vrai « allô » (« oui », « salut », « je t'écoute »…), pas au bruit de la pièce. Si tu raccroches le premier, il s'en rend
 compte au blanc suivant. Le Mac doit être allumé et Steve lancé, haut-parleurs pas coupés.
 
 ### Le briefing avant réunion

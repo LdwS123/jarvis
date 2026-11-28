@@ -328,6 +328,7 @@ class FauxOreilles:
     enceinte = None
     en_pause = False
     anti_echo = True
+    au_telephone = False
 
     def apprendre_voix(self, phrase, sure): return None
     def fermer(self): pass
@@ -394,7 +395,7 @@ class FauxCerveau:
         GLISSES.append(texte)
         return True
 
-    async def demander(self, texte):
+    async def demander(self, texte, en_appel=False):
         self._interrompu = False
         tts._tais_toi = False
         recu.append(texte)

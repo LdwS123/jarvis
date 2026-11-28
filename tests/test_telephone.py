@@ -202,5 +202,19 @@ verifier("dans l'ordre : sa voix dans le câble, puis le câble comme micro ; à
 verifier("au démarrage, il remet ton micro d'avant un appel interrompu", "telephone.remettre_le_micro" in principal,
          True)
 
+verifier("au téléphone, il ne fait que lire sans ton oui (sa voix n'y est pas vérifiée)",
+         "cerveau.demander(texte, en_appel=oreilles.au_telephone)" in principal, True)
+verifier("… et ce oui se donne par écrit sur ton iPhone, jamais à voix haute dans l'appel",
+         "if oreilles.au_telephone:" in principal and "distance.la_derniere(boites).demander(question)" in principal,
+         True)
+
+# Il attend un vrai « allô » pour savoir que tu as décroché.
+from jervis import __main__ as m  # noqa: E402
+
+for entendu, attendu in [("Allô ?", True), ("allo oui", True), ("Oui, je t'écoute", True), ("Salut", True),
+                         (f"Hey {config.PRENOM}", True), ("ouais vas-y", True),
+                         ("et maintenant la météo de demain", False), ("hmm", False), ("", False)]:
+    verifier(f"décroché ? « {entendu} »", bool(m.DECROCHE.search(entendu)), attendu)
+
 print(f"\n{total - len(echecs)}/{total} vérifications OK")
 os._exit(1 if echecs else 0)

@@ -54,6 +54,11 @@ def lire_accord(reponse: str | None) -> bool | None:
     if oui != non:
         return oui
     return None
+# Tu décroches : il attend un vrai « allô » (pas un bruit de la pièce, ni une télé qui parle près du Mac).
+DECROCHE = re.compile(r"\b(?:all[ôo]|oui|ouais|salut|bonjour|bonsoir|coucou|hello|hey|vas[- ]y|je t'?[ée]coute|"
+                      + re.escape(config.PRENOM) + r")\b", re.IGNORECASE)
+
+
 def controle_voix(voix: float | None, voix_connue: bool, actif: bool = True) -> str:
     """Un « oui » peut-il déclencher une action sensible ? « ok » : c'est bien ta voix (ou aucune voix apprise,
     ou contrôle coupé). « courte » : trop bref pour reconnaître une voix (un « oui » seul) : il demande une
@@ -757,7 +762,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         tts.prechauffer()  # la ligne avec la voix s'ouvre pendant que Claude réfléchit
         lancer_guet()
         try:
-            await cerveau.demander(texte)
+            # Au téléphone (telephone.py), sa voix n'est pas vérifiée : il ne fait que lire sans ton oui écrit.
+            await cerveau.demander(texte, en_appel=oreilles.au_telephone)
         finally:
             await suspendre_guet()
         if pas_lu := cerveau.pas_lus():  # dit par-dessus sa fin de réponse : sa prochaine demande
@@ -826,6 +832,15 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         Mac depuis un moment, la question part sur ton iPhone (standard.relais) ; avec relayer=False, il rend
         None à la place pour que l'appelant la relaie lui-même (une question de tâche de fond : l'attente de ta
         réponse sur l'iPhone se fait dans la tâche, pas en bloquant le micro)."""
+        if oreilles.au_telephone:
+            # Il t'appelle : ta voix au téléphone n'est pas vérifiée (quelqu'un près du Mac pourrait répondre à ta
+            # place). Le oui se donne par écrit, sur ton iPhone ; sans boîte, c'est non.
+            print(f"🤖 {config.PRENOM} (écrit, au téléphone) : {question}", flush=True)
+            if not boites:
+                await parler("Ça, je le ferai quand tu seras devant le Mac.", interruptible=False)
+                return False
+            await parler("Je te pose la question par écrit sur ton iPhone : réponds-moi là-bas.", interruptible=False)
+            return await distance.la_derniere(boites).demander(question)
         if appel["en_cours"]:
             # En appel, jamais de oui à voix haute : un « oui » dit à tes collègues ne doit rien confirmer.
             print(f"🤖 {config.PRENOM} (écrit, en appel) : {question}", flush=True)
@@ -1293,9 +1308,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
             fin, texte = time.monotonic() + config.BILAN_SOIR_SONNERIE_S, None
             while (reste := fin - time.monotonic()) > 0:
                 texte, _ = await entendre(reste)  # (la sonnerie, un bruit : « », il attend encore)
-                if texte is None or (texte and not charabia(texte)):
+                if texte is None or (texte and DECROCHE.search(texte)):
                     break
-            if not texte:
+            if not texte or not DECROCHE.search(texte):
                 print("   📞 Pas de réponse : je raccroche (le bilan part en vocal).", flush=True)
                 return
             decroche = True
