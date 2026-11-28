@@ -216,6 +216,17 @@ CODE_SMS_MINUTES = int(_env("CODE_SMS_MINUTES", "10"))   # jusqu'où il remonte 
 # carte) et te dit ce qu'il faudrait payer, et ses clics sur « Payer », « Acheter », « S'abonner »… sont refusés.
 # JERVIS_PAIEMENTS=oui : il peut aller jusqu'au bouton qui paie, après ton accord (montant et marchand).
 PAIEMENTS = _env("PAIEMENTS", "non").lower() in {"oui", "on", "1"}
+# Son coffre (coffre.py) : ton IBAN, ton numéro de sécu, tes identifiants de l'État, tes mots de passe… rangés dans
+# ton Trousseau macOS, et masqués partout (ce que tu dis, ce qu'il lit) avant de partir chez Claude, qui ne voit que
+# « [🔒 iban] ». « non » : plus de masquage (à tes risques : ce qu'il lit part tel quel chez Claude).
+COFFRE = _env("COFFRE", "oui").lower() not in {"non", "off", "0"}
+# Pendant combien de secondes la dernière page vue (son navigateur) sert à vérifier où il colle un secret.
+COFFRE_PAGE_S = int(_env("COFFRE_PAGE_S", "600"))
+# Son propre code (proprio.py) : quand tu lui dis « t'as le droit », il le modifie lui-même, après que macOS t'a
+# demandé le mot de passe de ta session (jamais vu ni par lui ni par Claude). L'accord reste ouvert tant de minutes.
+# « non » : plus de mot de passe (comme avant : il modifie son code sans rien demander, sauf après une page lue).
+CODE_MOT_DE_PASSE = _env("CODE_MOT_DE_PASSE", "oui").lower() not in {"non", "off", "0"}
+CODE_ACCES_MIN = int(_env("CODE_ACCES_MIN", "30"))
 
 FICHIER_BRIEFING = DOSSIER / "briefing.md"
 FICHIER_BILAN_SOIR = DOSSIER / "bilan_soir.md"

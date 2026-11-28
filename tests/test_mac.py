@@ -226,6 +226,7 @@ config.FICHIER_GRAPHE = tmp / "graphe.db"   # jamais le vrai graphe
 outils.lecons.FICHIER = tmp / "lecons.md"   # ni le vrai carnet (sinon « tout » dépend de son existence)
 outils.lexique.FICHIER = tmp / "lexique.md"           # ni son vrai lexique : la fausse corbeille, elle,
 outils.savoir_faire.DOSSIER = tmp / "savoir-faire"    # efface pour de bon (ni ses vraies recettes)
+outils.objectifs.FICHIER = tmp / "objectifs.md"       # ni ses vrais chantiers (Steve en a peut-être)
 graphe_vide = []
 
 

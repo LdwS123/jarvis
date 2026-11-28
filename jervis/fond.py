@@ -22,11 +22,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, TextBlock,
-                              ToolUseBlock, tool)
+from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, ResultMessage,
+                              TextBlock, ToolUseBlock, tool)
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import apis, compteur, config, extras, infos, infos2, outils, permissions, processus, savoir_faire
+from . import apis, coffre, compteur, config, extras, infos, infos2, outils, permissions, processus, savoir_faire
 from .brain import EXPERT, _maintenant, avec_extras, carnet, documents, env_outils, preparer_connecteurs
 from .permissions import Gardien, est_lecture, noter_outil
 
@@ -247,7 +247,10 @@ class Taches:
             finally:
                 tache.attend = ""
 
-        memoire = f"Ce que {config.PRENOM} sait de lui :\n{outils.lire_memoire() or '(rien)'}\n{documents()}{carnet()}"
+        memoire = coffre.masquer(f"Ce que {config.PRENOM} sait de lui :\n{outils.lire_memoire() or '(rien)'}\n"
+                                 f"{documents()}{carnet()}")
+        # Ce que ses outils leur rendent (un mail, une page) passe aussi par le coffre avant que Claude le lise.
+        crochets = {"PostToolUse": [HookMatcher(hooks=[coffre.crochet])]}
         if tache.lecture_seule:  # sa ronde : un modèle plus léger, et rien que des lectures
             return ClaudeAgentOptions(
                 system_prompt=f"{RONDE.replace('{prenom}', config.PRENOM)}\nNous sommes le {_maintenant()}.\n{memoire}",
@@ -255,7 +258,7 @@ class Taches:
                 # Pas de web : un mail piégé ne doit pas pouvoir lui faire ouvrir une adresse (fuite par l'URL).
                 tools=[], setting_sources=[], cwd=str(config.ESPACE),
                 mcp_servers={outils.NOM_SERVEUR: outils.serveur_jervis()}, max_buffer_size=config.TAMPON_MAX,
-                can_use_tool=lecture_seule, max_turns=30,
+                can_use_tool=lecture_seule, max_turns=30, hooks=crochets,
             )
         consignes = (f"{EXPERT.replace('{prenom}', config.PRENOM)}\nNous sommes le {_maintenant()}.\n"
                      f"Tu travailles en arrière-plan : l'utilisateur fait autre chose pendant ce temps.\n"
@@ -277,6 +280,7 @@ class Taches:
             disallowed_tools=[*outils.OUTILS_MAC_COUPES, *outils.OUTILS_ECRAN_COUPES,
                               *(f"mcp__{outils.NOM_SERVEUR}__{n}" for n in ECRIT_PAR_STEVE)],
             can_use_tool=Gardien(confirmer),
+            hooks=crochets,
         )
 
     @staticmethod
@@ -372,7 +376,8 @@ _INFOS = {f"mcp__{outils.NOM_SERVEUR}__{t.name}" for t in [*infos.OUTILS_INFOS, 
                                                              *apis.OUTILS_APIS]}
 # Ce que seul Steve écrit pour les fois suivantes (voir _options) : ses agents de fond n'y touchent pas.
 ECRIT_PAR_STEVE = ("noter_lecon", "noter_mot", "noter_savoir_faire", "noter_alternative", "noter_objectif",
-                   "autoriser_desormais", "retirer_autorisation")
+                   "autoriser_desormais", "retirer_autorisation",
+                   "ranger_secret", "oublier_secret")  # son coffre : rangé ou vidé quand tu le lui dis, à lui
 
 
 def outil_de_lecture(outil: str) -> bool:

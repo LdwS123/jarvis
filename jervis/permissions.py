@@ -22,7 +22,7 @@ from typing import Any, Awaitable, Callable, Iterable
 from claude_agent_sdk import tool
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
-from . import appels, comptes, config, extras
+from . import appels, coffre, comptes, config, extras, proprio
 
 
 class Decision(Enum):
@@ -855,7 +855,8 @@ def motif_interdit(outil: str, entree: dict[str, Any]) -> str:
 # PRESSE_PAPIERS_S, et quinze secondes après le dernier collage (cmd+v).
 GESTES_PENDANT_COLLAGE = {"browser_click", "browser_press_key", "browser_type", "browser_hover", "browser_wait_for",
                           "click", "type", "press", "hotkey", "scroll", "form_input",
-                          "creer_mot_de_passe", "copier_mot_de_passe", "demander_accord", "signaler_captcha",
+                          "creer_mot_de_passe", "copier_mot_de_passe", "copier_secret", "demander_accord",
+                          "signaler_captcha",
                           "attendre_validation"}
 GESTES_CHROME = {"left_click", "double_click", "triple_click", "key", "type", "scroll", "wait", "hover"}
 _COLLER = re.compile(r"\b(meta|cmd|command|control|ctrl)\s*\+\s*v\b", re.IGNORECASE)
@@ -985,6 +986,8 @@ _INTERNES = re.compile(r"^(?:ToolSearch|TodoWrite|mcp__jervis__(?:retenir|oublie
                        r"noter_mot|noter_savoir_faire|chercher_savoir_faire|"
                        # Une clé d'API rangée dans le Trousseau : il ne lit que « c'est rangé » (apis.py).
                        r"ranger_cle_api|"
+                       # Son coffre : « c'est rangé », et ses noms, genres, indices et sites (coffre.py).
+                       r"ranger_secret|lister_secrets|copier_secret|oublier_secret|"
                        # Le compte rendu et le bureau : ils ne rendent que « c'est fait » (reunion.py, bureau.py).
                        # (lire_compte_rendu, ranger_dossier, chercher_fichiers, texte_selectionne… rendent un texte
                        # venu d'ailleurs : ils n'y sont pas, ni mode, qui relaie le titre d'un morceau et la sortie
@@ -1196,7 +1199,8 @@ _STEVE_FICHIERS: tuple[str, ...] = ("autorisations.json", "autorisations.tmp",  
                                     "mcp.json",  # tes serveurs MCP : chacun lance son programme au démarrage
                                     # ses processus de fond : une entrée glissée là (« relancer », une commande à
                                     # elle) serait relancée par le programmateur, hors cage et sans le Gardien
-                                    "espace/processus.json")
+                                    "espace/processus.json",
+                                    "espace/coffre.json")  # les sites où coller tes secrets sans te demander
 # Dans la cage, ~/Jervis/.git est fermé en entier (objets, branches, index compris : rien d'y glisser pour plus tard)
 # et git y lit sans rien écrire (GIT_OPTIONAL_LOCKS=0 : git status marche). Tes commits se font hors cage.
 # Partout, dans tout dépôt, à toute profondeur (sous-modules, worktrees) : la config (core.fsmonitor, core.hooksPath
@@ -1678,6 +1682,16 @@ def vise_autorisations(chemin: str) -> bool:
     return _plie(str(vrai)) in {_plie(str(regles)), _plie(str(regles.with_suffix(".tmp")))}
 
 
+def vise_coffre(chemin: str) -> bool:
+    """Ce chemin est-il espace/coffre.json (les sites où coller tes secrets) ? Sans casse, comme APFS."""
+    try:
+        vrai = Path(chemin).expanduser()
+        vrai = vrai if vrai.is_absolute() else config.ESPACE / vrai
+        return _plie(str(vrai.resolve())) == _plie(str(coffre.REGISTRE.resolve()))
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def vise_mcp_perso(chemin: str) -> bool:
     """Ce chemin est-il ~/Jervis/mcp.json (tes serveurs MCP à toi) ? Sans casse, comme APFS."""
     try:
@@ -1920,6 +1934,123 @@ class Gardien:
             return PermissionResultAllow(updated_input={**entree, "commande": permise, "dossier": str(dossier)})
         return resultat
 
+    async def _copier_secret(self, entree: dict[str, Any]):
+        """Coller un secret de son coffre (coffre.py) : sur un site qui lui est lié, sans question ; ailleurs, une
+        question écrite par le code (son oui lie le site) ; jamais si la page ouverte n'est pas ce site, ni dans une
+        messagerie, un mail ou un réseau social qui ne lui est pas lié : ses secrets ne partent chez personne."""
+        nom, site = coffre.nom_valide(entree.get("nom")), comptes.domaine(entree.get("site"))
+        fiche = coffre.fiche(nom)
+        if not fiche or not site or not nom:
+            return PermissionResultAllow(updated_input=entree)  # l'outil dira lui-même ce qui manque
+        page = coffre.page_ouverte()
+        if page and not coffre.couvre(site, page):
+            return PermissionResultDeny(message=f"La page ouverte est {page}, pas {site} : son « {nom} » ne se colle "
+                                                "que sur la page du site où il sert. Ouvre la bonne page, puis "
+                                                "recommence avec son domaine exact.")
+        lie = coffre.lie(fiche, site)
+        if coffre.messagerie(site) and not lie:
+            return PermissionResultDeny(message="Ses données secrètes ne partent dans aucune messagerie, aucun mail, "
+                                                "aucun réseau social : s'il veut les envoyer à quelqu'un, il le fait "
+                                                "lui-même. Dis-le-lui en une phrase.")
+        if lie and not self.en_appel:
+            return PermissionResultAllow(updated_input={"nom": nom, "site": site})
+        question = f"Je vais coller ton « {nom} » ({fiche.get('indice', '')}) sur {site}. Je peux ?"
+        cle = f"coffre:{nom}:{site}"
+        async with self._verrou:
+            if cle not in self._reponses:
+                self._reponses[cle] = await self._confirmer(question)
+                noter_blocage("mcp__jervis__copier_secret", entree, pourquoi="un secret de ton coffre, sur un site "
+                              "qui ne lui est pas encore lié", cible=None, autorisable=False, en_appel=self.en_appel,
+                              question=question, accorde=self._reponses[cle])
+        if not self._reponses[cle]:
+            return PermissionResultDeny(message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "
+                                                "dis-lui simplement que tu n'as rien collé.")
+        if not self.en_appel:
+            coffre.lier(nom, site)  # la prochaine fois, sans question
+        return PermissionResultAllow(updated_input={"nom": nom, "site": site})
+
+    async def _coffre(self, outil: str, entree: dict[str, Any]) -> tuple[dict[str, Any], Any]:
+        """Ranger ou retirer un secret : après un texte venu d'ailleurs, un rangement ne lie aucun site (une page ne
+        choisit pas où coller tes secrets) ; remplacer ou retirer un secret qui existe, sous la dictée d'une page ou
+        pendant un appel, passe par une question écrite par le code."""
+        mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
+        retirer = outil.endswith("oublier_secret")
+        if mefiant and not retirer:
+            entree = {k: v for k, v in entree.items() if k != "sites"}
+        nom = coffre.nom_valide(entree.get("nom"))
+        if not (mefiant or self.en_appel) or not coffre.fiche(nom) or not (retirer or entree.get("remplacer") is True):
+            return entree, None
+        question = f"Je vais {'retirer de' if retirer else 'remplacer dans'} ton coffre « {nom} ». Je peux ?"
+        cle = f"coffre:{'retirer' if retirer else 'remplacer'}:{nom}"
+        async with self._verrou:
+            if cle not in self._reponses:
+                self._reponses[cle] = await self._confirmer(question)
+                noter_blocage(outil, entree, pourquoi="toucher à ton coffre après un texte venu d'ailleurs ou pendant "
+                              "un appel", cible=None, autorisable=False, en_appel=self.en_appel, question=question,
+                              accorde=self._reponses[cle])
+        if not self._reponses[cle]:
+            return entree, PermissionResultDeny(message="L'utilisateur a refusé. N'insiste pas : dis-lui simplement "
+                                                        "que tu n'as rien changé à son coffre.")
+        return entree, None
+
+    async def _son_code(self, outil: str, entree: dict[str, Any]):
+        """Modifier son propre code (proprio.py) : le mot de passe du Mac, demandé par macOS (jamais vu par Steve ni
+        par Claude), puis CODE_ACCES_MIN minutes d'accord ; redemandé à chaque fois après un texte venu d'ailleurs ou
+        pendant un appel. Ta voix (voix.npy…) et son coffre (coffre.json) : jamais par un outil. None : rien à voir
+        avec son code, la suite décide."""
+        if outil == "Bash":
+            commande = str(entree.get("command") or "")
+            if not proprio.commande_touche_son_code(commande):
+                return None
+            if re.search(r"voix\w*\.npy", commande, re.IGNORECASE):
+                return PermissionResultDeny(message="Sa voix (voix.npy, voix_depart.npy) ne se touche jamais par une "
+                                                    "commande : c'est lui qui la réapprend, depuis ses réglages.")
+            quoi = "par une commande"
+        else:
+            chemin = str(entree.get("file_path") or entree.get("notebook_path") or "")
+            if proprio.ta_voix(chemin):
+                return PermissionResultDeny(message="Sa voix (voix.npy, voix_depart.npy) ne s'écrit jamais par un "
+                                                    "outil : c'est lui qui la réapprend, depuis ses réglages.")
+            if vise_coffre(chemin):
+                return PermissionResultDeny(message="Son coffre ne s'écrit que par ranger_secret, copier_secret et "
+                                                    "oublier_secret, jamais à la main.")
+            if not proprio.son_code(chemin):
+                return None
+            quoi = Path(chemin).name
+        if not config.CODE_MOT_DE_PASSE:
+            return None
+        mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
+        if outil == "Bash" and mefiant:
+            return PermissionResultDeny(message="Après un texte venu d'ailleurs, ton code ne se modifie que par Edit "
+                                                "ou Write (avec le mot de passe de son Mac), pas par une commande.")
+        toujours = mefiant or self.en_appel
+        suite = None if outil == "Bash" else PermissionResultAllow(updated_input=entree)  # Bash : les interdits après
+        if proprio.ouvert() and not toujours:
+            return suite
+        if self.a_distance:
+            return PermissionResultDeny(message="Il t'écrit depuis son iPhone : modifier ton propre code demande le "
+                                                "mot de passe de son Mac, tapé devant le Mac. Dis-le-lui en une "
+                                                "phrase : il te le redemandera devant le Mac.")
+        raison = (f"Steve veut modifier son propre code ({quoi})."
+                  + (" Juste après avoir lu une page, un mail ou un agent : vérifie que c'est bien toi qui l'as "
+                     "demandé." if mefiant else "")
+                  + (" Ton mot de passe l'autorise pour ce changement." if toujours else
+                     f" Ton mot de passe l'autorise {config.CODE_ACCES_MIN} minutes."))
+        async with self._verrou:
+            if proprio.ouvert() and not toujours:
+                accorde = True
+            else:
+                accorde = await proprio.demander_mot_de_passe(raison)
+                noter_blocage(outil, entree, pourquoi="modifier son propre code : le mot de passe du Mac", cible=None,
+                              autorisable=False, en_appel=self.en_appel, question=raison, accorde=accorde)
+                if accorde and not toujours:
+                    proprio.ouvrir()
+        if not accorde:
+            return PermissionResultDeny(message="Le mot de passe du Mac n'a pas été donné (annulé, ou pas de réponse) "
+                                                ": je n'ai rien modifié. N'insiste pas et ne passe pas par un autre "
+                                                "moyen ; dis-le-lui en une phrase.")
+        return suite
+
     async def _decider(self, outil: str, entree: dict[str, Any], _ctx: ToolPermissionContext):
         if outil == "mcp__jervis__processus":  # (arreter suit le chemin commun, comme liberer_port)
             action = str(entree.get("action") or "etat")
@@ -1939,6 +2070,14 @@ class Gardien:
         if motif := motif_paiement(outil, entree):
             return PermissionResultDeny(message=motif)
         noter_outil(entree)
+        if outil == "mcp__jervis__copier_secret":
+            return await self._copier_secret(entree)
+        if outil in ("mcp__jervis__ranger_secret", "mcp__jervis__oublier_secret"):
+            entree, refus = await self._coffre(outil, entree)
+            if refus:
+                return refus
+        if outil in _ECRIT_DU_CODE and (resultat := await self._son_code(outil, entree)) is not None:
+            return resultat
         if outil == "mcp__jervis__autoriser_desormais":
             # « ça » = le blocage qu'on te montre dans la question, fixé ici : un blocage arrivé entre-temps n'y change rien
             try:

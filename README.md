@@ -838,6 +838,56 @@ code) : c'est ce que font le Trousseau et le presse-papiers ici. Skyvern (AGPL, 
 tu veux un jour confier des centaines d'inscriptions d'un coup ; pour ton usage, Steve suffit.
 </details>
 
+### Son coffre (ton IBAN, tes identifiants de l'État, tes mots de passe)
+
+Il se sert de tes données sensibles sans problème (remplir un formulaire de la CAF avec ton IBAN, se connecter à
+impots.gouv ou à ameli avec FranceConnect) **sans que Claude ne les voie jamais** : elles restent sur ton Mac, dans
+ton Trousseau macOS (`jervis-coffre`), et Claude ne lit que leur nom, « [🔒 iban] ».
+
+- **Ranger une donnée** : copie-la (cmd+c), puis « Steve, range ça comme mon identifiant FranceConnect pour
+  franceconnect.gouv.fr ». Il la prend dans le presse-papiers, la range et vide le presse-papiers. Tu peux aussi le
+  faire toi-même dans le Terminal : `.venv/bin/python -m jervis.coffre ranger "mot de passe ameli" ameli.fr`
+  (la valeur se tape sans s'afficher ; relance Steve ensuite pour qu'il la masque) ; `liste` pour voir ce qui est
+  rangé (jamais les valeurs), `oublier` pour en retirer une.
+- **Si tu la dis ou l'écris quand même** (« mon IBAN c'est FR76… », « mon mot de passe impots.gouv.fr c'est… ») :
+  elle est rangée et remplacée **sur le Mac, avant** que ta phrase parte chez Claude.
+- **Ce qu'il lit est filtré aussi** : la sortie de chacun de ses outils (une page, un mail, un fichier, une
+  commande), sa mémoire, vos conversations passées et le fil d'un message auquel il répond passent par le coffre.
+  Une valeur rangée y devient son nom ; un IBAN, un numéro de sécu ou un numéro de carte inconnus (vérifiés par leur
+  clé ou leur chiffre de contrôle : une date, un téléphone ou un numéro de commande passent) deviennent
+  « [🔒 un IBAN] ».
+- **Pour s'en servir**, il clique dans le champ, puis `copier_secret` met la valeur au presse-papiers (90 s au plus)
+  et il colle. Le gardien vérifie d'abord le site : celui où tu l'as rangée, ou un autre après ta question (« Je vais
+  coller ton « iban » (FR76 … 0189) sur urssaf.fr. Je peux ? ») ; si la page ouverte dans son navigateur n'est pas
+  ce site, ou si c'est une messagerie (WhatsApp, Gmail, un réseau social…), c'est non. Tes secrets ne partent donc
+  jamais dans un message, un mail ou à quelqu'un : pour envoyer ton IBAN, c'est toi qui l'envoies.
+- **Payer reste coupé** (voir plus haut) : le coffre n'y change rien.
+- Après une page, un mail ou un texte venu d'ailleurs, ranger un secret ne le lie à aucun site, et en retirer ou en
+  remplacer un te demande ton accord.
+- `espace/coffre.json` ne garde que les noms, le genre, un indice (« FR76 … 0189 ») et les sites : jamais une
+  valeur. Personne ne peut l'écrire par un outil.
+
+Limites, honnêtement : une capture d'écran n'est pas masquée (si ton IBAN est à l'écran quand il en prend une,
+l'image part chez Claude) ; un IBAN épelé à voix haute peut être mal
+transcrit et ne plus être reconnu (copie-le plutôt) ; le reste de la conversation, lui, part chez Claude comme
+avant. `JERVIS_COFFRE=non` coupe le masquage.
+
+### Il change son propre code (avec le mot de passe du Mac)
+
+Dis-lui « améliore-toi », « t'as le droit, change ton code pour… » : il modifie lui-même son code (`jervis/`,
+`tests/`, `Jervis.app`, ses outils, ses scripts, sa doc) avec Read et Edit, puis lance ses tests. Comme toi seul as
+le Mac, **c'est macOS qui vérifie que c'est toi** : à sa première modification, la fenêtre de macOS « Steve veut
+modifier son propre code » te demande le mot de passe de ta session. Steve ne le voit jamais, Claude non plus :
+macOS répond seulement oui ou non. Ensuite l'accord reste ouvert 30 minutes (`JERVIS_CODE_ACCES_MIN`).
+
+- Un « oui » dit ou écrit ne suffit pas (une voix s'imite, un message se glisse) : c'est le mot de passe ou rien.
+- Juste après une page, un mail ou le compte rendu d'un agent, et pendant un appel, il est redemandé à chaque
+  modification, même accord ouvert, et seules Edit et Write peuvent toucher son code (pas une commande).
+- Depuis ton iPhone, personne ne peut taper le mot de passe : non, sauf accord encore ouvert.
+- Une commande qui écrirait dans son code (`sed -i`, `>`, `git checkout`…) passe par le même mot de passe.
+- Ta voix (`voix.npy`, `voix_depart.npy`, `voix_centres.npy`) ne se touche jamais par un outil.
+- `JERVIS_CODE_MOT_DE_PASSE=non` : comme avant, sans mot de passe.
+
 ### Notion, branché directement
 
 Notion a son propre connecteur sur claude.ai : **claude.ai → Paramètres → Connecteurs → Notion → Connecter**, choisis
@@ -1533,6 +1583,10 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_MOT_DE_PASSE_LONGUEUR` | 20 | la longueur des mots de passe qu'il crée (de 12 à 64 ; il s'adapte si un site impose moins) |
 | `JERVIS_CODE_SMS_MINUTES` | 10 | jusqu'où il remonte dans tes SMS pour trouver un code de vérification |
 | `JERVIS_PAIEMENTS` | non | `oui` = il peut payer, après ton accord (montant et marchand) ; `non` = il s'arrête avant tout paiement et ses clics « Payer », « Acheter »… sont refusés. Un numéro de carte reste refusé dans ses outils dans les deux cas |
+| `JERVIS_COFFRE` | oui | `non` = plus de masquage : tes IBAN, numéros et secrets rangés partent tels quels chez Claude (voir « Son coffre ») |
+| `JERVIS_COFFRE_PAGE_S` | 600 | pendant combien de secondes la dernière page vue dans son navigateur sert à vérifier où il colle un secret |
+| `JERVIS_CODE_MOT_DE_PASSE` | oui | `non` = il modifie son propre code sans le mot de passe du Mac (voir « Il change son propre code ») |
+| `JERVIS_CODE_ACCES_MIN` | 30 | combien de minutes l'accord reste ouvert après le mot de passe du Mac |
 | `JERVIS_CONNECTEURS_FOND_S` | 10 | le temps qu'un agent attend ses connecteurs (Gmail, Agenda…) avant de démarrer sans eux |
 | `JERVIS_MEMOIRE_AUTO` | oui | `non` = il ne retient que ce que tu lui demandes |
 | `JERVIS_MODELE_MEMOIRE` | haiku | modèle qui relit les conversations pour la mémoire |
@@ -1654,6 +1708,7 @@ Valider depuis l'iPhone, les recettes automatiques, le catalogue gratuit et ses 
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
 Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.
+Le coffre (masquage, Trousseau, presse-papiers et fenêtre du mot de passe simulés) et son propre code : `tests/test_coffre.py`.
 Payer coupé, les numéros de carte, les CAPTCHA et ses publications (fausse notification, dossier temporaire) : `tests/test_paiements.py`.
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
 Ses autres outils d'infos (entreprises, adresses, produits… jusqu'à l'heure dans le monde), sans réseau : `tests/test_infos2.py`.
@@ -1701,6 +1756,10 @@ Ses outils maison (mémoire, écran, iMessage, Cursor, corbeille, autorisations�
   dont les empreintes sont calculées par Ollama en local) et les enregistrements de screenpipe (`~/.screenpipe`)
   restent sur le Mac. Il n'en envoie à Claude que les morceaux utiles à la question. Pareil pour tes documents
   (`documents/`) : seule leur liste est dans ses consignes, et il n'en lit un que quand ta demande le demande.
+- Ton IBAN, ton numéro de sécu, tes identifiants et les mots de passe de ton coffre ne partent jamais chez Claude :
+  rangés dans ton Trousseau, ils sont remplacés par leur nom (« [🔒 iban] ») sur le Mac, dans ce que tu dis comme
+  dans ce qu'il lit, avant que le texte parte. Le mot de passe de ta session, pour qu'il change son code, n'est vu
+  que par macOS.
 - Les mots de passe qu'il crée ne partent jamais chez Claude : tirés et rangés sur le Mac (Trousseau), ils passent
   par le presse-papiers 90 secondes au plus (et rien ne peut l'y lire pendant ce temps). Si tu as un historique du presse-papiers (Raycast, Paste, Maccy),
   exclus-en Jervis ou les mots de passe. D'un SMS, seul le code (et l'expéditeur) part chez Claude, pas le message.

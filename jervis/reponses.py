@@ -586,11 +586,12 @@ Règles :
 async def rediger(fil: Fil, style_: Style, consigne: str) -> str:
     """Sa réponse, écrite par un Claude sans aucun outil : il ne voit que cette conversation, ton style et ta consigne."""
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
-    from . import compteur
+    from . import coffre, compteur
     systeme = (REDACTION.replace("{canal}", "iMessage" if fil.canal == "imessage" else "WhatsApp")
                .replace("{nom}", fil.nom).replace("{style}", str(style_))
                .replace("{consigne}", f"Sa consigne pour ses réponses : {consigne}\n" if consigne else ""))
-    demande = (f"<conversation>\n{conversation(fil)}\n</conversation>\n"
+    # Un IBAN, un numéro de sécu ou un code écrit dans la conversation ne part pas chez Claude (coffre.py).
+    demande = (f"<conversation>\n{coffre.masquer(conversation(fil))}\n</conversation>\n"
                "Les lignes « Moi : » sont les siennes. Écris son prochain message (ou PASSE : la raison).")
     options = ClaudeAgentOptions(system_prompt=systeme, model=config.MODELE_REPONSES, tools=[], setting_sources=[],
                                  max_turns=1, cwd=str(config.ESPACE), env={"ENABLE_CLAUDEAI_MCP_SERVERS": "false"})

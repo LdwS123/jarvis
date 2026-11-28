@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import (apis, appels, bureau, comptes, compteur, config, dev, distance, graphe, gratuit, infos, infos2, lecons,
+from . import (apis, appels, bureau, coffre, comptes, compteur, config, dev, distance, graphe, gratuit, infos, infos2, lecons,
                lexique, objectifs, permissions, processus, reponses, reunion, savoir_faire, vocal)
 
 MEMOIRE = config.DOSSIER / "memoire.md"
@@ -1045,6 +1045,7 @@ OUTILS.append(lecons.outil_noter_lecon)  # son carnet de leçons (lecons.py)
 OUTILS.append(lexique.outil_noter_mot)  # les mots qu'il entend mal chez toi (lexique.py)
 OUTILS.extend([savoir_faire.outil_noter_savoir_faire, savoir_faire.outil_chercher_savoir_faire])  # ses recettes
 OUTILS.extend(comptes.OUTILS_COMPTES)  # créer des comptes à ta place (comptes.py)
+OUTILS.extend(coffre.OUTILS_COFFRE)  # ton IBAN, tes identifiants, tes mots de passe : jamais vus par Claude
 OUTILS.extend(gratuit.OUTILS_GRATUIT)  # son catalogue d'alternatives gratuites (gratuit.py)
 OUTILS.append(objectifs.outil_noter_objectif)  # ses chantiers sur plusieurs jours (objectifs.py)
 OUTILS.extend(infos.OUTILS_INFOS)  # actualité, météo, change, Wikipédia, jours fériés, cryptos (infos.py)
