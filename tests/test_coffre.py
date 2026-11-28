@@ -231,31 +231,42 @@ SCRIPT = DOC / "remplir.py"
 SCRIPT.write_text(f"""import json, os, socket
 v = json.loads(os.environ["COFFRE"])
 open("declaration.txt", "w").write("IBAN : " + v["iban"])
-print("écrit", v["iban"])
+print("à l'envers :", v["iban"][::-1], "espacé :", " ".join(v["iban"]))
+vu = []
 try:
     socket.create_connection(("1.1.1.1", 443), timeout=3)
-    print("RÉSEAU OUVERT")
+    vu.append("RÉSEAU OUVERT")
 except OSError:
-    print("réseau coupé")
+    vu.append("réseau coupé")
 try:
     open({str(ESSAI_CODE)!r}, "w").write("x")
-    print("CODE ÉCRIT")
+    vu.append("CODE ÉCRIT")
 except OSError:
-    print("code fermé")
+    vu.append("code fermé")
+vu.append("script relu sur le disque" if "COFFRE_SCRIPT" in os.environ else "script passé une fois")
+open("cage.txt", "w").write(", ".join(vu))
 """)
-verifier("remplir_document : pas de script, un nom inconnu, un script dans son code → erreur",
+CASSE = DOC / "casse.py"
+CASSE.write_text('import json, os\nv = json.loads(os.environ["COFFRE"])\nraise ValueError(v["iban"][::-1])\n')
+verifier("remplir_document : pas de script, un nom inconnu, un script dans son code, une empreinte fausse → erreur",
          [asyncio.run(coffre.remplir_document.handler(a)).get("is_error") for a in (
              {"script": str(DOC / "absent.py"), "noms": ["iban"]}, {"script": str(SCRIPT), "noms": ["rien"]},
-             {"script": str(proprio.RACINE / "tests" / "test_coffre.py"), "noms": ["iban"]})], [True] * 3)
+             {"script": str(proprio.RACINE / "tests" / "test_coffre.py"), "noms": ["iban"]},
+             {"script": str(SCRIPT), "noms": ["iban"], "empreinte": "0" * 64})], [True] * 4)
 if Path(permissions.CAGE_EXEC).exists():
-    r = asyncio.run(coffre.remplir_document.handler({"script": str(SCRIPT), "noms": ["iban"]}))
+    r = asyncio.run(coffre.remplir_document.handler({"script": str(SCRIPT), "noms": ["iban"],
+                                                     "empreinte": coffre.empreinte(SCRIPT.read_bytes())}))
     ecrit_dans_le_code = ESSAI_CODE.exists()
     ESSAI_CODE.unlink(missing_ok=True)
-    verifier("remplir_document : la valeur dans le document, masquée dans ce qu'il lit ; sans Internet ; son code fermé",
-             ((DOC / "declaration.txt").read_text(), IBAN in texte(r), "écrit [🔒 iban]" in texte(r),
-              "réseau coupé" in texte(r), "code fermé" in texte(r), ecrit_dans_le_code),
-             (f"IBAN : {IBAN}", False, True, True, True, False))
-
+    verifier("remplir_document : la valeur dans le document ; rien de ce qu'il affiche ne revient (ni à l'envers, "
+             "ni espacé) ; sans Internet ; son code fermé",
+             ((DOC / "declaration.txt").read_text(), r.get("is_error"), IBAN[::-1] in texte(r), "à l'envers" in texte(r),
+              (DOC / "cage.txt").read_text(), ecrit_dans_le_code),
+             (f"IBAN : {IBAN}", None, False, False, "réseau coupé, code fermé, script passé une fois", False))
+    r = asyncio.run(coffre.remplir_document.handler({"script": str(CASSE), "noms": ["iban"]}))
+    verifier("remplir_document en erreur : seulement le nom de l'erreur et sa ligne, jamais son message",
+             (r.get("is_error"), "ValueError, ligne 3 de casse.py" in texte(r), IBAN[::-1] in texte(r)),
+             (True, True, False))
 
 
 # --- Le Gardien : où coller -----------------------------------------------------------------------------------
@@ -390,25 +401,53 @@ async def gardien_document():
     g.conversation_neuve()
     g.nouvelle_demande()
     remplir = "mcp__jervis__remplir_document"
-    entree = {"script": str(SCRIPT), "noms": ["iban"]}
+    entree = {"script": str(SCRIPT), "noms": ["iban"], "empreinte": "fausse"}
     n = len(questions)
-    vu["c'est toi qui demandes : sans question"] = ((await decide(g, remplir, entree))[0], len(questions) - n)
+    vu["c'est toi qui demandes : sans question (une empreinte donnée par lui retirée)"] = (
+        await decide(g, remplir, entree), len(questions) - n)
     g.a_lu_dehors()
-    vu["après une page : une question avec le script"] = ((await decide(g, remplir, entree))[0],
-                                                          questions[n:] and "remplir.py" in questions[-1])
+    r = await decide(g, remplir, entree)
+    vu["après une page : une question avec le script, son oui lié à son contenu"] = (
+        r[0], "remplir.py" in questions[-1], r[1]["empreinte"] == coffre.empreinte(SCRIPT.read_bytes()))
+    n = len(questions)
+    await decide(g, remplir, entree)
+    SCRIPT.write_text(SCRIPT.read_text() + "\n# changé\n")
+    await decide(g, remplir, entree)
+    vu["le même script : pas redemandé ; changé ensuite : redemandé"] = len(questions) - n
     g.conversation_neuve()
     g.nouvelle_demande()
     g.a_lu_dehors()
     reponse[0] = False
     vu["tu dis non : non"] = (await decide(g, remplir, entree))[0]
     reponse[0] = True
+    g.conversation_neuve()
+    g.nouvelle_demande()
+    n = len(questions)
+    trouve = {"script": str(SCRIPT), "noms": ["iban trouvé"]}
+    vu["une donnée trouvée toute seule : à reconnaître une fois, avec d'où elle vient"] = (
+        (await decide(g, remplir, trouve))[0], questions[n:] and "J'ai trouvé un IBAN (DE89 … 3000) dans "
+        "fiche_paie_mars.pdf : c'est bien le tien ?" in questions[-1], coffre.fiche("iban trouvé").get("confirme"))
+    g.nouvelle_demande()
+    n = len(questions)
+    vu["reconnue : plus de question"] = ((await decide(g, remplir, {**trouve, "script": str(CASSE)}))[0],
+                                         len(questions) - n)
+    page("https://www.elster.de/")
+    n = len(questions)
+    vu["coller une donnée trouvée pas encore reconnue : question"] = (
+        (await decide(g, "mcp__jervis__copier_secret", {"nom": "iban trouvé 2", "site": "elster.de"}))[0],
+        questions[n:] and questions[-1].startswith("J'ai trouvé un IBAN"), coffre.fiche("iban trouvé 2").get("confirme"))
     return vu
 
 
 verifier("gardien : tes secrets dans un document", asyncio.run(gardien_document()), {
-    "c'est toi qui demandes : sans question": (A, 0),
-    "après une page : une question avec le script": (A, True),
+    "c'est toi qui demandes : sans question (une empreinte donnée par lui retirée)": (
+        (A, {"script": str(SCRIPT), "noms": ["iban"]}), 0),
+    "après une page : une question avec le script, son oui lié à son contenu": (A, True, True),
+    "le même script : pas redemandé ; changé ensuite : redemandé": 1,
     "tu dis non : non": D,
+    "une donnée trouvée toute seule : à reconnaître une fois, avec d'où elle vient": (A, True, True),
+    "reconnue : plus de question": (A, 0),
+    "coller une donnée trouvée pas encore reconnue : question": (A, True, True),
 })
 verifier("la cage : son code et ta voix fermés en écriture (une règle par nom), le profil lisible par macOS",
          (permissions._son_code_regles() in permissions._cage_profil(),

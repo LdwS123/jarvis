@@ -27,6 +27,8 @@ En ligne de commande, sans Claude : python -m jervis.coffre ranger "mot de passe
 from __future__ import annotations
 
 import asyncio
+import builtins
+import hashlib
 import json
 import os
 import re
@@ -565,17 +567,50 @@ async def oublier_secret(args: dict[str, Any]) -> dict[str, Any]:
 
 
 PYTHON_DOCUMENT = "/usr/bin/python3"  # celui du Mac (PyMuPDF, reportlab y sont, s'il les a installés)
+# Le script lancé est exactement celui que le gardien a vu (son empreinte) : lu une fois, passé à python par
+# l'environnement, jamais relu sur le disque entre la question et le lancement.
+_LANCEUR = ("import os, sys; __file__ = sys.argv[1]; "
+            "exec(compile(os.environ.pop('COFFRE_SCRIPT'), sys.argv[1], 'exec'))")
+_ERREURS = {n for n in dir(builtins) if isinstance(getattr(builtins, n), type)
+            and issubclass(getattr(builtins, n), BaseException)}
+
+
+def empreinte(contenu: bytes) -> str:
+    return hashlib.sha256(contenu).hexdigest()
+
+
+def a_confirmer(f: dict[str, Any] | None) -> bool:
+    """Une donnée rangée toute seule (lue dans un fichier, une page, un mail) et que tu n'as pas encore reconnue :
+    une page piégée peut y avoir glissé l'IBAN de quelqu'un d'autre. Le gardien te la fait confirmer avant usage."""
+    return bool(f and f.get("source") and not f.get("confirme"))
+
+
+def confirmer_fiche(nom: str) -> None:
+    donnees = fiches()
+    if nom in donnees:
+        donnees[nom]["confirme"] = True
+        _ecrire(donnees)
+
+
+def _ce_qui_a_casse(sortie: str, script: Path) -> str:
+    """D'un script en erreur, seulement la ligne de son script et le nom d'une erreur de Python : rien de ce qu'il
+    affiche (une valeur retournée, en base64 ou découpée, passerait le masquage)."""
+    lignes = re.findall(rf'File "{re.escape(str(script))}", line (\d+)', sortie)
+    derniere = next((l for l in reversed(sortie.strip().splitlines()) if l.strip()), "")
+    nom = re.match(r"([A-Za-z_][\w.]*)", derniere)
+    nom = nom.group(1).rsplit(".", 1)[-1] if nom else ""
+    return (f"{nom if nom in _ERREURS else 'une erreur'}"
+            + (f", ligne {lignes[-1]} de {script.name}" if lignes else ""))
 
 
 @tool("remplir_document", "Écrit des données de son coffre (IBAN, numéro de sécu, numéro fiscal…) dans un "
       "document du Mac (PDF à remplir ou à fabriquer, Word, texte…) sans que tu les voies. Écris d'abord un script "
       "Python qui fabrique ou remplit le document, en prenant chaque valeur dans "
       "json.loads(os.environ[\"COFFRE\"])[\"iban\"] (les noms de lister_secrets), puis remplir_document avec son "
-      "chemin et ces noms : il tourne sur le Mac, sans Internet, et ce qu'il affiche te revient masqué. `python` : "
-      "l'interpréteur à prendre (par défaut /usr/bin/python3).",
+      "chemin et ces noms : il tourne sur le Mac avec /usr/bin/python3, sans Internet. Ce qu'il affiche ne te revient "
+      "pas : en cas d'erreur, seulement son nom et sa ligne. Relis ensuite le document pour vérifier.",
       {"type": "object",
-       "properties": {"script": {"type": "string"}, "noms": {"type": "array", "items": {"type": "string"}},
-                      "python": {"type": "string"}},
+       "properties": {"script": {"type": "string"}, "noms": {"type": "array", "items": {"type": "string"}}},
        "required": ["script", "noms"]})
 async def remplir_document(args: dict[str, Any]) -> dict[str, Any]:
     from . import permissions, proprio  # (permissions importe ce module)
@@ -592,19 +627,26 @@ async def remplir_document(args: dict[str, Any]) -> dict[str, Any]:
         return _erreur("`noms` : les noms de son coffre à donner au script (lister_secrets).")
     if not Path(permissions.CAGE_EXEC).exists():
         return _erreur("Sans sandbox-exec, je ne peux pas couper Internet au script : rien n'est lancé.")
+    try:
+        contenu = script.read_bytes()
+        code = contenu.decode()
+    except (OSError, UnicodeDecodeError):
+        return _erreur("Ce script ne se lit pas (UTF-8) : réécris-le.")
+    if args.get("empreinte") and args["empreinte"] != empreinte(contenu):
+        return _erreur("Le script a changé depuis la question : rien n'est lancé. Redemande.")
     valeurs: dict[str, str] = {}
     for nom in dict.fromkeys(noms):
         valeur = _valeurs.get(nom) or await _trousseau_retrouver(nom)
         if not valeur:
             return _erreur(f"« {nom} » n'est plus dans son Trousseau : rien n'est lancé.")
         valeurs[nom] = _valeurs[nom] = valeur
-    python = str(args.get("python") or (PYTHON_DOCUMENT if Path(PYTHON_DOCUMENT).exists() else sys.executable))
+    python = PYTHON_DOCUMENT if Path(PYTHON_DOCUMENT).exists() else sys.executable
     env = {**{k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP")},
-           **permissions.cage_env(), "COFFRE": json.dumps(valeurs, ensure_ascii=False)}
+           **permissions.cage_env(), "COFFRE": json.dumps(valeurs, ensure_ascii=False), "COFFRE_SCRIPT": code}
     try:
         proc = await asyncio.create_subprocess_exec(
-            permissions.CAGE_EXEC, "-p", permissions.profil_document(), python, str(script), cwd=str(script.parent),
-            env=env, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+            permissions.CAGE_EXEC, "-p", permissions.profil_document(), python, "-c", _LANCEUR, str(script),
+            cwd=str(script.parent), env=env, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT)
     except OSError as e:
         return _erreur(f"Le script n'a pas pu démarrer ({e.strerror or e}).")
@@ -613,16 +655,12 @@ async def remplir_document(args: dict[str, Any]) -> dict[str, Any]:
     except asyncio.TimeoutError:
         proc.kill()
         return _erreur(f"Le script n'a pas fini en {config.COFFRE_DOCUMENT_S} secondes : arrêté.")
-    sortie = brut.decode(errors="replace")[-3000:]
-    for nom, valeur in valeurs.items():  # même une valeur courte (un code), même découpée autrement
-        sortie = sortie.replace(valeur, f"[🔒 {nom}]")
-    sortie = masquer(sortie).strip()
     if proc.returncode:
-        return _erreur(f"Le script s'est arrêté en erreur (code {proc.returncode}) :\n{sortie or '(rien affiché)'}")
-    return _texte(f"Le script a tourné avec {', '.join(f'« {n} »' for n in valeurs)}, sans Internet."
-                  + (f" Ce qu'il a affiché :\n{sortie}" if sortie else "")
-                  + "\nVérifie le document : en le relisant, tu verras [🔒 nom] à la place de chaque valeur, c'est "
-                    "normal (elle y est bien).")
+        return _erreur(f"Le script s'est arrêté en erreur ({_ce_qui_a_casse(brut.decode(errors='replace'), script)})."
+                       " Ce qu'il affiche ne te revient pas : corrige-le d'après ton code, puis relance.")
+    return _texte(f"Le script a tourné avec {', '.join(f'« {n} »' for n in valeurs)}, sans Internet (ce qu'il "
+                  "affiche ne te revient pas). Relis le document pour vérifier : tu y verras [🔒 nom] à la place de "
+                  "chaque valeur, c'est normal (elle y est bien).")
 
 
 OUTILS_COFFRE = [ranger_secret, lister_secrets, copier_secret, oublier_secret, remplir_document]
@@ -638,7 +676,7 @@ CONSIGNE = """\
     l'écrire » ni « remplis-le au stylo » : c'est à toi de le faire.
   Une donnée qui manque : cherche-la toi-même (ses fiches de paie, relevés, mails, documents) ; un IBAN ou un
   numéro de sécu que tu lis est rangé tout seul (« [🔒 iban trouvé] », lister_secrets dit d'où il vient : prends
-  celui qui est à son nom). Seulement si tu ne la trouves nulle part : demande-lui de la copier (cmd+c), puis
+  celui qui est à son nom ; la première fois, le gardien lui demande de le reconnaître). Seulement si tu ne la trouves nulle part : demande-lui de la copier (cmd+c), puis
   ranger_secret ; ne la lui fais jamais dire ni écrire. Un numéro que tu lis en clair (numéro fiscal, Steuer-ID,
   numéro client, numéro d'allocataire) : tu l'écris toi-même, dans un champ comme dans un document.
   Jamais dans un message, le corps d'un mail ni à voix haute ; s'il veut envoyer son IBAN à quelqu'un, mets-le

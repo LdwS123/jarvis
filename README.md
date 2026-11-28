@@ -867,23 +867,28 @@ ton Trousseau macOS (`jervis-coffre`), et Claude ne lit que leur nom, « [🔒 i
   (ta fiche de paie, un relevé, un mail, une page) est rangé tout seul, sur le Mac, sous « iban trouvé » avec d'où il
   vient (« lu dans fiche_paie_mars.pdf », que `lister_secrets` et la question avant de coller te montrent) ; au plus
   3 par lecture (un relevé liste les IBAN de tous ceux qui t'ont payé : il prend celui qui est à ton nom), 20 en
-  tout ; jamais une carte. Il ne te demande de copier une donnée que s'il ne la trouve nulle part.
+  tout ; jamais une carte. La première fois qu'il s'en sert, il te demande de la reconnaître (« J'ai trouvé un
+  IBAN (FR76 … 0189) dans fiche_paie_mars.pdf : c'est bien le tien ? ») : une page ou un mail piégé pourrait y avoir
+  glissé l'IBAN de quelqu'un d'autre. Il ne te demande de copier une donnée que s'il ne la trouve nulle part.
 - **Il remplit tes documents** (une déclaration d'impôts en PDF, une lettre, un RIB à joindre) : il écrit un petit
   script Python qui lit les valeurs dans `os.environ["COFFRE"]`, puis `remplir_document` le lance sur le Mac
   (`/usr/bin/python3`, avec PyMuPDF ou reportlab si tu les as) dans une cage sans Internet, sans réseau local ni
-  presse-papiers, et sans pouvoir écrire dans son code : ton IBAN va dans le document, nulle part ailleurs, et ce
-  que le script affiche lui revient masqué. Un numéro qu'il lit en clair (numéro fiscal, Steuer-ID, numéro
+  presse-papiers, et sans pouvoir écrire dans son code : ton IBAN va dans le document, nulle part ailleurs. Ce que
+  le script affiche ne revient jamais à Claude (un IBAN écrit à l'envers passerait le masquage) : en cas d'erreur,
+  seulement son nom et sa ligne. Un numéro qu'il lit en clair (numéro fiscal, Steuer-ID, numéro
   d'allocataire) : il l'écrit lui-même, dans un champ comme dans un document. Il ne te répond plus « je n'ai pas le
   droit » ni « remplis-le à la main ». Juste après un texte venu d'ailleurs ou pendant un appel, il te demande
   d'abord (« Je vais mettre ton « iban » dans un document, avec le script ~/Documents/…/remplir.py (sans
-  Internet). Je peux ? »).
+  Internet). Je peux ? ») ; ton oui vaut pour ce script-là, à l'octet près : s'il change ensuite, il redemande.
 - **Payer reste coupé** (voir plus haut) : le coffre n'y change rien.
 - Après une page, un mail ou un texte venu d'ailleurs, ranger un secret ne le lie à aucun site, et en retirer ou en
   remplacer un te demande ton accord.
 - `espace/coffre.json` ne garde que les noms, le genre, un indice (« FR76 … 0189 ») et les sites : jamais une
   valeur. Personne ne peut l'écrire par un outil.
 
-Limites, honnêtement : une capture d'écran n'est pas masquée (si ton IBAN est à l'écran quand il en prend une,
+Limites, honnêtement : un document qu'il relit n'est masqué que si la valeur y est telle quelle (un script qui
+l'écrirait à l'envers dans un fichier la lui montrerait : c'est pourquoi, après un texte venu d'ailleurs, il te
+demande avant de lancer le script) ; une capture d'écran n'est pas masquée (si ton IBAN est à l'écran quand il en prend une,
 l'image part chez Claude) ; un IBAN épelé à voix haute peut être mal
 transcrit et ne plus être reconnu (copie-le plutôt) ; le reste de la conversation, lui, part chez Claude comme
 avant. `JERVIS_COFFRE=non` coupe le masquage.

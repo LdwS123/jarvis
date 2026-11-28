@@ -1970,15 +1970,17 @@ class Gardien:
                                                 "que sur la page du site où il sert. Ouvre la bonne page, puis "
                                                 "recommence avec son domaine exact.")
         lie = coffre.lie(fiche, site)
+        trouve = coffre.a_confirmer(fiche)  # rangé tout seul : peut-être glissé par une page, à reconnaître d'abord
         if coffre.messagerie(site) and not lie:
             return PermissionResultDeny(message="Ses données secrètes ne partent dans aucune messagerie, aucun mail, "
                                                 "aucun réseau social : s'il veut les envoyer à quelqu'un, il le fait "
                                                 "lui-même. Dis-le-lui en une phrase.")
         mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
-        if lie and page and not self.en_appel and not mefiant:
+        if lie and page and not self.en_appel and not mefiant and not trouve:
             return PermissionResultAllow(updated_input={"nom": nom, "site": site})
         source = f", lu dans {fiche['source']}" if fiche.get("source") else ""
-        question = (f"Je vais coller ton « {nom} » ({fiche.get('indice', '')}{source}) sur {site}"
+        question = ((self._question_trouve(nom) + " " if trouve else "")
+                    + f"Je vais coller ton « {nom} » ({fiche.get('indice', '')}{source}) sur {site}"
                     + ("" if page else " (je ne vois pas quelle page est ouverte : vérifie que c'est bien elle)")
                     + ". Je peux ?")
         cle = f"coffre:{nom}:{site}"
@@ -1993,31 +1995,49 @@ class Gardien:
                                                 "dis-lui simplement que tu n'as rien collé.")
         if not self.en_appel and not mefiant:
             coffre.lier(nom, site)  # la prochaine fois, sur sa page, sans question
+            coffre.confirmer_fiche(nom)
         return PermissionResultAllow(updated_input={"nom": nom, "site": site})
 
     async def _remplir_document(self, entree: dict[str, Any]):
         """Mettre des secrets de son coffre dans un document (coffre.remplir_document, un script sans Internet) : sans
-        question quand c'est lui qui demande ; après un texte venu d'ailleurs ou pendant un appel, une question écrite
-        par le code, avec le script et les noms (une page ne choisit pas où vont ses secrets)."""
+        question quand c'est lui qui demande, avec des données qu'il a reconnues ; après un texte venu d'ailleurs,
+        pendant un appel, ou avec une donnée trouvée toute seule pas encore reconnue, une question écrite par le code.
+        Son oui vaut pour ce script-là, à l'octet près (son empreinte) : changé ensuite, il est redemandé."""
         noms = [n for n in (coffre.nom_valide(x) for x in (entree.get("noms") or [])) if n and coffre.fiche(n)]
+        entree = {k: v for k, v in entree.items() if k != "empreinte"}
         mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
-        if not noms or not (mefiant or self.en_appel):
+        trouves = [n for n in noms if coffre.a_confirmer(coffre.fiche(n))]
+        if not noms or not (mefiant or self.en_appel or trouves):
             return PermissionResultAllow(updated_input=entree)  # l'outil dira lui-même ce qui manque
         script = str(entree.get("script") or "")
+        try:
+            vu = coffre.empreinte(Path(os.path.expanduser(script)).resolve().read_bytes())
+        except (OSError, RuntimeError, ValueError):
+            return PermissionResultAllow(updated_input=entree)  # l'outil dira lui-même ce qui manque
         montre = script.replace(str(Path.home()), "~", 1)
-        question = (f"Je vais mettre ton {', ton '.join(f'« {n} »' for n in noms)} dans un document, avec le script "
-                    f"{montre} (sans Internet). Je peux ?")
-        cle = f"coffre:document:{script}:{','.join(sorted(noms))}"
+        question = (" ".join(self._question_trouve(n) for n in trouves)
+                    + f" Je vais mettre ton {', ton '.join(f'« {n} »' for n in noms)} dans un document, avec le script "
+                    f"{montre} (sans Internet). Je peux ?").strip()
+        cle = f"coffre:document:{vu}:{','.join(sorted(noms))}"
         async with self._verrou:
             if cle not in self._reponses:
                 self._reponses[cle] = await self._confirmer(question)
-                noter_blocage("mcp__jervis__remplir_document", entree, pourquoi="tes secrets dans un document, après "
-                              "un texte venu d'ailleurs", cible=None, autorisable=False, en_appel=self.en_appel,
-                              question=question, accorde=self._reponses[cle])
+                noter_blocage("mcp__jervis__remplir_document", entree, pourquoi="tes secrets dans un document",
+                              cible=None, autorisable=False, en_appel=self.en_appel, question=question,
+                              accorde=self._reponses[cle])
         if not self._reponses[cle]:
             return PermissionResultDeny(message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "
                                                 "dis-lui simplement que tu n'as rien mis dans le document.")
-        return PermissionResultAllow(updated_input=entree)
+        if not (mefiant or self.en_appel):
+            for n in trouves:
+                coffre.confirmer_fiche(n)
+        return PermissionResultAllow(updated_input={**entree, "empreinte": vu})
+
+    @staticmethod
+    def _question_trouve(nom: str) -> str:
+        f = coffre.fiche(nom) or {}
+        genre = {"iban": "un IBAN", "nir": "un numéro de sécu"}.get(f.get("genre"), "une donnée")
+        return f"J'ai trouvé {genre} ({f.get('indice', '')}) dans {f.get('source')} : c'est bien le tien ?"
 
     async def _coffre(self, outil: str, entree: dict[str, Any]) -> tuple[dict[str, Any], Any]:
         """Ranger ou retirer un secret : après un texte venu d'ailleurs, un rangement ne lie aucun site (une page ne
