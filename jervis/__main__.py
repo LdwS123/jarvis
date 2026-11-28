@@ -15,10 +15,11 @@ import threading
 import time
 import unicodedata
 
-from . import bureau, chat, compteur, config, dev, langues, oral, reunion, touche, tts, vocal, voix_locale
+from . import bureau, chat, compteur, config, dev, langues, oral, reunion, telephone, touche, tts, vocal, voix_locale
 from .brain import Cerveau
 from .naturel import corriger_transcription, decoder_epellation, epellation_en_cours, hesite, hors_alphabet, recoller
-from .fond import Evenement, Programmateur, Standard, Taches, notifier, outils_fond, present
+from .fond import (BILAN_SOIR_LOIN, BILAN_SOIR_TELEPHONE, Evenement, Programmateur, Standard, Taches, notifier,
+                   outils_fond, present)
 
 NOM = re.compile(config.NOM, re.IGNORECASE)
 # Ce qui précède son nom quand on l'appelle (avec ce que la transcription en fait : « Hey » → « Yes », « Dit », « І »…).
@@ -447,6 +448,8 @@ async def mode_vocal(etat: Etat | None = None) -> None:
 
     etat = etat or Etat()
     motcle = f", « {config.PHRASE_MOTCLE} »" if config.MOTCLE_MODELE and config.DETECTION != "whisper" else ""
+    if await asyncio.to_thread(telephone.remettre_le_micro):  # il s'était arrêté en plein appel (telephone.py)
+        print("   📞 J'ai remis ton micro d'avant mon dernier appel.", flush=True)
     print(f"⏳ Démarrage du micro (anti-écho, débruitage{motcle}, fin de phrase)…", flush=True)
     oreilles = await asyncio.to_thread(Oreilles)
     etat.oreilles = oreilles
@@ -1245,10 +1248,87 @@ async def mode_vocal(etat: Etat | None = None) -> None:
         return await distance.la_derniere(boites).demander(question, delai)
     standard.relais = relayer
 
+    direct: dict = {"consigne": None, "futur": None}   # l'appel du bilan du soir, demandé par le programmateur
+
+    async def appeler_pour_le_bilan(consigne: str) -> bool:
+        """Le programmateur veut t'appeler : c'est la boucle du micro qui passe l'appel (au_telephone), entre deux
+        phrases. Vrai si tu as décroché (sinon, il t'envoie le vocal)."""
+        if direct["futur"] is not None or appel["en_cours"] or oreilles.en_pause:
+            return False  # (déjà en ligne, en réunion, ou micro en pause : ne pas déranger)
+        futur = boucle.create_future()
+        direct.update(consigne=consigne, futur=futur)
+        standard.sonnerie.set()  # il sort de la veille
+        try:
+            return await asyncio.wait_for(asyncio.shield(futur), 120)
+        except asyncio.TimeoutError:
+            if direct["consigne"] is None:  # l'appel a commencé entre-temps : on attend qu'il finisse
+                return await futur
+            direct.update(consigne=None, futur=None)  # (la boucle du micro n'est jamais revenue : le vocal)
+            return False
+
+    async def au_telephone() -> None:
+        """Il t'appelle (telephone.py) : sa voix part dans le câble que FaceTime prend pour micro, il t'entend par
+        les haut-parleurs du Mac. Tu décroches et dis « allô » : il se présente, te fait le bilan, et la conversation
+        continue sans son nom. Un blanc ou « bonne nuit » : il raccroche, et tout revient comme avant."""
+        consigne, futur = direct["consigne"], direct["futur"]
+        direct["consigne"] = None
+        standard.sonnerie.clear()
+        decroche = compose = False
+        try:
+            prepare = await asyncio.to_thread(telephone.preparer)
+            if prepare is None or oreilles.en_pause:
+                return
+            if not await asyncio.to_thread(oreilles.router, prepare["cable"], prepare["micro"]):
+                print(f"   📞 Pas d'appel : ma voix ne part pas dans « {prepare['cable']} ».", flush=True)
+                return
+            if not await asyncio.to_thread(telephone.brancher, prepare):
+                print("   📞 Pas d'appel : macOS refuse de changer de micro.", flush=True)
+                return
+            compose = await telephone.composer(telephone.adresse() or "")
+            if not compose:
+                print("   📞 Pas d'appel : FaceTime ne s'est pas ouvert.", flush=True)
+                return
+            print("📞 Je t'appelle (FaceTime audio) pour le bilan du soir : décroche et dis « allô ».", flush=True)
+            etat("ecoute")
+            fin, texte = time.monotonic() + config.BILAN_SOIR_SONNERIE_S, None
+            while (reste := fin - time.monotonic()) > 0:
+                texte, _ = await entendre(reste)  # (la sonnerie, un bruit : « », il attend encore)
+                if texte is None or (texte and not charabia(texte)):
+                    break
+            if not texte:
+                print("   📞 Pas de réponse : je raccroche (le bilan part en vocal).", flush=True)
+                return
+            decroche = True
+            print(f"🧑 Toi (au téléphone) : {texte}", flush=True)
+            await parler(f"Salut, c'est {config.PRENOM}. Je te fais ton bilan du soir.", interruptible=False)
+            await converser(consigne)
+        except Exception as e:  # un appel raté ne doit pas faire tomber Steve
+            print(f"   📞 L'appel s'est mal passé : {type(e).__name__}: {e}", flush=True)
+        finally:
+            discussion["active"] = False
+            cerveau.fin_de_conversation()
+            if compose:
+                await telephone.raccrocher()
+                print("📞 Raccroché.", flush=True)
+            await asyncio.to_thread(telephone.debrancher)
+            try:
+                await asyncio.to_thread(oreilles.router, None)
+            except Exception as e:
+                print(f"   ⚠️  Retour au micro du Mac : {type(e).__name__}: {e}", flush=True)
+            direct["futur"] = None
+            if not futur.done():
+                futur.set_result(decroche)
+
     async def bilan_au_loin(consigne: str) -> bool:
         """Le bilan du soir quand tu n'es pas devant le Mac : il le prépare comme une demande venue de l'iPhone
         (mêmes règles, et ses questions y partent aussi), puis te l'envoie en vocal, dit avec sa voix, là où tu
-        lui as écrit en dernier. Tu lui réponds là-bas, comme d'habitude. False : rien n'est parti."""
+        lui as écrit en dernier. Tu lui réponds là-bas, comme d'habitude. False : rien n'est parti.
+        Avec JERVIS_BILAN_SOIR_APPEL, il t'appelle d'abord pour de vrai ; pas de réponse : le vocal."""
+        if (pourquoi := telephone.pas_pret()) is None:
+            if await appeler_pour_le_bilan(consigne.replace(BILAN_SOIR_LOIN, BILAN_SOIR_TELEPHONE)):
+                return True
+        elif config.BILAN_SOIR_APPEL:
+            print(f"   📞 Pas d'appel pour le bilan : {pourquoi}.", flush=True)
         if not boites:
             return False
         boite = distance.la_derniere(boites)
@@ -1299,6 +1379,9 @@ async def mode_vocal(etat: Etat | None = None) -> None:
 
     try:
         while True:
+            if direct["consigne"] is not None:
+                await au_telephone()
+                continue
             if appel["en_cours"]:
                 await pendant_l_appel()
                 continue

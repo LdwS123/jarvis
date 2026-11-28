@@ -2,8 +2,9 @@
 et comment chacun est relié (intégré, Bluetooth, iPhone…).
 
 Pourquoi pas sounddevice ? PortAudio garde la liste des appareils vue à son démarrage : il ne sait pas qu'un
-casque vient d'être branché. CoreAudio, lui, le sait tout de suite. Ce ne sont que des questions posées au système :
-aucun micro n'est ouvert, rien ne sort du Mac. Hors macOS (ou si CoreAudio ne répond pas), tout renvoie None / [].
+casque vient d'être branché. CoreAudio, lui, le sait tout de suite. Ce ne sont que des questions posées au système
+(sauf regler_micro, le temps d'un appel de Steve) : aucun micro n'est ouvert, rien ne sort du Mac. Hors macOS
+(ou si CoreAudio ne répond pas), tout renvoie None / [].
 """
 
 from __future__ import annotations
@@ -54,6 +55,8 @@ def _bibliotheques():
         ca.AudioObjectGetPropertyData.restype = ctypes.c_int32
         ca.AudioObjectGetPropertyDataSize.argtypes = [u32, p, u32, p, p]
         ca.AudioObjectGetPropertyDataSize.restype = ctypes.c_int32
+        ca.AudioObjectSetPropertyData.argtypes = [u32, p, u32, p, u32, p]
+        ca.AudioObjectSetPropertyData.restype = ctypes.c_int32
         cf.CFStringGetCString.argtypes = [p, ctypes.c_char_p, ctypes.c_long, u32]
         cf.CFStringGetCString.restype = ctypes.c_bool
         cf.CFRelease.argtypes = [p]
@@ -128,6 +131,19 @@ def tous() -> list[Appareil]:
         return [_appareil(i) for i in ids[: taille.value // 4]]
     except Exception:
         return []
+
+
+def regler_micro(objet: int) -> bool:
+    """Fait de cet appareil le micro de macOS (celui que prennent les apps, FaceTime compris). Le seul réglage que
+    ce module change : pendant que Steve t'appelle (telephone.py), remis comme avant à la fin de l'appel."""
+    try:
+        ca, _ = _bibliotheques()
+        adresse = _Adresse(_code("dIn "), _code("glob"), 0)
+        valeur = ctypes.c_uint32(objet)
+        return ca.AudioObjectSetPropertyData(_SYSTEME, ctypes.byref(adresse), 0, None, ctypes.sizeof(valeur),
+                                             ctypes.byref(valeur)) == 0
+    except Exception:
+        return False
 
 
 def choisir_micro(reglage: str, defaut: Appareil | None, appareils: list[Appareil]) -> str | None:

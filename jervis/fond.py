@@ -429,6 +429,10 @@ Termine par une question courte : y a-t-il quelque chose à préparer pour demai
 """
 BILAN_SOIR_LOIN = ("Pas devant le Mac : ta réponse part en message vocal sur son iPhone, dite avec ta voix. Écris-la "
                    "pour être dite : pas de liste, pas de lien, pas d'emoji.")
+BILAN_SOIR_TELEPHONE = ("Au téléphone : tu viens de l'appeler (FaceTime audio), il a décroché et tu t'es présenté. "
+                        "Il t'entend dans l'appel et te répond de vive voix, sans dire ton nom : phrases courtes, "
+                        "pas de liste, pas de lien. Quand il a fini (« c'est bon », « bonne nuit »), dis au revoir "
+                        "en une phrase.")
 
 
 def lire_quand(quand: str, maintenant: datetime | None = None) -> datetime:

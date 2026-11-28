@@ -184,7 +184,7 @@ class FausseEmpreinte:
 
 
 config.MIN_VERIF_VOIX_S, config.SEUIL_VOIX_CHUCHOTE, config.DIAGNOSTIC_VOIX, config.APPRENDRE_VOIX = 0.5, 0.3, False, True
-oreilles = SimpleNamespace(_empreinte=FausseEmpreinte(), _diagnostic=lambda *a: None)
+oreilles = SimpleNamespace(_empreinte=FausseEmpreinte(), _diagnostic=lambda *a: None, au_telephone=False)
 
 
 def jugee(chuchotee: bool):
@@ -202,7 +202,7 @@ verifier("… mais le score strict (les « oui » sensibles) ne change pas", phr
 verifier("Phrase(audio, reveil, parole, silence) se construit toujours dans l'ordre",
          audio.Phrase(np.zeros(1, np.int16), True, 1.0, 0.3).chuchotee, False)
 
-faux = SimpleNamespace(_empreinte=FausseEmpreinte())
+faux = SimpleNamespace(_empreinte=FausseEmpreinte(), au_telephone=False)
 normale_p = audio.Phrase(np.zeros(1, np.int16), empreinte=np.ones(3))
 chuchotee_p = audio.Phrase(np.zeros(1, np.int16), empreinte=np.ones(3), chuchotee=True)
 verifier("une phrase normale apprend ta voix", audio.Oreilles.apprendre_voix(faux, normale_p, True), "appris")

@@ -35,7 +35,7 @@ from typing import Any, Callable
 import numpy as np
 from claude_agent_sdk import tool
 
-from . import appareils, config, vocal
+from . import appareils, config, telephone, vocal
 
 # --- Qui écoute le micro -----------------------------------------------------------------------------------
 
@@ -120,6 +120,9 @@ class Surveillance:
                 vocal.whatsapp_a_lache()
             elif self.apps:
                 self._vu = maintenant
+        if telephone.ignorer_facetime():
+            # C'est Steve qui t'appelle (telephone.py) : FaceTime au micro, c'est lui, pas une réunion.
+            apps = [a for a in apps if not telephone.est_facetime(a)]
         if apps:
             self._vu = maintenant
             nouveau, self.apps = not self.apps, apps

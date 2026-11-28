@@ -187,6 +187,14 @@ BILAN_SOIR_HEURE = _env("BILAN_SOIR_HEURE", "22:00")
 BILAN_SOIR_ATTENTE_MIN = float(_env("BILAN_SOIR_ATTENTE_MIN", "10"))
 BILAN_SOIR_RETARD_MIN = float(_env("BILAN_SOIR_RETARD_MIN", "90"))
 BILAN_SOIR_IPHONE = _env("BILAN_SOIR_IPHONE", "oui").lower() not in {"non", "off", "0"}
+# Un vrai appel au lieu du vocal (telephone.py) : ton numéro ou ton adresse Apple, que FaceTime (connecté sur le Mac
+# à un AUTRE identifiant Apple que le tien : on ne s'appelle pas soi-même) appelle en FaceTime audio. Sa voix passe
+# dans l'appel par le câble audio APPEL_CABLE (BlackHole 2ch, gratuit) ; il t'entend par les haut-parleurs du Mac.
+# Tu décroches et dis « allô » (dans les BILAN_SOIR_SONNERIE_S secondes) ; pas de réponse : le vocal, comme avant.
+# Vide (par défaut) : pas d'appel.
+BILAN_SOIR_APPEL = _env("BILAN_SOIR_APPEL", "").strip()
+BILAN_SOIR_SONNERIE_S = float(_env("BILAN_SOIR_SONNERIE_S", "45"))
+APPEL_CABLE = _env("APPEL_CABLE", "BlackHole")
 # Avant une réunion : BRIEFING_REUNION_MIN minutes avant un rendez-vous avec d'autres personnes, il te résume tes
 # derniers mails avec elles, tes comptes rendus et ce qu'il sait d'elles (un agent en lecture seule). Il relève
 # ton agenda toutes les RELEVE_AGENDA_MIN minutes, entre INITIATIVE_DEBUT et INITIATIVE_FIN, quand tu es devant

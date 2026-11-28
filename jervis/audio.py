@@ -156,6 +156,7 @@ def _charger(nom: str, fabrique):
 
 class Oreilles:
     # Les réglages d'écoute (avant-parole, durée minimale, vérification de la voix) sont dans config.py.
+    _route: tuple[str, str] | None = None   # (micro, sortie) imposés pendant qu'il t'appelle (router)
 
     def __init__(self) -> None:
         import openwakeword
@@ -209,11 +210,21 @@ class Oreilles:
 
     def _signature(self) -> tuple:
         """(micro de macOS, sortie de macOS, micro choisi) : si ça change, un casque vient d'arriver ou de partir."""
+        if self._route is not None:  # il t'appelle : ses appareils sont fixés, même si macOS change de micro
+            return ("appel", self._route[1], self._route[0])
         defaut, sortie = appareils.par_defaut()
         if defaut is None and sortie is None:
             return (None, None, None)  # macOS ne répond pas : on ne sait pas
         tous = appareils.tous() if (config.MICRO or "auto").strip().casefold() != "systeme" else []
         return (defaut and defaut.id, sortie and sortie.id, appareils.choisir_micro(config.MICRO, defaut, tous))
+
+    @staticmethod
+    def _index_sortie(nom: str | None) -> int | None:
+        """Le numéro PortAudio de la sortie qui porte ce nom (None : celle de macOS)."""
+        if not nom:
+            return None
+        return next((i for i, a in enumerate(sd.query_devices())
+                     if a["name"] == nom and a["max_output_channels"] > 0), None)
 
     @staticmethod
     def _index_micro(nom: str | None) -> int | None:
@@ -231,8 +242,11 @@ class Oreilles:
 
         self._branches = self._signature()
         entree = self._index_micro(self._branches[2])
+        sortie_voulue = self._index_sortie(self._route[1]) if self._route else None
         try:
-            self._ouvrir_duplex(voix, entree)
+            if self._route and sortie_voulue is None:
+                raise RuntimeError(f"pas de sortie « {self._route[1]} »")
+            self._ouvrir_duplex(voix, entree, sortie_voulue)
             self._stream.start()
         except Exception as e:
             self._fermer_flux()
@@ -242,13 +256,14 @@ class Oreilles:
         self._dernier_rappel = time.monotonic()
         try:
             micro = sd.query_devices(entree if entree is not None else sd.default.device[0])["name"]
-            sortie = sd.query_devices(kind="output")["name"] if self.haut_parleur else "afplay"
+            sortie = ((sd.query_devices(sortie_voulue) if sortie_voulue is not None
+                       else sd.query_devices(kind="output"))["name"] if self.haut_parleur else "afplay")
         except Exception:
             micro, sortie = "le micro", "le haut-parleur"
         return micro, sortie
 
-    def _ouvrir_duplex(self, voix, entree: int | None = None) -> None:
-        sortie = sd.query_devices(kind="output")
+    def _ouvrir_duplex(self, voix, entree: int | None = None, vers: int | None = None) -> None:
+        sortie = sd.query_devices(vers) if vers is not None else sd.query_devices(kind="output")
         canaux = max(1, min(2, int(sortie["max_output_channels"])))
         enceinte = self.enceinte
         self._anti_echo = None
@@ -259,7 +274,7 @@ class Oreilles:
             outdata[:] = ref[:, None]
             self._brut.put((indata[:, 0].copy(), ref))
 
-        self._stream = sd.Stream(samplerate=TAUX_HP, blocksize=BLOC_HP, channels=(1, canaux), device=(entree, None),
+        self._stream = sd.Stream(samplerate=TAUX_HP, blocksize=BLOC_HP, channels=(1, canaux), device=(entree, vers),
                                  dtype="float32", callback=rappel)
         if config.ANTI_ECHO:
             # Le temps entre « envoyé au haut-parleur » et « revenu dans le micro » : latences de sortie + d'entrée.
@@ -404,13 +419,33 @@ class Oreilles:
         return (f" (en apprentissage : {faites} phrase{'s' if faites > 1 else ''} sur {total}, "
                 "appelle-le par son nom)")
 
+    def router(self, sortie: str | None, micro: str | None = None) -> bool:
+        """Pendant qu'il t'appelle (telephone.py) : sa voix part dans `sortie` (le câble que FaceTime prend pour
+        micro) et il t'écoute par `micro` (celui d'avant l'appel, épinglé : macOS va passer au câble). None : retour
+        aux appareils de macOS. Vrai si sa voix part bien là où on l'a demandé."""
+        self._route = (micro or "", sortie) if sortie else None
+        self._rouvrir("il t'appelle" if sortie else "fin de l'appel")
+        if not sortie:
+            return True
+        try:
+            branchee = self.haut_parleur is not None and sd.query_devices(self._stream.device[1])["name"] == sortie
+        except Exception:
+            branchee = False
+        return branchee
+
+    @property
+    def au_telephone(self) -> bool:
+        """Il t'appelle : ta voix arrive par le téléphone et les haut-parleurs (ni vérifiée, ni apprise)."""
+        return self._route is not None
+
     @property
     def voix_connue(self) -> bool:
         return self._empreinte is not None and self._empreinte.reference is not None
 
     def apprendre_voix(self, phrase: Phrase, sure: bool) -> str | None:
         """Une phrase comprise, dite par toi : il affine ta voix (ou l'apprend, si `sure` = tu as dit son nom)."""
-        if self._empreinte is None or phrase.empreinte is None or not config.APPRENDRE_VOIX or phrase.chuchotee:
+        if (self._empreinte is None or phrase.empreinte is None or not config.APPRENDRE_VOIX or phrase.chuchotee
+                or self.au_telephone):  # (ta voix passée par le téléphone et les haut-parleurs : pas ta vraie voix)
             return None  # (un chuchotement n'apprend rien : son empreinte ne ressemble pas à ta voix)
         try:
             return self._empreinte.apprendre(phrase.empreinte, sure)
@@ -632,7 +667,7 @@ class Oreilles:
                 phrase.coupure = sum(len(m) for m in morceaux[:coupure])
             phrase.chuchotee = self._chuchotee is not None and self._chuchotee(phrase.audio)
             self._signer(phrase)
-            if verifier_voix and self._voix_inconnue(phrase):
+            if verifier_voix and not self.au_telephone and self._voix_inconnue(phrase):
                 if garder_inconnue:
                     phrase.inconnue = True
                     return phrase

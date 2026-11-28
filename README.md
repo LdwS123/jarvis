@@ -982,9 +982,31 @@ Tu choisis ce qu'il contient dans `bilan_soir.md` (menu → « Mon bilan du soir
 jour », « pas de mails »… `JERVIS_BILAN_SOIR_HEURE=21:30` change l'heure, `JERVIS_BILAN_SOIR_IPHONE=non` le garde
 au Mac, `JERVIS_BILAN_SOIR=non` le coupe.
 
-Pourquoi un vocal et pas un vrai appel : un appel FaceTime de ton Mac vers ton propre iPhone (le même compte Apple des
-deux côtés) ne sonne pas de façon fiable, et Steve ne parle pas encore dans un appel (il lui faudrait un câble audio
-virtuel comme BlackHole). Le vocal arrive comme un message de quelqu'un, avec sa voix, et tu y réponds quand tu veux.
+#### Un vrai appel au lieu du vocal
+
+Avec `JERVIS_BILAN_SOIR_APPEL`, quand tu n'es pas devant le Mac, il **t'appelle pour de vrai** (FaceTime audio) et
+te fait le bilan de vive voix ; tu lui réponds au téléphone. Pas de réponse : le vocal, comme avant.
+
+1. **Le câble audio** : `brew install blackhole-2ch` (gratuit), puis **redémarre le Mac** (ou
+   `sudo killall coreaudiod`) pour que macOS le voie.
+2. **Un deuxième identifiant Apple sur le Mac** : on ne s'appelle pas soi-même. Dans FaceTime sur le Mac
+   (FaceTime → Réglages), connecte-toi avec un autre compte Apple que celui de ton iPhone (un compte créé pour Steve).
+   Laisse le micro de FaceTime sur « micro du système » (c'est le réglage de base).
+3. **Qui appeler** : `JERVIS_BILAN_SOIR_APPEL=ton@icloud.com` (l'adresse Apple de ton iPhone) ou ton numéro
+   (`06 12 34 56 78`). Jamais un numéro surtaxé ni les urgences.
+
+Le son, tout sur le Mac : sa voix part dans BlackHole, qui devient le micro de macOS le temps de l'appel (FaceTime
+n'entend que lui, ni la pièce ni ton écho) ; ta voix sort des haut-parleurs du Mac et son micro à lui (épinglé sur
+celui d'avant) l'entend. Ton iPhone sonne : **décroche et dis « allô »** (c'est à ça qu'il sait que tu es là ; rien
+en 45 s, `JERVIS_BILAN_SOIR_SONNERIE_S` : il raccroche et t'envoie le vocal). Il se présente, te fait le bilan, et
+vous parlez sans dire son nom. Un blanc de 30 s, ou « c'est bon, bonne nuit » : il raccroche, et ton micro revient
+comme avant (s'il s'arrête en plein appel, au redémarrage suivant). Pendant l'appel, la surveillance des réunions ne
+prend pas FaceTime pour une réunion.
+
+Ce qui change au téléphone : ta voix y passe par le téléphone et les haut-parleurs, elle n'est donc **ni vérifiée ni
+apprise** (`voix.npy` reste intacte) ; un « oui » à une action sensible demandée pendant l'appel est refusé, comme
+une voix qu'il ne reconnaît pas (fais-le devant le Mac, ou par écrit). Si tu raccroches le premier, il s'en rend
+compte au blanc suivant. Le Mac doit être allumé et Steve lancé, haut-parleurs pas coupés.
 
 ### Le briefing avant réunion
 
@@ -1524,6 +1546,9 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_BILAN_SOIR_ATTENTE_MIN` | 10 | pas devant le Mac à l'heure : combien de minutes il t'attend avant de l'envoyer sur l'iPhone |
 | `JERVIS_BILAN_SOIR_RETARD_MIN` | 90 | au-delà de ce retard sur l'heure (Mac éteint), il laisse tomber pour ce soir |
 | `JERVIS_BILAN_SOIR_IPHONE` | oui | `non` = jamais sur l'iPhone : il attend que tu reviennes devant le Mac |
+| `JERVIS_BILAN_SOIR_APPEL` | (vide) | ton adresse Apple ou ton numéro : pas devant le Mac, il t'appelle en FaceTime audio pour le bilan (vide = le vocal) |
+| `JERVIS_BILAN_SOIR_SONNERIE_S` | 45 | combien de secondes il attend ton « allô » avant de raccrocher (et d'envoyer le vocal) |
+| `JERVIS_APPEL_CABLE` | BlackHole | un bout du nom du câble audio virtuel par lequel sa voix part dans l'appel |
 | `JERVIS_INITIATIVE` | oui | `non` = pas de ronde : il ne te dit plus rien de lui-même (hors briefing et rappels) |
 | `JERVIS_INITIATIVE_MIN` | 60 | minutes entre deux rondes |
 | `JERVIS_PROCESSUS_MAX` | 8 | processus de fond (runners) en même temps, au plus |
@@ -1632,6 +1657,7 @@ Ses autres outils d'infos (entreprises, adresses, produits… jusqu'à l'heure d
 Le catalogue des API et l'appel (aucune adresse du Mac ni du réseau, même par une redirection), son carnet, la mémoire courte, GraphQL en lecture seule, les clés (Trousseau et presse-papiers simulés : une clé ne part que vers son site), la mise à jour en fond, sans réseau ni DNS : `tests/test_apis.py`.
 Le mode réunion et le compte rendu en plusieurs langues (faux micro, fausse transcription, dossier temporaire) : `tests/test_reunion.py`.
 Le bureau : fenêtres, modes, musique, rangement et son annulation, santé du Mac, recherche Spotlight (faux AppleScript, faux dossier perso) : `tests/test_bureau.py`.
+Le bilan du soir et son vrai appel (faux appareils son, faux FaceTime, dossier temporaire) : `tests/test_bilan.py`, `tests/test_telephone.py`.
 Toute la suite d'un coup : `.venv/bin/python -m pytest` (chaque fichier tourne à part, comme ci-dessus).
 
 Ce qu'il fait seul, ce qu'il te demande et ce qui est interdit se règle dans `jervis/permissions.py`.
