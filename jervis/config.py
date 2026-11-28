@@ -222,6 +222,13 @@ PAIEMENTS = _env("PAIEMENTS", "non").lower() in {"oui", "on", "1"}
 COFFRE = _env("COFFRE", "oui").lower() not in {"non", "off", "0"}
 # Pendant combien de secondes la dernière page vue (son navigateur) sert à vérifier où il colle un secret.
 COFFRE_PAGE_S = int(_env("COFFRE_PAGE_S", "600"))
+# Un IBAN ou un numéro de sécu qu'il lit (ta fiche de paie, un relevé, un mail) et qu'il ne connaît pas encore :
+# rangé tout seul dans le coffre (« iban trouvé », d'où il vient), pour qu'il puisse s'en servir sans que tu le
+# copies ; COFFRE_TROUVES_MAX au plus (au-delà : seulement masqué). « non » : seulement masqué, comme avant.
+COFFRE_TROUVES = _env("COFFRE_TROUVES", "oui").lower() not in {"non", "off", "0"}
+COFFRE_TROUVES_MAX = int(_env("COFFRE_TROUVES_MAX", "20"))
+# Le temps qu'un script qui écrit tes secrets dans un document (remplir_document) a pour finir.
+COFFRE_DOCUMENT_S = int(_env("COFFRE_DOCUMENT_S", "180"))
 # Son propre code (proprio.py) : quand tu lui dis « t'as le droit », il le modifie lui-même, après que macOS t'a
 # demandé le mot de passe de ta session (jamais vu ni par lui ni par Claude). L'accord reste ouvert tant de minutes.
 # « non » : plus de mot de passe (comme avant : il modifie son code sans rien demander, sauf après une page lue).

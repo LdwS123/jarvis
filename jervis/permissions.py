@@ -1366,7 +1366,7 @@ def _cage_profil(permis: Path | None = None, projets: bool = False) -> str:
         fermes, ouverts = _projets_fermes()
         jetables = " ".join(f'(regex #"{_sans_casse(m)}")' for m in _CAGE_JETABLES)
         projets_fermes = f"(deny file-write* {sp(fermes, 'subpath')})(allow file-write* {sp(ouverts, 'subpath')} {jetables})"
-    motifs = " ".join(f'(regex #"{_sans_casse(m)}")' for m in _SE_LANCE_MOTIFS)
+    motifs = " ".join(f'(regex #"{_sans_casse(m)}")' for m in _SE_LANCE_MOTIFS)  + " " + _son_code_regles()
     # Leurs dossiers parents ne se renomment pas (sinon : renommer ~/Jervis et en reposer un faux à la place) ;
     # y créer un fichier reste permis, c'est le chemin de l'enfant qui compte.
     parents = [maison, maison / "Library", maison / "Library/Application Support", _RACINE]
@@ -1387,6 +1387,23 @@ def _cage_profil(permis: Path | None = None, projets: bool = False) -> str:
             f"(deny file-write-unlink {sp(parents, 'literal')})"
             f"(deny process-exec {sp(_CAGE_INTERDITS, 'literal')})"
             + (f'(allow file-write* (subpath "{_sbpl(permis)}"))' if permis else ""))  # en dernier : il l'emporte
+
+
+def _son_code_regles() -> str:
+    """Son code et ta voix, comme proprio les nomme (tests/, outils/, README…, voix.npy) : dans la cage, jamais écrits
+    (son vrai chemin pour changer son code reste Edit, avec ton mot de passe). Une regex par nom : macOS refuse une
+    chaîne de plus de 1 000 signes environ dans un profil."""
+    racine = re.escape(str(_RACINE))
+    return " ".join(f'(regex #"{_sans_casse(f"^{racine}/{re.escape(n)}(/|$)")}")'
+                    for n in sorted(proprio.SON_CODE | proprio.TA_VOIX))
+
+
+def profil_document() -> str:
+    """remplir_document (coffre.py) : la cage, plus ni Internet, ni réseau local, ni presse-papiers — ses secrets
+    vont dans le document, nulle part ailleurs."""
+    return (_cage_profil() + "(deny network*)"
+            '(deny mach-lookup (global-name "com.apple.dnssd.service") (global-name-prefix "com.apple.nsurlsessiond")'
+            ' (global-name-prefix "com.apple.pasteboard"))')
 
 
 def encager(commande: str, permis: Path | None = None) -> str:
@@ -1935,15 +1952,20 @@ class Gardien:
         return resultat
 
     async def _copier_secret(self, entree: dict[str, Any]):
-        """Coller un secret de son coffre (coffre.py) : sur un site qui lui est lié, sans question ; ailleurs, une
-        question écrite par le code (son oui lie le site) ; jamais si la page ouverte n'est pas ce site, ni dans une
-        messagerie, un mail ou un réseau social qui ne lui est pas lié : ses secrets ne partent chez personne."""
+        """Coller un secret de son coffre (coffre.py) : sur un site qui lui est lié, la page de ce site ouverte, sans
+        question ; ailleurs, page inconnue, après un texte venu d'ailleurs ou pendant un appel, une question écrite
+        par le code (son oui lie le site, hors appel et hors méfiance) ; jamais si la page ouverte n'est pas ce site,
+        ni dans une messagerie, un mail ou un réseau social qui ne lui est pas lié : ses secrets ne partent chez
+        personne."""
         nom, site = coffre.nom_valide(entree.get("nom")), comptes.domaine(entree.get("site"))
         fiche = coffre.fiche(nom)
-        if not fiche or not site or not nom:
+        if not fiche or not nom:
             return PermissionResultAllow(updated_input=entree)  # l'outil dira lui-même ce qui manque
+        if not site or "." not in site:
+            return PermissionResultDeny(message="Donne le domaine exact de la page (« impots.gouv.fr »), pas un "
+                                                "morceau (« gouv.fr », « fr »).")
         page = coffre.page_ouverte()
-        if page and not coffre.couvre(site, page):
+        if page and not coffre.sur_le_site(page, site):
             return PermissionResultDeny(message=f"La page ouverte est {page}, pas {site} : son « {nom} » ne se colle "
                                                 "que sur la page du site où il sert. Ouvre la bonne page, puis "
                                                 "recommence avec son domaine exact.")
@@ -1952,9 +1974,13 @@ class Gardien:
             return PermissionResultDeny(message="Ses données secrètes ne partent dans aucune messagerie, aucun mail, "
                                                 "aucun réseau social : s'il veut les envoyer à quelqu'un, il le fait "
                                                 "lui-même. Dis-le-lui en une phrase.")
-        if lie and not self.en_appel:
+        mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
+        if lie and page and not self.en_appel and not mefiant:
             return PermissionResultAllow(updated_input={"nom": nom, "site": site})
-        question = f"Je vais coller ton « {nom} » ({fiche.get('indice', '')}) sur {site}. Je peux ?"
+        source = f", lu dans {fiche['source']}" if fiche.get("source") else ""
+        question = (f"Je vais coller ton « {nom} » ({fiche.get('indice', '')}{source}) sur {site}"
+                    + ("" if page else " (je ne vois pas quelle page est ouverte : vérifie que c'est bien elle)")
+                    + ". Je peux ?")
         cle = f"coffre:{nom}:{site}"
         async with self._verrou:
             if cle not in self._reponses:
@@ -1965,9 +1991,33 @@ class Gardien:
         if not self._reponses[cle]:
             return PermissionResultDeny(message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "
                                                 "dis-lui simplement que tu n'as rien collé.")
-        if not self.en_appel:
-            coffre.lier(nom, site)  # la prochaine fois, sans question
+        if not self.en_appel and not mefiant:
+            coffre.lier(nom, site)  # la prochaine fois, sur sa page, sans question
         return PermissionResultAllow(updated_input={"nom": nom, "site": site})
+
+    async def _remplir_document(self, entree: dict[str, Any]):
+        """Mettre des secrets de son coffre dans un document (coffre.remplir_document, un script sans Internet) : sans
+        question quand c'est lui qui demande ; après un texte venu d'ailleurs ou pendant un appel, une question écrite
+        par le code, avec le script et les noms (une page ne choisit pas où vont ses secrets)."""
+        noms = [n for n in (coffre.nom_valide(x) for x in (entree.get("noms") or [])) if n and coffre.fiche(n)]
+        mefiant = config.MEFIANCE and (self.contenu_externe or self.mefiance or self.dehors_dans_le_fil)
+        if not noms or not (mefiant or self.en_appel):
+            return PermissionResultAllow(updated_input=entree)  # l'outil dira lui-même ce qui manque
+        script = str(entree.get("script") or "")
+        montre = script.replace(str(Path.home()), "~", 1)
+        question = (f"Je vais mettre ton {', ton '.join(f'« {n} »' for n in noms)} dans un document, avec le script "
+                    f"{montre} (sans Internet). Je peux ?")
+        cle = f"coffre:document:{script}:{','.join(sorted(noms))}"
+        async with self._verrou:
+            if cle not in self._reponses:
+                self._reponses[cle] = await self._confirmer(question)
+                noter_blocage("mcp__jervis__remplir_document", entree, pourquoi="tes secrets dans un document, après "
+                              "un texte venu d'ailleurs", cible=None, autorisable=False, en_appel=self.en_appel,
+                              question=question, accorde=self._reponses[cle])
+        if not self._reponses[cle]:
+            return PermissionResultDeny(message="L'utilisateur a refusé. N'insiste pas et ne tente pas d'autre moyen : "
+                                                "dis-lui simplement que tu n'as rien mis dans le document.")
+        return PermissionResultAllow(updated_input=entree)
 
     async def _coffre(self, outil: str, entree: dict[str, Any]) -> tuple[dict[str, Any], Any]:
         """Ranger ou retirer un secret : après un texte venu d'ailleurs, un rangement ne lie aucun site (une page ne
@@ -2072,6 +2122,8 @@ class Gardien:
         noter_outil(entree)
         if outil == "mcp__jervis__copier_secret":
             return await self._copier_secret(entree)
+        if outil == "mcp__jervis__remplir_document":
+            return await self._remplir_document(entree)
         if outil in ("mcp__jervis__ranger_secret", "mcp__jervis__oublier_secret"):
             entree, refus = await self._coffre(outil, entree)
             if refus:

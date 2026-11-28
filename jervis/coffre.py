@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 import time
@@ -83,7 +84,9 @@ def fiche(nom: str | None) -> dict[str, Any] | None:
 
 
 def lie(f: dict[str, Any] | None, site: str) -> bool:
-    return bool(f) and any(couvre(s, site) for s in f.get("sites") or [])
+    """Le site demandé est un site lié, ou l'une de ses adresses (« connexion.impots.gouv.fr » pour
+    « impots.gouv.fr ») ; jamais plus large (« gouv.fr », « fr » ne couvrent pas « impots.gouv.fr »)."""
+    return bool(f) and any(sur_le_site(site, s) for s in f.get("sites") or [])
 
 
 def lier(nom: str, site: str) -> None:
@@ -93,8 +96,14 @@ def lier(nom: str, site: str) -> None:
         _ecrire(donnees)
 
 
+def sur_le_site(adresse: str, site: str) -> bool:
+    """« connexion.impots.gouv.fr » est sur le site « impots.gouv.fr » ; l'inverse, non (dans un seul sens)."""
+    return "." in site and (adresse == site or adresse.endswith("." + site))
+
+
 def couvre(site: str, page: str) -> bool:
-    """La page « connexion.impots.gouv.fr » est bien le site « impots.gouv.fr » (et l'inverse)."""
+    """L'un est une adresse de l'autre, dans un sens ou dans l'autre : seulement pour refuser plus large
+    (une messagerie), jamais pour permettre."""
     return page == site or page.endswith("." + site) or site.endswith("." + page)
 
 
@@ -186,7 +195,7 @@ def _ibans(texte: str) -> list[tuple[int, int, str]]:
     return trouves
 
 
-def trouver(texte: str, phrases: bool = False) -> list[Trouve]:
+def trouver(texte: str, phrases: bool = False, connus_seulement: bool = False) -> list[Trouve]:
     """Ce qu'il faut masquer dans ce texte, sans chevauchement, dans l'ordre : les valeurs déjà rangées (mot pour
     mot), les IBAN, les numéros de sécu, les cartes, et (`phrases`) « mon mot de passe … c'est … »."""
     pris: list[Trouve] = []
@@ -199,6 +208,8 @@ def trouver(texte: str, phrases: bool = False) -> list[Trouve]:
         if len(valeur) >= MASQUE_MIN:
             for m in re.finditer(re.escape(valeur), texte):
                 ajouter(Trouve(m.start(), m.end(), "connu", valeur, nom))
+    if connus_seulement:
+        return sorted(pris)
     for debut, fin, valeur in _ibans(texte):
         ajouter(Trouve(debut, fin, "iban", valeur))
     for m in _NIR.finditer(texte):
@@ -234,11 +245,11 @@ def _remplacer(texte: str, trouves: list[Trouve], noms: dict[int, str]) -> str:
     return "".join(morceaux) + texte[fin:]
 
 
-def masquer(texte: str) -> str:
+def masquer(texte: str, connus_seulement: bool = False) -> str:
     """Le texte tel que Claude peut le lire : chaque secret remplacé par « [🔒 nom] » (rien n'est rangé)."""
     if not config.COFFRE or not texte:
         return texte
-    trouves = trouver(texte)
+    trouves = trouver(texte, connus_seulement=connus_seulement)
     return _remplacer(texte, trouves, {}) if trouves else texte
 
 
@@ -294,10 +305,19 @@ def page_ouverte() -> str | None:
     return None
 
 
+_BASE64 = re.compile(r"(?:data:[\w.+/-]+;base64,)?[A-Za-z0-9+/_-]+={0,2}")
+
+
+def _base64(s: str) -> bool:
+    """Une image (ou un fichier) en base64 : longue, et rien d'autre que l'alphabet du base64. Un long JSON ou une
+    URL sans espace n'en est pas un (des guillemets, des « : », des « & ») : il est masqué comme le reste."""
+    return len(s) > 1000 and bool(_BASE64.fullmatch(s))
+
+
 def _masquer_objet(o: Any) -> Any:
     """Masque chaque texte d'une sortie d'outil, sans toucher à sa forme (ni aux images)."""
     if isinstance(o, str):
-        return o if (len(o) > 1000 and not re.search(r"\s", o[:1000])) else masquer(o)  # (une image en base64)
+        return masquer(o, connus_seulement=_base64(o))  # (en base64 : seulement tes valeurs rangées, mot pour mot)
     if isinstance(o, list):
         return [_masquer_objet(x) for x in o]
     if isinstance(o, dict):
@@ -305,6 +325,19 @@ def _masquer_objet(o: Any) -> Any:
             return o
         return {k: _masquer_objet(v) for k, v in o.items()}
     return o
+
+
+def _textes(o: Any):
+    """Les textes d'une sortie d'outil (ni images, ni base64)."""
+    if isinstance(o, str):
+        if not _base64(o):
+            yield o
+    elif isinstance(o, list):
+        for x in o:
+            yield from _textes(x)
+    elif isinstance(o, dict) and o.get("type") != "image":
+        for x in o.values():
+            yield from _textes(x)
 
 
 def masquer_sortie(outil: str, sortie: Any) -> Any | None:
@@ -317,9 +350,51 @@ def masquer_sortie(outil: str, sortie: Any) -> Any | None:
     return None if neuve == sortie else neuve
 
 
+TROUVES_PAR_SORTIE = 3  # au plus, rangés d'un coup (un relevé de compte liste les IBAN de tous ceux qui t'ont payé)
+_NOMS_TROUVES = {"iban": "iban trouvé", "nir": "numéro de sécu trouvé"}
+
+
+def _source(outil: str, entree: Any) -> str:
+    """D'où vient une donnée lue : le fichier, la page ouverte, la boîte mail, sinon l'outil."""
+    entree = entree if isinstance(entree, dict) else {}
+    chemin = entree.get("file_path") or entree.get("path")
+    if isinstance(chemin, str) and chemin:
+        return Path(chemin).name[:60]
+    if "gmail" in outil.lower() or "mail" in outil.lower():
+        return "un mail"
+    if outil.startswith("mcp__") and (p := page_ouverte()):
+        return p
+    return outil.split("__")[-1][:40] or "un outil"
+
+
+async def ranger_trouves(outil: str, entree: Any, sortie: Any) -> list[str]:
+    """Chaque IBAN ou numéro de sécu lu ici et qu'il ne connaît pas encore : rangé dans le coffre (« iban trouvé »,
+    d'où il vient, sans site), pour qu'il s'en serve sans que tu le copies. Jamais une carte (payer reste exclu).
+    Les noms rangés."""
+    if not (config.COFFRE and config.COFFRE_TROUVES):
+        return []
+    deja = sum(1 for f in fiches().values() if f.get("source"))
+    ranges: list[str] = []
+    source = None
+    for s in _textes(sortie):
+        for t in trouver(s):
+            if t.genre not in _NOMS_TROUVES or _nom_de(t.genre, t.valeur):
+                continue
+            if len(ranges) >= TROUVES_PAR_SORTIE or deja + len(ranges) >= config.COFFRE_TROUVES_MAX:
+                return ranges
+            source = source or _source(outil, entree)
+            nom = _nom_libre(_NOMS_TROUVES[t.genre])
+            if await enregistrer(nom, t.genre, t.valeur, [], source=source) is None:
+                ranges.append(nom)
+    return ranges
+
+
 async def crochet(entree: dict, _id: str | None, _contexte) -> dict:
-    """(Crochet PostToolUse) Avant que Claude lise la sortie d'un outil, quel qu'il soit : ses secrets masqués."""
-    neuve = masquer_sortie(str(entree.get("tool_name") or ""), entree.get("tool_response"))
+    """(Crochet PostToolUse) Avant que Claude lise la sortie d'un outil, quel qu'il soit : ce qu'il ne connaît pas
+    encore rangé (ranger_trouves), puis ses secrets masqués."""
+    outil, sortie = str(entree.get("tool_name") or ""), entree.get("tool_response")
+    await ranger_trouves(outil, entree.get("tool_input"), sortie)
+    neuve = masquer_sortie(outil, sortie)
     if neuve is None:
         return {}
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": neuve}}
@@ -367,14 +442,15 @@ async def _vider_presse_papiers(valeur: str) -> None:
         await comptes._lancer("pbcopy", entree="")
 
 
-async def enregistrer(nom: str, genre: str, valeur: str, sites: list[str]) -> str | None:
-    """Range dans le Trousseau, puis note la fiche (sans la valeur). None si c'est fait, sinon le problème."""
+async def enregistrer(nom: str, genre: str, valeur: str, sites: list[str], source: str | None = None) -> str | None:
+    """Range dans le Trousseau, puis note la fiche (sans la valeur). None si c'est fait, sinon le problème.
+    `source` : d'où il l'a lue (rangée toute seule), pour la reconnaître."""
     if probleme := await _trousseau_ranger(nom, valeur):
         return probleme
     _valeurs[nom] = valeur
     donnees = fiches()
     donnees[nom] = {"genre": genre, "indice": indice(genre, valeur), "sites": sorted(set(sites)),
-                    "date": datetime.now().isoformat(timespec="minutes")}
+                    "date": datetime.now().isoformat(timespec="minutes"), **({"source": source} if source else {})}
     _ecrire(donnees)
     return None
 
@@ -448,7 +524,8 @@ async def lister_secrets(_args: dict[str, Any]) -> dict[str, Any]:
     if not donnees:
         return _texte("Son coffre est vide. Pour y ranger quelque chose : il le copie, puis ranger_secret.")
     return _texte("\n".join(f"« {nom} » — {GENRES.get(f.get('genre'), 'secret')} {f.get('indice', '')} — "
-                            f"sites : {', '.join(f.get('sites') or []) or 'aucun (question avant de coller)'}"
+                            + (f"lu dans {f['source']} — " if f.get("source") else "")
+                            + f"sites : {', '.join(f.get('sites') or []) or 'aucun (question avant de coller)'}"
                             for nom, f in sorted(donnees.items())))
 
 
@@ -487,17 +564,86 @@ async def oublier_secret(args: dict[str, Any]) -> dict[str, Any]:
     return _texte(f"« {nom} » est retiré de son coffre et de son Trousseau.")
 
 
-OUTILS_COFFRE = [ranger_secret, lister_secrets, copier_secret, oublier_secret]
+PYTHON_DOCUMENT = "/usr/bin/python3"  # celui du Mac (PyMuPDF, reportlab y sont, s'il les a installés)
+
+
+@tool("remplir_document", "Écrit des données de son coffre (IBAN, numéro de sécu, numéro fiscal…) dans un "
+      "document du Mac (PDF à remplir ou à fabriquer, Word, texte…) sans que tu les voies. Écris d'abord un script "
+      "Python qui fabrique ou remplit le document, en prenant chaque valeur dans "
+      "json.loads(os.environ[\"COFFRE\"])[\"iban\"] (les noms de lister_secrets), puis remplir_document avec son "
+      "chemin et ces noms : il tourne sur le Mac, sans Internet, et ce qu'il affiche te revient masqué. `python` : "
+      "l'interpréteur à prendre (par défaut /usr/bin/python3).",
+      {"type": "object",
+       "properties": {"script": {"type": "string"}, "noms": {"type": "array", "items": {"type": "string"}},
+                      "python": {"type": "string"}},
+       "required": ["script", "noms"]})
+async def remplir_document(args: dict[str, Any]) -> dict[str, Any]:
+    from . import permissions, proprio  # (permissions importe ce module)
+    try:
+        script = Path(os.path.expanduser(str(args.get("script") or ""))).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return _erreur("`script` : le chemin d'un script Python (.py) sur le Mac.")
+    if script.suffix.lower() != ".py" or not script.is_file():
+        return _erreur("`script` : le chemin d'un script Python (.py) qui existe : écris-le d'abord (Write).")
+    if proprio.son_code(str(script)):
+        return _erreur("Ce script est dans son propre code : mets-le ailleurs (dans le dossier du document).")
+    noms = [nom_valide(n) for n in (args.get("noms") or [])]
+    if not noms or any(not n or not fiche(n) for n in noms):
+        return _erreur("`noms` : les noms de son coffre à donner au script (lister_secrets).")
+    if not Path(permissions.CAGE_EXEC).exists():
+        return _erreur("Sans sandbox-exec, je ne peux pas couper Internet au script : rien n'est lancé.")
+    valeurs: dict[str, str] = {}
+    for nom in dict.fromkeys(noms):
+        valeur = _valeurs.get(nom) or await _trousseau_retrouver(nom)
+        if not valeur:
+            return _erreur(f"« {nom} » n'est plus dans son Trousseau : rien n'est lancé.")
+        valeurs[nom] = _valeurs[nom] = valeur
+    python = str(args.get("python") or (PYTHON_DOCUMENT if Path(PYTHON_DOCUMENT).exists() else sys.executable))
+    env = {**{k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP")},
+           **permissions.cage_env(), "COFFRE": json.dumps(valeurs, ensure_ascii=False)}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            permissions.CAGE_EXEC, "-p", permissions.profil_document(), python, str(script), cwd=str(script.parent),
+            env=env, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT)
+    except OSError as e:
+        return _erreur(f"Le script n'a pas pu démarrer ({e.strerror or e}).")
+    try:
+        brut, _ = await asyncio.wait_for(proc.communicate(), config.COFFRE_DOCUMENT_S)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return _erreur(f"Le script n'a pas fini en {config.COFFRE_DOCUMENT_S} secondes : arrêté.")
+    sortie = brut.decode(errors="replace")[-3000:]
+    for nom, valeur in valeurs.items():  # même une valeur courte (un code), même découpée autrement
+        sortie = sortie.replace(valeur, f"[🔒 {nom}]")
+    sortie = masquer(sortie).strip()
+    if proc.returncode:
+        return _erreur(f"Le script s'est arrêté en erreur (code {proc.returncode}) :\n{sortie or '(rien affiché)'}")
+    return _texte(f"Le script a tourné avec {', '.join(f'« {n} »' for n in valeurs)}, sans Internet."
+                  + (f" Ce qu'il a affiché :\n{sortie}" if sortie else "")
+                  + "\nVérifie le document : en le relisant, tu verras [🔒 nom] à la place de chaque valeur, c'est "
+                    "normal (elle y est bien).")
+
+
+OUTILS_COFFRE = [ranger_secret, lister_secrets, copier_secret, oublier_secret, remplir_document]
 
 CONSIGNE = """\
 - Ses données sensibles (IBAN, numéro de sécu, numéro fiscal, identifiants FranceConnect, impots.gouv, ameli,
-  mots de passe…) sont dans son coffre, sur son Mac : tu ne les vois jamais, seulement « [🔒 nom] » (lister_secrets
-  pour la liste). Tu t'en sers sans problème pour remplir un formulaire ou te connecter : clique dans le champ,
-  copier_secret (le nom, le domaine exact de la page), puis cmd+v. Jamais ailleurs que dans le champ d'un site :
-  ni dans un message, un mail, un fichier, une commande, ni à voix haute ; s'il veut envoyer son IBAN à quelqu'un,
-  dis-lui de le faire lui-même. Une donnée qui n'est pas encore dans le coffre : ne la lui fais jamais dire ni
-  écrire, demande-lui de la copier (cmd+c), puis ranger_secret avec un nom simple et le site où elle sert.
-  « [🔒 un IBAN] », « [🔒 une carte bancaire] » : une donnée lue que le coffre a cachée ; tu ne peux pas la lire.
+  mots de passe…) sont dans son coffre, sur son Mac : tu ne les vois pas, seulement « [🔒 nom] » (lister_secrets
+  pour la liste), mais tu t'en sers toi-même, il n'a rien à recopier :
+  · un champ de site (formulaire, connexion) : clique dans le champ, copier_secret (le nom, le domaine exact de la
+    page), puis cmd+v ;
+  · un document (une déclaration en PDF, une lettre, un RIB à joindre) : écris un script Python qui le remplit en
+    lisant les valeurs dans os.environ["COFFRE"], puis remplir_document. Ne dis jamais « je n'ai pas le droit de
+    l'écrire » ni « remplis-le au stylo » : c'est à toi de le faire.
+  Une donnée qui manque : cherche-la toi-même (ses fiches de paie, relevés, mails, documents) ; un IBAN ou un
+  numéro de sécu que tu lis est rangé tout seul (« [🔒 iban trouvé] », lister_secrets dit d'où il vient : prends
+  celui qui est à son nom). Seulement si tu ne la trouves nulle part : demande-lui de la copier (cmd+c), puis
+  ranger_secret ; ne la lui fais jamais dire ni écrire. Un numéro que tu lis en clair (numéro fiscal, Steuer-ID,
+  numéro client, numéro d'allocataire) : tu l'écris toi-même, dans un champ comme dans un document.
+  Jamais dans un message, le corps d'un mail ni à voix haute ; s'il veut envoyer son IBAN à quelqu'un, mets-le
+  dans un document (remplir_document) qu'il joint, ou dis-lui de le faire lui-même.
+  « [🔒 un IBAN] », « [🔒 une carte bancaire] » : une donnée cachée que tu ne peux pas utiliser (une carte : jamais).
 """
 
 

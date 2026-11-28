@@ -857,10 +857,26 @@ ton Trousseau macOS (`jervis-coffre`), et Claude ne lit que leur nom, « [🔒 i
   clé ou leur chiffre de contrôle : une date, un téléphone ou un numéro de commande passent) deviennent
   « [🔒 un IBAN] ».
 - **Pour s'en servir**, il clique dans le champ, puis `copier_secret` met la valeur au presse-papiers (90 s au plus)
-  et il colle. Le gardien vérifie d'abord le site : celui où tu l'as rangée, ou un autre après ta question (« Je vais
-  coller ton « iban » (FR76 … 0189) sur urssaf.fr. Je peux ? ») ; si la page ouverte dans son navigateur n'est pas
+  et il colle. Le gardien vérifie d'abord le site : sans question seulement sur le site où tu l'as rangée (ou une de
+  ses adresses, jamais plus large : « gouv.fr » ne vaut pas « impots.gouv.fr »), sa page ouverte dans son
+  navigateur ; ailleurs, si la page ouverte est inconnue, ou juste après un texte venu d'ailleurs, il te pose la
+  question (« Je vais coller ton « iban » (FR76 … 0189) sur urssaf.fr. Je peux ? »). Si la page ouverte n'est pas
   ce site, ou si c'est une messagerie (WhatsApp, Gmail, un réseau social…), c'est non. Tes secrets ne partent donc
   jamais dans un message, un mail ou à quelqu'un : pour envoyer ton IBAN, c'est toi qui l'envoies.
+- **Il les trouve lui-même** : tu n'as rien à copier. Un IBAN ou un numéro de sécu qu'il lit sans le connaître
+  (ta fiche de paie, un relevé, un mail, une page) est rangé tout seul, sur le Mac, sous « iban trouvé » avec d'où il
+  vient (« lu dans fiche_paie_mars.pdf », que `lister_secrets` et la question avant de coller te montrent) ; au plus
+  3 par lecture (un relevé liste les IBAN de tous ceux qui t'ont payé : il prend celui qui est à ton nom), 20 en
+  tout ; jamais une carte. Il ne te demande de copier une donnée que s'il ne la trouve nulle part.
+- **Il remplit tes documents** (une déclaration d'impôts en PDF, une lettre, un RIB à joindre) : il écrit un petit
+  script Python qui lit les valeurs dans `os.environ["COFFRE"]`, puis `remplir_document` le lance sur le Mac
+  (`/usr/bin/python3`, avec PyMuPDF ou reportlab si tu les as) dans une cage sans Internet, sans réseau local ni
+  presse-papiers, et sans pouvoir écrire dans son code : ton IBAN va dans le document, nulle part ailleurs, et ce
+  que le script affiche lui revient masqué. Un numéro qu'il lit en clair (numéro fiscal, Steuer-ID, numéro
+  d'allocataire) : il l'écrit lui-même, dans un champ comme dans un document. Il ne te répond plus « je n'ai pas le
+  droit » ni « remplis-le à la main ». Juste après un texte venu d'ailleurs ou pendant un appel, il te demande
+  d'abord (« Je vais mettre ton « iban » dans un document, avec le script ~/Documents/…/remplir.py (sans
+  Internet). Je peux ? »).
 - **Payer reste coupé** (voir plus haut) : le coffre n'y change rien.
 - Après une page, un mail ou un texte venu d'ailleurs, ranger un secret ne le lie à aucun site, et en retirer ou en
   remplacer un te demande ton accord.
@@ -1585,6 +1601,9 @@ Tu peux changer chaque réglage avec une variable d'environnement, par exemple :
 | `JERVIS_PAIEMENTS` | non | `oui` = il peut payer, après ton accord (montant et marchand) ; `non` = il s'arrête avant tout paiement et ses clics « Payer », « Acheter »… sont refusés. Un numéro de carte reste refusé dans ses outils dans les deux cas |
 | `JERVIS_COFFRE` | oui | `non` = plus de masquage : tes IBAN, numéros et secrets rangés partent tels quels chez Claude (voir « Son coffre ») |
 | `JERVIS_COFFRE_PAGE_S` | 600 | pendant combien de secondes la dernière page vue dans son navigateur sert à vérifier où il colle un secret |
+| `JERVIS_COFFRE_TROUVES` | oui | `non` = un IBAN ou un numéro de sécu qu'il lit sans le connaître est seulement masqué, plus rangé tout seul (il te demandera de le copier) |
+| `JERVIS_COFFRE_TROUVES_MAX` | 20 | combien de données trouvées toutes seules il garde au plus dans son coffre |
+| `JERVIS_COFFRE_DOCUMENT_S` | 180 | le temps laissé au script de `remplir_document` avant qu'il soit arrêté |
 | `JERVIS_CODE_MOT_DE_PASSE` | oui | `non` = il modifie son propre code sans le mot de passe du Mac (voir « Il change son propre code ») |
 | `JERVIS_CODE_ACCES_MIN` | 30 | combien de minutes l'accord reste ouvert après le mot de passe du Mac |
 | `JERVIS_CONNECTEURS_FOND_S` | 10 | le temps qu'un agent attend ses connecteurs (Gmail, Agenda…) avant de démarrer sans eux |
@@ -1708,7 +1727,7 @@ Valider depuis l'iPhone, les recettes automatiques, le catalogue gratuit et ses 
 Le graphe (sans Claude ni Ollama, la base embarquée dans un dossier temporaire) : `tests/test_graphe.py`.
 Ses documents et Notion (dossier temporaire, faux client Claude) : `tests/test_documents.py`.
 Créer des comptes (faux Trousseau, faux presse-papiers, fausse base de Messages) : `tests/test_comptes.py`.
-Le coffre (masquage, Trousseau, presse-papiers et fenêtre du mot de passe simulés) et son propre code : `tests/test_coffre.py`.
+Le coffre (masquage, données trouvées rangées toutes seules, un vrai document rempli dans la cage sans Internet ; Trousseau, presse-papiers et fenêtre du mot de passe simulés) et son propre code : `tests/test_coffre.py`.
 Payer coupé, les numéros de carte, les CAPTCHA et ses publications (fausse notification, dossier temporaire) : `tests/test_paiements.py`.
 Ses outils d'infos (actualité, météo, change, Wikipédia, jours fériés, cryptos), sans réseau : `tests/test_infos.py`.
 Ses autres outils d'infos (entreprises, adresses, produits… jusqu'à l'heure dans le monde), sans réseau : `tests/test_infos2.py`.

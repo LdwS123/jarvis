@@ -189,8 +189,73 @@ verifier("oublier_secret : hors du Trousseau, du registre et du masquage",
 coffre._valeurs.clear()
 verifier("charger : au démarrage, les valeurs reviennent du Trousseau",
          (asyncio.run(coffre.charger()), coffre.masquer(IBAN)), (3, "[🔒 iban]"))
-verifier("outils : les quatre sont à lui", {"ranger_secret", "lister_secrets", "copier_secret", "oublier_secret"}
-         <= {t.name for t in outils.OUTILS}, True)
+verifier("outils : les cinq sont à lui", {"ranger_secret", "lister_secrets", "copier_secret", "oublier_secret",
+                                         "remplir_document"} <= {t.name for t in outils.OUTILS}, True)
+
+# --- Ce qu'il trouve lui-même : rangé tout seul ---------------------------------------------------------------
+lu = {"tool_name": "Read", "tool_input": {"file_path": "/Users/x/Documents/fiche_paie_mars.pdf"},
+      "tool_response": {"type": "text", "file": {"content": f"Virement sur {IBAN_2}, sécu {NIR}, carte {CARTE}"}}}
+r = asyncio.run(coffre.crochet(lu, None, None))
+verifier("trouvé dans un fichier : un IBAN inconnu rangé avec sa source, masqué par son nom ; la carte jamais rangée",
+         (r["hookSpecificOutput"]["updatedToolOutput"]["file"]["content"], trousseau.get("iban trouvé"),
+          coffre.fiche("iban trouvé")["source"], coffre.fiche("iban trouvé")["sites"], CARTE in trousseau.values()),
+         ("Virement sur [🔒 iban trouvé], sécu [🔒 numéro de sécu], carte [🔒 une carte bancaire]", IBAN_2,
+          "fiche_paie_mars.pdf", [], False))
+verifier("lister_secrets : d'où vient une donnée trouvée",
+         "lu dans fiche_paie_mars.pdf" in texte(asyncio.run(coffre.lister_secrets.handler({}))), True)
+ibans = [f"DE{98 - int('370400440532013' + str(i).zfill(3) + '131400') % 97:02d}370400440532013{i:03d}"
+         for i in range(5)]
+verifier("des IBAN d'exemple valides", all(coffre.iban_valide(i) for i in ibans), True)
+avant = len(trousseau)
+asyncio.run(coffre.crochet({"tool_name": "Bash", "tool_response": {"stdout": " ".join(ibans)}}, None, None))
+verifier("un relevé plein d'IBAN : au plus 3 rangés d'un coup, source = l'outil",
+         (len(trousseau) - avant, coffre.fiche("iban trouvé 2")["source"]), (coffre.TROUVES_PAR_SORTIE, "Bash"))
+config.COFFRE_TROUVES = False
+avant = len(trousseau)
+r = asyncio.run(coffre.crochet({"tool_name": "Bash", "tool_response": {"stdout": ibans[4]}}, None, None))
+verifier("JERVIS_COFFRE_TROUVES=non : masqué, pas rangé",
+         (r["hookSpecificOutput"]["updatedToolOutput"]["stdout"], len(trousseau) - avant), ("[🔒 un IBAN]", 0))
+config.COFFRE_TROUVES = True
+json_long = '{"releve": [' + ", ".join(['{"libelle": "loyer", "montant": "-750,00"}'] * 40) + f', "{ibans[4]}"]}}'
+b64 = "QUJD" * 400
+verifier("une longue sortie : un JSON est masqué, du vrai base64 laissé tel quel, une valeur rangée masquée partout",
+         (ibans[4] in coffre._masquer_objet(json_long), coffre._masquer_objet(b64),
+          coffre._masquer_objet("QUJD" * 300 + IBAN + "QUJD" * 300)),
+         (False, b64, "QUJD" * 300 + "[🔒 iban]" + "QUJD" * 300))
+
+# --- Un document rempli avec ses secrets, par un script sans Internet -----------------------------------------
+DOC = TMP / "declaration"
+DOC.mkdir()
+ESSAI_CODE = proprio.RACINE / "tests" / "_essai_cage_document.txt"
+SCRIPT = DOC / "remplir.py"
+SCRIPT.write_text(f"""import json, os, socket
+v = json.loads(os.environ["COFFRE"])
+open("declaration.txt", "w").write("IBAN : " + v["iban"])
+print("écrit", v["iban"])
+try:
+    socket.create_connection(("1.1.1.1", 443), timeout=3)
+    print("RÉSEAU OUVERT")
+except OSError:
+    print("réseau coupé")
+try:
+    open({str(ESSAI_CODE)!r}, "w").write("x")
+    print("CODE ÉCRIT")
+except OSError:
+    print("code fermé")
+""")
+verifier("remplir_document : pas de script, un nom inconnu, un script dans son code → erreur",
+         [asyncio.run(coffre.remplir_document.handler(a)).get("is_error") for a in (
+             {"script": str(DOC / "absent.py"), "noms": ["iban"]}, {"script": str(SCRIPT), "noms": ["rien"]},
+             {"script": str(proprio.RACINE / "tests" / "test_coffre.py"), "noms": ["iban"]})], [True] * 3)
+if Path(permissions.CAGE_EXEC).exists():
+    r = asyncio.run(coffre.remplir_document.handler({"script": str(SCRIPT), "noms": ["iban"]}))
+    ecrit_dans_le_code = ESSAI_CODE.exists()
+    ESSAI_CODE.unlink(missing_ok=True)
+    verifier("remplir_document : la valeur dans le document, masquée dans ce qu'il lit ; sans Internet ; son code fermé",
+             ((DOC / "declaration.txt").read_text(), IBAN in texte(r), "écrit [🔒 iban]" in texte(r),
+              "réseau coupé" in texte(r), "code fermé" in texte(r), ecrit_dans_le_code),
+             (f"IBAN : {IBAN}", False, True, True, True, False))
+
 
 
 # --- Le Gardien : où coller -----------------------------------------------------------------------------------
@@ -215,32 +280,60 @@ async def decide(g, outil, entree):
 D, A = "Deny", "Allow"
 
 
+def page(url):
+    coffre.noter_page("mcp__navigateur__browser_navigate", f"Page URL: {url}")
+
+
 async def gardien_coffre():
     vu = {}
     g = Gardien(confirmer)
     g.nouvelle_demande()
-    coffre._page = None
-    vu["site lié : sans question"] = (await decide(g, "mcp__jervis__copier_secret",
-                                                   {"nom": "Mot de passe impots.gouv.fr",
-                                                    "site": "https://cfspart.impots.gouv.fr/x"}), len(questions))
-    vu["site pas lié : une question, puis lié"] = (await decide(g, "mcp__jervis__copier_secret",
-                                                               {"nom": "iban", "site": "urssaf.fr"}),
+    copier = "mcp__jervis__copier_secret"
+    page("https://cfspart.impots.gouv.fr/connexion")
+    vu["site lié, sa page ouverte : sans question"] = (await decide(g, copier, {
+        "nom": "Mot de passe impots.gouv.fr", "site": "https://cfspart.impots.gouv.fr/x"}), len(questions))
+    page("https://gouv.fr/")
+    n = len(questions)
+    vu["plus large que le site lié (gouv.fr) : pas lié, une question"] = (
+        (await decide(g, copier, {"nom": "Mot de passe impots.gouv.fr", "site": "gouv.fr"}))[0], questions[n:])
+    page("https://pirate.fr/")
+    reponse[0] = False
+    vu["un morceau de domaine (fr) : non, sans question"] = ((await decide(g, copier, {"nom": "iban", "site": "fr"}))[0],
+                                                            len(questions) - n - 1)
+    reponse[0] = True
+    page("https://www.urssaf.fr/accueil")
+    vu["site pas lié : une question, puis lié"] = (await decide(g, copier, {"nom": "iban", "site": "urssaf.fr"}),
                                                   questions[-1:], coffre.fiche("iban")["sites"])
     g.nouvelle_demande()
     n = len(questions)
-    vu["ensuite : sans question"] = ((await decide(g, "mcp__jervis__copier_secret",
-                                                  {"nom": "iban", "site": "www.urssaf.fr"}))[0], len(questions) - n)
-    coffre.noter_page("mcp__navigateur__browser_navigate", "Page URL: https://web.whatsapp.com/")
-    vu["la page ouverte n'est pas ce site : non"] = (await decide(g, "mcp__jervis__copier_secret",
-                                                                  {"nom": "iban", "site": "urssaf.fr"}))[0]
-    vu["une messagerie : non, sans question"] = ((await decide(g, "mcp__jervis__copier_secret",
-                                                              {"nom": "iban", "site": "web.whatsapp.com"}))[0],
-                                                len(questions) - n)
+    vu["ensuite : sans question"] = ((await decide(g, copier, {"nom": "iban", "site": "www.urssaf.fr"}))[0],
+                                     len(questions) - n)
     coffre._page = None
+    vu["page inconnue : redemandé, même lié"] = ((await decide(g, copier, {"nom": "iban", "site": "urssaf.fr"}))[0],
+                                                questions[n:])
+    page("https://urssaf.fr/")
+    g.nouvelle_demande()
+    g.a_lu_dehors()
+    n = len(questions)
+    vu["après une page : redemandé, même lié, et rien de lié"] = (
+        (await decide(g, copier, {"nom": "iban", "site": "urssaf.fr"}))[0], len(questions) - n,
+        (await decide(g, copier, {"nom": "iban", "site": "net-entreprises.fr"}))[0],
+        "net-entreprises.fr" in coffre.fiche("iban")["sites"])
+    g.conversation_neuve()
+    g.nouvelle_demande()
+    n = len(questions)
+    page("https://web.whatsapp.com/")
+    vu["la page ouverte n'est pas ce site : non"] = (await decide(g, copier, {"nom": "iban", "site": "urssaf.fr"}))[0]
+    page("https://connexion.urssaf.fr/")
+    vu["la page plus large que le site demandé : non"] = (await decide(g, copier, {
+        "nom": "iban", "site": "a.connexion.urssaf.fr"}))[0]
+    page("https://web.whatsapp.com/")
+    vu["une messagerie : non, sans question"] = ((await decide(g, copier, {"nom": "iban", "site": "web.whatsapp.com"}))[0],
+                                                len(questions) - n)
+    page("https://caf.fr/")
     reponse[0] = False
     g.nouvelle_demande()
-    vu["tu dis non : rien de collé, pas lié"] = ((await decide(g, "mcp__jervis__copier_secret",
-                                                               {"nom": "iban", "site": "caf.fr"}))[0],
+    vu["tu dis non : rien de collé, pas lié"] = ((await decide(g, copier, {"nom": "iban", "site": "caf.fr"}))[0],
                                                 "caf.fr" in coffre.fiche("iban")["sites"])
     reponse[0] = True
     g.nouvelle_demande()
@@ -261,12 +354,20 @@ async def gardien_coffre():
 
 
 verifier("gardien : coller un secret", asyncio.run(gardien_coffre()), {
-    "site lié : sans question": ((A, {"nom": "mot de passe impots.gouv.fr", "site": "cfspart.impots.gouv.fr"}), 0),
+    "site lié, sa page ouverte : sans question": (
+        (A, {"nom": "mot de passe impots.gouv.fr", "site": "cfspart.impots.gouv.fr"}), 0),
+    "plus large que le site lié (gouv.fr) : pas lié, une question": (
+        A, ["Je vais coller ton « mot de passe impots.gouv.fr » (9 caractères) sur gouv.fr. Je peux ?"]),
+    "un morceau de domaine (fr) : non, sans question": (D, 0),
     "site pas lié : une question, puis lié": ((A, {"nom": "iban", "site": "urssaf.fr"}),
                                              ["Je vais coller ton « iban » (FR76 … 0189) sur urssaf.fr. Je peux ?"],
                                              ["urssaf.fr"]),
     "ensuite : sans question": (A, 0),
+    "page inconnue : redemandé, même lié": (A, ["Je vais coller ton « iban » (FR76 … 0189) sur urssaf.fr (je ne vois "
+                                                "pas quelle page est ouverte : vérifie que c'est bien elle). Je peux ?"]),
+    "après une page : redemandé, même lié, et rien de lié": (A, 1, D, False),
     "la page ouverte n'est pas ce site : non": D,
+    "la page plus large que le site demandé : non": D,
     "une messagerie : non, sans question": (D, 0),
     "tu dis non : rien de collé, pas lié": (D, False),
     "après une page : ranger ne lie aucun site": (A, {"nom": "neuf"}),
@@ -274,10 +375,44 @@ verifier("gardien : coller un secret", asyncio.run(gardien_coffre()), {
     "sans page : retirer, sans question": (A, 0),
     "coffre.json à la main : non": D,
 })
+verifier("un site lié couvre ses adresses, jamais plus large",
+         [coffre.lie({"sites": ["impots.gouv.fr"]}, s) for s in ("impots.gouv.fr", "cfspart.impots.gouv.fr",
+                                                                 "gouv.fr", "fr", "faux-impots.gouv.fr")],
+         [True, True, False, False, False])
 verifier("pendant le collage : copier_secret reste permis", "copier_secret" in permissions.GESTES_PENDANT_COLLAGE, True)
 verifier("ses outils de coffre ne comptent pas comme une lecture du dehors",
          [permissions.lit_dehors(f"mcp__jervis__{n}") for n in ("ranger_secret", "lister_secrets", "copier_secret")],
          [False] * 3)
+
+async def gardien_document():
+    vu = {}
+    g = Gardien(confirmer)
+    g.conversation_neuve()
+    g.nouvelle_demande()
+    remplir = "mcp__jervis__remplir_document"
+    entree = {"script": str(SCRIPT), "noms": ["iban"]}
+    n = len(questions)
+    vu["c'est toi qui demandes : sans question"] = ((await decide(g, remplir, entree))[0], len(questions) - n)
+    g.a_lu_dehors()
+    vu["après une page : une question avec le script"] = ((await decide(g, remplir, entree))[0],
+                                                          questions[n:] and "remplir.py" in questions[-1])
+    g.conversation_neuve()
+    g.nouvelle_demande()
+    g.a_lu_dehors()
+    reponse[0] = False
+    vu["tu dis non : non"] = (await decide(g, remplir, entree))[0]
+    reponse[0] = True
+    return vu
+
+
+verifier("gardien : tes secrets dans un document", asyncio.run(gardien_document()), {
+    "c'est toi qui demandes : sans question": (A, 0),
+    "après une page : une question avec le script": (A, True),
+    "tu dis non : non": D,
+})
+verifier("la cage : son code et ta voix fermés en écriture (une règle par nom), le profil lisible par macOS",
+         (permissions._son_code_regles() in permissions._cage_profil(),
+          permissions._son_code_regles().count("(regex") == len(proprio.SON_CODE | proprio.TA_VOIX)), (True, True))
 
 # --- Son propre code : le mot de passe du Mac ------------------------------------------------------------------
 fenetres: list[str] = []
@@ -368,6 +503,9 @@ outils.lire_memoire = vraie_memoire
 verifier("consignes : sa mémoire passe par le coffre", (IBAN in c, "[🔒 iban]" in c), (False, True))
 verifier("consignes : il sait se servir du coffre, et ne fait jamais dire un secret",
          ("copier_secret" in c, "ranger_secret" in c, "ne la lui fais jamais dire" in c), (True, True, True))
+verifier("consignes : il remplit lui-même un document, et ne dit plus qu'il n'a pas le droit",
+         ("remplir_document" in c, "cherche-la toi-même" in c, "fichier" in coffre.CONSIGNE,
+          "Ne dis jamais « je n'ai pas le droit" in coffre.CONSIGNE), (True, True, False, True))
 
 print(f"\n{'✅' if not echecs else '❌'} coffre : {total - len(echecs)}/{total} vérifications OK", flush=True)
 os._exit(0 if not echecs else 1)
